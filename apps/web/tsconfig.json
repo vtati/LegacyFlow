@@ -1,20 +1,12 @@
 {
   "compilerOptions": {
     "jsx": "preserve",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "es2022"
-    ],
+    "lib": ["dom", "dom.iterable", "es2022"],
     "moduleDetection": "force",
     "noEmit": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@legacyflow/*": [
-        "../../packages/*/src"
-      ]
+      "@/*": ["./*"],
+      "@legacyflow/*": ["../../packages/*/src"]
     },
     "plugins": [
       {
@@ -37,7 +29,5 @@
     "vitest.setup.ts",
     ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }

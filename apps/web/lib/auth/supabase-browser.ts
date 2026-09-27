@@ -7,7 +7,9 @@ function getBrowserSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    throw new Error('Supabase is not configured: missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+    throw new Error(
+      'Supabase is not configured: missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.',
+    );
   }
   return createBrowserClient(url, anonKey);
 }
@@ -17,10 +19,15 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
   return {
     async signInWithGoogle(): Promise<void> {
       const supabase = getBrowserSupabase();
-      const next = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') ?? '/' : '/';
+      const next =
+        typeof window !== 'undefined'
+          ? (new URLSearchParams(window.location.search).get('next') ?? '/')
+          : '/';
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        },
       });
       if (error) throw error;
     },

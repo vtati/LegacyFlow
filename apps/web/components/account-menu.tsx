@@ -31,7 +31,7 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onClick);
     };
-  }, [open ]);
+  }, [open]);
 
   async function handleSignOut(): Promise<void> {
     setSigningOut(true);
@@ -56,7 +56,9 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
         aria-label={`Account menu for ${user.displayName ?? user.email ?? 'user'}`}
       >
         <UserRound aria-hidden="true" />
-        <span className="hidden max-w-32 truncate sm:inline">{user.displayName ?? user.email ?? 'Account'}</span>
+        <span className="hidden max-w-32 truncate sm:inline">
+          {user.displayName ?? user.email ?? 'Account'}
+        </span>
         <ChevronsUpDown className="size-3" aria-hidden="true" />
       </Button>
       {open && (
@@ -66,7 +68,9 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
           className="absolute right-0 z-50 mt-2 w-64 rounded-lf-card border border-lf-border bg-lf-canvas-elevated p-2 shadow-lf-card"
         >
           <div className="px-3 py-2">
-            <p className="truncate text-sm font-medium text-lf-text">{user.displayName ?? 'Account'}</p>
+            <p className="truncate text-sm font-medium text-lf-text">
+              {user.displayName ?? 'Account'}
+            </p>
             {user.email && <p className="truncate text-xs text-lf-text-muted">{user.email}</p>}
             {user.provider === 'mock' && (
               <p className="mt-1 inline-block rounded-full bg-lf-accent-100 px-2 py-0.5 text-xs font-medium text-lf-accent-800">

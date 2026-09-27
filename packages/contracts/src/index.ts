@@ -142,7 +142,12 @@ export interface AuditEvent {
 /* ------------------------------------------------------------------ */
 
 const FIRM_ROLES: readonly FirmRole[] = ['owner', 'attorney', 'paralegal', 'staff', 'viewer'];
-const PACK_STATUSES: readonly JurisdictionPackStatus[] = ['draft', 'in_review', 'approved', 'retired'];
+const PACK_STATUSES: readonly JurisdictionPackStatus[] = [
+  'draft',
+  'in_review',
+  'approved',
+  'retired',
+];
 const MATTER_STATUSES: readonly MatterStatus[] = [
   'intake',
   'attorney_review',

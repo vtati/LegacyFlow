@@ -56,7 +56,15 @@ export interface Tokens {
     /** Optional editorial serif, marketing/onboarding headings only. */
     serif: string[];
     mono: string[];
-    size: { xs: string; sm: string; base: string; lg: string; xl: string; '2xl': string; '3xl': string };
+    size: {
+      xs: string;
+      sm: string;
+      base: string;
+      lg: string;
+      xl: string;
+      '2xl': string;
+      '3xl': string;
+    };
     weight: { regular: number; medium: number; semibold: number; bold: number };
   };
   /** Low-contrast shadows only; no excessive floating-card look (§5.2). */

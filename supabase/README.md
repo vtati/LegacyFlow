@@ -75,24 +75,24 @@ simulated by leaving the GUC unset.
 
 ## What the suite covers
 
-| # | Test | §12.2 scenario |
-|---|------|----------------|
-| a | Firm A attorney sees mA, not mB | 1 |
-| b | Firm B attorney sees mB, not mA | 1 |
-| c | Household-member (no firm membership) sees own matter only | 2 |
-| d | Unauthenticated sees zero matters / jurisdictions | 1 |
-| e | Firm A cannot read firm B roster or households | 1 |
-| f | Cross-firm matter INSERT denied (`42501`) | 1 |
-| + | Own-firm matter INSERT allowed | — |
-| + | Household member cannot INSERT matters | 2 |
-| + | Audit events isolated per firm; append-only (no client write) | 1 |
-| + | Status history follows parent-matter access | — |
-| + | Profiles: self + firm colleagues only | — |
-| + | Jurisdiction reference readable, not writable | — |
-| + | VA vs XZ packs distinguishable by manifest config | 6 |
-| + | `updated_at` trigger fires | §7.1 |
-| + | Cross-firm matter UPDATE is a no-op | 1 |
-| + | Seeds idempotent across repeated applies | — |
+| #   | Test                                                          | §12.2 scenario |
+| --- | ------------------------------------------------------------- | -------------- |
+| a   | Firm A attorney sees mA, not mB                               | 1              |
+| b   | Firm B attorney sees mB, not mA                               | 1              |
+| c   | Household-member (no firm membership) sees own matter only    | 2              |
+| d   | Unauthenticated sees zero matters / jurisdictions             | 1              |
+| e   | Firm A cannot read firm B roster or households                | 1              |
+| f   | Cross-firm matter INSERT denied (`42501`)                     | 1              |
+| +   | Own-firm matter INSERT allowed                                | —              |
+| +   | Household member cannot INSERT matters                        | 2              |
+| +   | Audit events isolated per firm; append-only (no client write) | 1              |
+| +   | Status history follows parent-matter access                   | —              |
+| +   | Profiles: self + firm colleagues only                         | —              |
+| +   | Jurisdiction reference readable, not writable                 | —              |
+| +   | VA vs XZ packs distinguishable by manifest config             | 6              |
+| +   | `updated_at` trigger fires                                    | §7.1           |
+| +   | Cross-firm matter UPDATE is a no-op                           | 1              |
+| +   | Seeds idempotent across repeated applies                      | —              |
 
 ## CI expectation
 

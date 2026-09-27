@@ -22,10 +22,10 @@ pytest
 
 ## Environment variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `REDIS_URL` | no | e.g. `redis://localhost:6379/0`; when unset the worker uses `StubBroker` |
-| `API_ENV` | no | environment label (default `development`) |
+| Variable    | Required | Description                                                              |
+| ----------- | -------- | ------------------------------------------------------------------------ |
+| `REDIS_URL` | no       | e.g. `redis://localhost:6379/0`; when unset the worker uses `StubBroker` |
+| `API_ENV`   | no       | environment label (default `development`)                                |
 
 ## Roadmap
 

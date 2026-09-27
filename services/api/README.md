@@ -23,16 +23,16 @@ Docs: http://localhost:8000/docs · Health: http://localhost:8000/healthz
 
 ## Environment variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `SUPABASE_URL` | prod | e.g. `https://xyz.supabase.co`; derives JWKS URL + `iss` |
-| `SUPABASE_JWKS_URL` | no | override JWKS endpoint (default `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`) |
-| `SUPABASE_JWT_AUDIENCE` | no | expected `aud` claim (default `authenticated`) |
-| `SUPABASE_ANON_KEY` | prod | Supabase publishable key (reserved for Slice-1 server use) |
-| `SUPABASE_SERVICE_ROLE_KEY` | **yes** | required-but-empty in Slice 1: must be *set* (empty string is valid) so deployments fail fast if the variable is missing; the key itself is not used yet |
-| `DATABASE_URL` | no | Postgres DSN; when unset `GET /v1/me` returns HTTP 501 `profile_store_unavailable` |
-| `TEST_JWT_ISSUER` / `TEST_JWT_SECRET` | tests only | enables the HS256 test-override auth path; never set in production |
-| `API_ENV` | no | environment label (default `development`) |
+| Variable                              | Required   | Description                                                                                                                                              |
+| ------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`                        | prod       | e.g. `https://xyz.supabase.co`; derives JWKS URL + `iss`                                                                                                 |
+| `SUPABASE_JWKS_URL`                   | no         | override JWKS endpoint (default `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`)                                                                          |
+| `SUPABASE_JWT_AUDIENCE`               | no         | expected `aud` claim (default `authenticated`)                                                                                                           |
+| `SUPABASE_ANON_KEY`                   | prod       | Supabase publishable key (reserved for Slice-1 server use)                                                                                               |
+| `SUPABASE_SERVICE_ROLE_KEY`           | **yes**    | required-but-empty in Slice 1: must be _set_ (empty string is valid) so deployments fail fast if the variable is missing; the key itself is not used yet |
+| `DATABASE_URL`                        | no         | Postgres DSN; when unset `GET /v1/me` returns HTTP 501 `profile_store_unavailable`                                                                       |
+| `TEST_JWT_ISSUER` / `TEST_JWT_SECRET` | tests only | enables the HS256 test-override auth path; never set in production                                                                                       |
+| `API_ENV`                             | no         | environment label (default `development`)                                                                                                                |
 
 No secrets are committed; configure via environment only.
 

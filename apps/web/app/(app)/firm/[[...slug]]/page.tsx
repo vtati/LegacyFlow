@@ -7,7 +7,9 @@ interface FirmPageProps {
 }
 
 /** Firm workspace routes (§5.5). Slice 1: shared placeholder pages. */
-export default async function FirmSectionPage({ params }: FirmPageProps): Promise<React.JSX.Element> {
+export default async function FirmSectionPage({
+  params,
+}: FirmPageProps): Promise<React.JSX.Element> {
   const { slug } = await params;
   if (!slug || slug.length === 0) {
     redirect('/firm/overview');

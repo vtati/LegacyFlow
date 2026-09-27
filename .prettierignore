@@ -9,3 +9,6 @@ __pycache__/
 
 # Must remain byte-identical to artifact section 15.1
 CLAUDE.md
+
+# CI workflow is owned by the workflow itself; prettier must not reformat it
+.github/workflows/ci.yml

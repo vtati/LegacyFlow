@@ -8,11 +8,15 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-lf-primary-800 text-lf-primary-foreground shadow-lf-subtle hover:bg-lf-primary-700',
+        default:
+          'bg-lf-primary-800 text-lf-primary-foreground shadow-lf-subtle hover:bg-lf-primary-700',
         secondary: 'bg-lf-primary-100 text-lf-primary-900 hover:bg-lf-primary-200',
-        accent: 'bg-lf-accent-700 text-lf-accent-foreground shadow-lf-subtle hover:bg-lf-accent-600',
-        destructive: 'bg-lf-error-600 text-lf-error-foreground shadow-lf-subtle hover:bg-lf-error-700',
-        outline: 'border border-lf-border bg-lf-canvas-elevated text-lf-text shadow-lf-subtle hover:bg-lf-canvas-subtle',
+        accent:
+          'bg-lf-accent-700 text-lf-accent-foreground shadow-lf-subtle hover:bg-lf-accent-600',
+        destructive:
+          'bg-lf-error-600 text-lf-error-foreground shadow-lf-subtle hover:bg-lf-error-700',
+        outline:
+          'border border-lf-border bg-lf-canvas-elevated text-lf-text shadow-lf-subtle hover:bg-lf-canvas-subtle',
         ghost: 'text-lf-text hover:bg-lf-primary-50 hover:text-lf-primary-800',
         link: 'text-lf-primary-700 underline-offset-4 hover:underline',
       },
@@ -28,15 +32,16 @@ const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+    return (
+      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+    );
   },
 );
 Button.displayName = 'Button';

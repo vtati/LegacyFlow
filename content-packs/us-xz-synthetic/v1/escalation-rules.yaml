@@ -1,0 +1,8 @@
+# Synthetic escalation rules — XZ namespace, deliberately different trigger.
+rules:
+  - id: XZ-ESC-001
+    version: 1.0.0
+    when: has_three_or_more_minor_children == true
+    severity: review
+    outcome: attorney_review_required
+    user_message: 'XZ synthetic rule: three or more minor children need attorney review.'

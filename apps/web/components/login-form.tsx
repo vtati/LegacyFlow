@@ -72,7 +72,9 @@ export function LoginForm(): React.JSX.Element {
       await getAuthAdapter().signInWithMagicLink(values.email);
       setMagicSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send the magic link. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Could not send the magic link. Please try again.',
+      );
     }
   }
 
@@ -107,7 +109,12 @@ export function LoginForm(): React.JSX.Element {
           </p>
         )}
 
-        <Button onClick={handleGoogle} disabled={googleLoading} aria-label="Continue with Google" className="w-full">
+        <Button
+          onClick={handleGoogle}
+          disabled={googleLoading}
+          aria-label="Continue with Google"
+          className="w-full"
+        >
           {googleLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GoogleIcon />}
           {googleLoading ? 'Connecting…' : 'Continue with Google'}
         </Button>

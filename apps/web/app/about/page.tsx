@@ -59,7 +59,10 @@ export default function AboutPage(): React.JSX.Element {
                 <li key={point}>{point}</li>
               ))}
             </ul>
-            <p className="rounded-lf-control bg-lf-canvas-subtle px-4 py-3 text-sm text-lf-text-muted" role="note">
+            <p
+              className="rounded-lf-control bg-lf-canvas-subtle px-4 py-3 text-sm text-lf-text-muted"
+              role="note"
+            >
               <strong className="text-lf-text">Bottom line:</strong> nothing in this demo is legal
               advice, and no document shown here is legally valid. All sample content is synthetic
               and clearly labeled.

@@ -7,7 +7,9 @@ interface AdminPageProps {
 }
 
 /** Platform admin routes (§5.5). Slice 1: shared placeholder pages. */
-export default async function AdminSectionPage({ params }: AdminPageProps): Promise<React.JSX.Element> {
+export default async function AdminSectionPage({
+  params,
+}: AdminPageProps): Promise<React.JSX.Element> {
   const { slug } = await params;
   if (!slug || slug.length === 0) {
     redirect('/admin/firms');

@@ -19,7 +19,17 @@ describe('contracts', () => {
   it('rejects malformed Matter payloads', () => {
     expect(isMatter(null)).toBe(false);
     expect(isMatter({ id: 'x' })).toBe(false);
-    expect(isMatter({ id: 'x', firmId: 'f', householdId: 'h', jurisdictionPackId: 'p', status: 'bogus', createdAt: 't', updatedAt: 't' })).toBe(false);
+    expect(
+      isMatter({
+        id: 'x',
+        firmId: 'f',
+        householdId: 'h',
+        jurisdictionPackId: 'p',
+        status: 'bogus',
+        createdAt: 't',
+        updatedAt: 't',
+      }),
+    ).toBe(false);
   });
 
   it('guards role and pack-status unions', () => {

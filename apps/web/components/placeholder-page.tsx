@@ -32,8 +32,8 @@ export function PlaceholderPage({ item }: PlaceholderPageProps): React.JSX.Eleme
             <Construction className="size-8 text-lf-text-subtle" aria-hidden="true" />
             <p className="text-sm font-medium text-lf-text">Coming in a later slice</p>
             <p className="max-w-md text-sm text-lf-text-muted">
-              This area is planned but not built yet. Placeholder copy only — attorney-pending, not legal
-              advice. Synthetic data only.
+              This area is planned but not built yet. Placeholder copy only — attorney-pending, not
+              legal advice. Synthetic data only.
             </p>
           </div>
         </CardContent>

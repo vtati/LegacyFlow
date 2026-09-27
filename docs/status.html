@@ -1,222 +1,864 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LegacyFlow — Build Status Board</title>
-<style>
-  :root{
-    --navy:#172554; --navy2:#1E3A8A; --teal:#0F766E; --amber:#B45309;
-    --canvas:#FAFAF7; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
-    --line:#e7e5df; --radius:14px;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--canvas);color:var(--ink);
-    font-family:"Inter","Geist",-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
-  header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;
-    padding:28px 24px 22px}
-  header h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
-  header p{margin:0;opacity:.82;font-size:13px;max-width:760px}
-  .meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:12px;opacity:.85}
-  .meta b{color:#fff}
-  .wrap{max-width:1400px;margin:0 auto;padding:20px 24px 60px}
-  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0;align-items:center}
-  .toolbar input,.toolbar select{padding:9px 12px;border:1px solid var(--line);
-    border-radius:10px;font-size:13px;background:#fff;min-width:200px}
-  .epics{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:8px}
-  .epic{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
-  .epic h3{margin:0 0 2px;font-size:14px}
-  .epic .sub{font-size:11px;color:var(--muted);margin-bottom:10px}
-  .bar{height:8px;background:#eee;border-radius:99px;overflow:hidden}
-  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),#2D7A6B);border-radius:99px}
-  .epic .counts{font-size:11px;color:var(--muted);margin-top:6px}
-  h2.sec{font-size:15px;margin:26px 0 12px;color:var(--navy)}
-  .board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
-  @media(max-width:1100px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(max-width:640px){.board{grid-template-columns:1fr}}
-  .col{background:#f1efe9;border-radius:var(--radius);padding:10px;min-height:120px}
-  .col h4{margin:4px 6px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;
-    display:flex;justify-content:space-between;align-items:center}
-  .pill{font-size:11px;background:#fff;border:1px solid var(--line);border-radius:99px;padding:1px 9px}
-  .col.todo h4{color:var(--muted)} .col.doing h4{color:var(--amber)}
-  .col.blocked h4{color:#b91c1c} .col.done h4{color:var(--teal)}
-  details.egroup{background:var(--card);border:1px solid var(--line);border-radius:10px;
-    margin-bottom:8px;overflow:hidden}
-  details.egroup summary{cursor:pointer;padding:8px 10px;font-size:12px;font-weight:600;
-    list-style:none;display:flex;justify-content:space-between;gap:6px}
-  details.egroup summary::-webkit-details-marker{display:none}
-  details.egroup summary:hover{background:#faf9f6}
-  .story{border-top:1px solid var(--line);padding:8px 10px;font-size:12.5px}
-  .story .sid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
-  .story .fr{display:block;margin-top:3px;font-size:10.5px;color:var(--navy2)}
-  .story.done{opacity:.75} .story.done .stitle{text-decoration:line-through}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:99px;margin-right:6px}
-  footer{margin-top:30px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
-  .empty{font-size:12px;color:var(--muted);padding:10px;text-align:center}
-  html[data-theme="dark"] body{background:#0b1226;color:#e2e8f0}
-  html[data-theme="dark"] .epic,html[data-theme="dark"] details.egroup{background:#16213a;border-color:#2b3a5e}
-  html[data-theme="dark"] .col{background:#0e1730}
-  html[data-theme="dark"] .toolbar input,html[data-theme="dark"] .toolbar select{background:#16213a;border-color:#2b3a5e;color:#e2e8f0}
-  html[data-theme="dark"] .story{border-color:#2b3a5e}
-  html[data-theme="dark"] details.egroup summary:hover{background:#1b2947}
-  html[data-theme="dark"] .pill{background:#16213a;border-color:#2b3a5e;color:#e2e8f0}
-  html[data-theme="dark"] h2.sec{color:#cbd5e1}
-  html[data-theme="dark"] footer{border-color:#2b3a5e}
-  html[data-theme="dark"] .bar{background:#2b3a5e}
-</style>
-</head>
-<body>
-<header>
-  <h1>LegacyFlow — Build Status Board</h1>
-  <p>Live build tracker for the attorney-enabled estate-planning platform. Epics follow the 12-week implementation plan; stories map to PRD requirement IDs. Updated at every build milestone.</p>
-  <div class="meta">
-    <span>Last updated: <b id="updated">2026-09-27</b></span>
-    <span>Overall: <b id="opct">0%</b> (<span id="odone">0</span>/<span id="ototal">0</span> stories done)</span>
-    <span>Source of truth: <b>docs/status.html</b> in vtati/LegacyFlow</span>
-  </div>
-</header>
-<div class="wrap">
-  <h2 class="sec">Epic overview</h2>
-  <div class="epics" id="epics"></div>
-  <h2 class="sec">Kanban</h2>
-  <div class="toolbar">
-    <input id="q" type="search" placeholder="Search stories… (e.g. RLS, guardian, vault)" aria-label="Search stories">
-    <select id="efilter" aria-label="Filter by epic"><option value="">All epics</option></select>
-  </div>
-  <div class="board" id="board"></div>
-  <footer>
-    Status values: <b>Not started</b> → <b>In progress</b> → <b>Done</b> (Blocked when flagged).
-    The build agent updates this file at every milestone commit. Safety rule: nothing ships as legal advice or a released legal document without attorney approval — see CLAUDE.md.
-  </footer>
-</div>
-<script>
-const EPICS=[
- {id:"E1",name:"Foundation",tag:"Slice 1 · Weeks 1–2",desc:"Monorepo, CI, schema + RLS, auth, app shells, jurisdiction packs"},
- {id:"E2",name:"Household & Guided Intake",tag:"Slice 2 · Weeks 3–4",desc:"Family graph, guardians, trusted roles, question flow"},
- {id:"E3",name:"Assets, Decisions & Attorney Workbench",tag:"Slice 3 · Weeks 5–6",desc:"Inventory, alignment rules, review packet, approvals"},
- {id:"E4",name:"Secure Files, Grounded AI & Content",tag:"Slice 4a · Weeks 7–8",desc:"Uploads, AI gateway with citations, pack management"},
- {id:"E5",name:"Documents, Signing, Funding & Vault",tag:"Slice 4b · Weeks 9–10",desc:"Demo docs, checklists, funding tasks, vault sharing"},
- {id:"E6",name:"Hardening & Pilot Readiness",tag:"Weeks 11–12",desc:"E2E, security review, observability, launch checklist"},
- {id:"E7",name:"Phase 1.5 — Controlled Production",tag:"Post-MVP",desc:"Attorney-approved templates, production assembly"},
- {id:"E8",name:"Phase 2 — Companion & Billing",tag:"Post-MVP",desc:"Expo app, e-sign adapter, Stripe, reporting"},
- {id:"E9",name:"Phase 3 — Multi-State & Enterprise",tag:"Post-MVP",desc:"New state packs, webhooks, SSO/SAML"},
-];
-const STORIES=[
- // E1 Foundation
- {id:"E1.1",epic:"E1",t:"Monorepo bootstrap (pnpm/Turborepo, apps, packages)",s:"done",fr:"Plan §13"},
- {id:"E1.2",epic:"E1",t:"Format/lint/typecheck/test commands + GitHub Actions CI",s:"done",fr:"Plan §13"},
- {id:"E1.3",epic:"E1",t:"Supabase migrations applied to live project (10 tables)",s:"done",fr:"§7.2"},
- {id:"E1.4",epic:"E1",t:"RLS allow/deny tests vs live project, two synthetic users (two-firm isolation)",s:"done",fr:"§7.3 · FR-AUD-001"},
- {id:"E1.5",epic:"E1",t:"FastAPI Supabase JWT verification + GET /v1/me",s:"done",fr:"FR-AUTH-001"},
- {id:"E1.6",epic:"E1",t:"Next.js login shell (Google OAuth + magic link)",s:"done",fr:"FR-AUTH-001/002"},
- {id:"E1.7",epic:"E1",t:"Authenticated app shells (family / firm / admin nav)",s:"done",fr:"§5.5"},
- {id:"E1.8",epic:"E1",t:"Design tokens + Tailwind theme + shadcn/ui setup",s:"done",fr:"§5.2/5.3"},
- {id:"E1.9",epic:"E1",t:"US-VA + synthetic US-XZ jurisdiction pack seeds",s:"done",fr:"FR-JUR-001/002/005"},
- {id:"E1.10",epic:"E1",t:"README local setup + ADR-001 + CLAUDE.md",s:"done",fr:"Plan §13"},
- // E2 Intake
- {id:"E2.1",epic:"E2",t:"Household invitations (expiry, resend, revoke, audit)",s:"todo",fr:"FR-AUTH-004"},
- {id:"E2.2",epic:"E2",t:"Household/matter creation + state machine + history",s:"todo",fr:"FR-MAT-001/004"},
- {id:"E2.3",epic:"E2",t:"Persons, relationships, household members APIs",s:"todo",fr:"FR-PLAN-001"},
- {id:"E2.4",epic:"E2",t:"Guardian nomination flow (primary + backups)",s:"todo",fr:"FR-PLAN-002"},
- {id:"E2.5",epic:"E2",t:"Trusted roles: trustee / executor / agents",s:"todo",fr:"FR-PLAN-003"},
- {id:"E2.6",epic:"E2",t:"Pack-backed question flow + autosave / resume / progress",s:"todo",fr:"FR-MAT-002"},
- {id:"E2.7",epic:"E2",t:"Family screens: dashboard, household, children, guardians",s:"todo",fr:"§5.6"},
- {id:"E2.8",epic:"E2",t:"“Why we ask” drawer + glossary content",s:"todo",fr:"FR-PLAN-004"},
- {id:"E2.9",epic:"E2",t:"Escalation rule fixtures (standard / business / out-of-state)",s:"todo",fr:"FR-JUR-003"},
- {id:"E2.10",epic:"E2",t:"Spouse/collaborator limited permissions",s:"todo",fr:"FR-MAT-005"},
- // E3 Assets & review
- {id:"E3.1",epic:"E3",t:"Asset / liability / beneficiary CRUD APIs",s:"todo",fr:"FR-ASSET-001/002/003"},
- {id:"E3.2",epic:"E3",t:"Deterministic asset↔beneficiary alignment rules + flags",s:"todo",fr:"FR-ASSET-004"},
- {id:"E3.3",epic:"E3",t:"Decision records + client confirmations",s:"todo",fr:"FR-PLAN-005"},
- {id:"E3.4",epic:"E3",t:"Intake submission + attorney review packet",s:"todo",fr:"FR-REV-002"},
- {id:"E3.5",epic:"E3",t:"Attorney matter list (filter / search / paginate)",s:"todo",fr:"FR-REV-001"},
- {id:"E3.6",epic:"E3",t:"Comments + clarification requests",s:"todo",fr:"FR-REV-003"},
- {id:"E3.7",epic:"E3",t:"Approval gates (explicit, audited, server-enforced)",s:"todo",fr:"FR-REV-004/005"},
- {id:"E3.8",epic:"E3",t:"Notification outbox + email sandbox",s:"todo",fr:"FR-FUND-004"},
- {id:"E3.9",epic:"E3",t:"Content-pack import / validate + approved retrieval",s:"todo",fr:"FR-JUR-004"},
- {id:"E3.10",epic:"E3",t:"Attorney workbench screens (overview, review, composer)",s:"todo",fr:"§5.6"},
- // E4 Files, AI, content
- {id:"E4.1",epic:"E4",t:"Private upload intent/complete + metadata",s:"todo",fr:"FR-ASSET-005"},
- {id:"E4.2",epic:"E4",t:"Worker queue (Redis/Dramatiq) + dev fake scanner",s:"todo",fr:"§6.5"},
- {id:"E4.3",epic:"E4",t:"Signed download URLs + per-file authorization",s:"todo",fr:"§7.4"},
- {id:"E4.4",epic:"E4",t:"Legal content registry + version lifecycle",s:"todo",fr:"§10.6"},
- {id:"E4.5",epic:"E4",t:"Pack import / validation pipeline",s:"todo",fr:"FR-ADM-002"},
- {id:"E4.6",epic:"E4",t:"Approved-content retrieval (scoped, pack-versioned)",s:"todo",fr:"FR-AI-001"},
- {id:"E4.7",epic:"E4",t:"AI gateway (OpenRouter-compatible) + intent/risk classifier",s:"todo",fr:"§10.3"},
- {id:"E4.8",epic:"E4",t:"Structured outputs + citation validator + trace persistence",s:"todo",fr:"FR-AI-002/004"},
- {id:"E4.9",epic:"E4",t:"Refusal / escalation behavior + AI eval suite",s:"todo",fr:"FR-AI-003 · §10.7"},
- {id:"E4.10",epic:"E4",t:"Planning Guide UI panel with citations",s:"todo",fr:"§5.6"},
- // E5 Documents, signing, funding, vault
- {id:"E5.1",epic:"E5",t:"Template registry + version lifecycle",s:"todo",fr:"FR-DOC-001"},
- {id:"E5.2",epic:"E5",t:"Watermarked synthetic DOCX/PDF pipeline (fail-closed)",s:"todo",fr:"FR-DOC-002"},
- {id:"E5.3",epic:"E5",t:"Document packages / versions / audit",s:"todo",fr:"FR-DOC-004"},
- {id:"E5.4",epic:"E5",t:"Controlled assembly behind feature flag",s:"todo",fr:"FR-DOC-003 · FR-ADM-003"},
- {id:"E5.5",epic:"E5",t:"Execution profiles + signing checklist renderer",s:"todo",fr:"FR-DOC-005"},
- {id:"E5.6",epic:"E5",t:"Client execution attestation",s:"todo",fr:"FR-DOC-006"},
- {id:"E5.7",epic:"E5",t:"Funding task generation + transitions",s:"todo",fr:"FR-FUND-001/002"},
- {id:"E5.8",epic:"E5",t:"Funding evidence upload / review",s:"todo",fr:"FR-FUND-003"},
- {id:"E5.9",epic:"E5",t:"Vault + trusted-contact sharing (expiry / revoke)",s:"todo",fr:"FR-DOC-007"},
- {id:"E5.10",epic:"E5",t:"Nonbinding family instruction letter",s:"todo",fr:"FR-PLAN-006"},
- {id:"E5.11",epic:"E5",t:"Reminder scheduling",s:"todo",fr:"FR-FUND-004"},
- // E6 Hardening
- {id:"E6.1",epic:"E6",t:"E2E critical path (Playwright)",s:"todo",fr:"§12"},
- {id:"E6.2",epic:"E6",t:"RLS audit + deny-path tests, all tables",s:"todo",fr:"§17"},
- {id:"E6.3",epic:"E6",t:"Upload hardening, rate limits, idempotency",s:"todo",fr:"§11"},
- {id:"E6.4",epic:"E6",t:"Observability: logs, traces, Sentry, dashboards",s:"todo",fr:"§4.2"},
- {id:"E6.5",epic:"E6",t:"Accessibility review (WCAG 2.2 AA)",s:"todo",fr:"§5.9"},
- {id:"E6.6",epic:"E6",t:"Performance pass (P95 targets)",s:"todo",fr:"§4.2"},
- {id:"E6.7",epic:"E6",t:"Feature flags by firm / jurisdiction",s:"todo",fr:"FR-ADM-003"},
- {id:"E6.8",epic:"E6",t:"Data export / delete-request skeleton",s:"todo",fr:"§11.2"},
- {id:"E6.9",epic:"E6",t:"Launch readiness checklist + pilot demo",s:"todo",fr:"§17"},
- // E7 Phase 1.5
- {id:"E7.1",epic:"E7",t:"Attorney-approved VA template bundle onboarding",s:"todo",fr:"§14"},
- {id:"E7.2",epic:"E7",t:"Controlled production assembly / release",s:"todo",fr:"§14"},
- {id:"E7.3",epic:"E7",t:"Firm branding / white labeling",s:"todo",fr:"§14"},
- {id:"E7.4",epic:"E7",t:"Audit exports + retention controls",s:"todo",fr:"§14"},
- // E8 Phase 2
- {id:"E8.1",epic:"E8",t:"Expo React Native companion app",s:"todo",fr:"§14"},
- {id:"E8.2",epic:"E8",t:"E-sign provider adapter",s:"todo",fr:"§14"},
- {id:"E8.3",epic:"E8",t:"Stripe billing",s:"todo",fr:"§14"},
- {id:"E8.4",epic:"E8",t:"Expanded reporting",s:"todo",fr:"§14"},
- // E9 Phase 3
- {id:"E9.1",epic:"E9",t:"2–5 additional state packs",s:"todo",fr:"§14"},
- {id:"E9.2",epic:"E9",t:"Integration outbox / webhooks",s:"todo",fr:"§14"},
- {id:"E9.3",epic:"E9",t:"SSO/SAML, SCIM, enhanced audit",s:"todo",fr:"§14"},
-];
-const COLS=[
- {k:"todo",label:"Not started"},{k:"doing",label:"In progress"},
- {k:"blocked",label:"Blocked"},{k:"done",label:"Done"},
-];
-const $=s=>document.querySelector(s);
-function epicById(id){return EPICS.find(e=>e.id===id)}
-function render(){
-  const q=$("#q").value.toLowerCase(), ef=$("#efilter").value;
-  const vis=STORIES.filter(s=>(!ef||s.epic===ef)&&(!q||(s.t+" "+s.id+" "+s.fr).toLowerCase().includes(q)));
-  // epic overview
-  $("#epics").innerHTML=EPICS.map(e=>{
-    const all=STORIES.filter(s=>s.epic===e.id), d=all.filter(s=>s.s==="done").length;
-    const pct=all.length?Math.round(d/all.length*100):0;
-    return `<div class="epic"><h3>${e.id} · ${e.name}</h3><div class="sub">${e.tag}</div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LegacyFlow — Build Status Board</title>
+    <style>
+      :root {
+        --navy: #172554;
+        --navy2: #1e3a8a;
+        --teal: #0f766e;
+        --amber: #b45309;
+        --canvas: #fafaf7;
+        --card: #ffffff;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e7e5df;
+        --radius: 14px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family:
+          'Inter',
+          'Geist',
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        font-size: 14px;
+      }
+      header {
+        background: linear-gradient(135deg, var(--navy), var(--navy2));
+        color: #fff;
+        padding: 28px 24px 22px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: 0.2px;
+      }
+      header p {
+        margin: 0;
+        opacity: 0.82;
+        font-size: 13px;
+        max-width: 760px;
+      }
+      .meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+        font-size: 12px;
+        opacity: 0.85;
+      }
+      .meta b {
+        color: #fff;
+      }
+      .wrap {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px 24px 60px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 18px 0;
+        align-items: center;
+      }
+      .toolbar input,
+      .toolbar select {
+        padding: 9px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font-size: 13px;
+        background: #fff;
+        min-width: 200px;
+      }
+      .epics {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .epic {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 14px;
+      }
+      .epic h3 {
+        margin: 0 0 2px;
+        font-size: 14px;
+      }
+      .epic .sub {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .bar {
+        height: 8px;
+        background: #eee;
+        border-radius: 99px;
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, var(--teal), #2d7a6b);
+        border-radius: 99px;
+      }
+      .epic .counts {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      h2.sec {
+        font-size: 15px;
+        margin: 26px 0 12px;
+        color: var(--navy);
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        align-items: start;
+      }
+      @media (max-width: 1100px) {
+        .board {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 640px) {
+        .board {
+          grid-template-columns: 1fr;
+        }
+      }
+      .col {
+        background: #f1efe9;
+        border-radius: var(--radius);
+        padding: 10px;
+        min-height: 120px;
+      }
+      .col h4 {
+        margin: 4px 6px 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .pill {
+        font-size: 11px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 1px 9px;
+      }
+      .col.todo h4 {
+        color: var(--muted);
+      }
+      .col.doing h4 {
+        color: var(--amber);
+      }
+      .col.blocked h4 {
+        color: #b91c1c;
+      }
+      .col.done h4 {
+        color: var(--teal);
+      }
+      details.egroup {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin-bottom: 8px;
+        overflow: hidden;
+      }
+      details.egroup summary {
+        cursor: pointer;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        list-style: none;
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      details.egroup summary::-webkit-details-marker {
+        display: none;
+      }
+      details.egroup summary:hover {
+        background: #faf9f6;
+      }
+      .story {
+        border-top: 1px solid var(--line);
+        padding: 8px 10px;
+        font-size: 12.5px;
+      }
+      .story .sid {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 10.5px;
+        color: var(--muted);
+      }
+      .story .fr {
+        display: block;
+        margin-top: 3px;
+        font-size: 10.5px;
+        color: var(--navy2);
+      }
+      .story.done {
+        opacity: 0.75;
+      }
+      .story.done .stitle {
+        text-decoration: line-through;
+      }
+      .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 99px;
+        margin-right: 6px;
+      }
+      footer {
+        margin-top: 30px;
+        font-size: 11.5px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+      }
+      .empty {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 10px;
+        text-align: center;
+      }
+      html[data-theme='dark'] body {
+        background: #0b1226;
+        color: #e2e8f0;
+      }
+      html[data-theme='dark'] .epic,
+      html[data-theme='dark'] details.egroup {
+        background: #16213a;
+        border-color: #2b3a5e;
+      }
+      html[data-theme='dark'] .col {
+        background: #0e1730;
+      }
+      html[data-theme='dark'] .toolbar input,
+      html[data-theme='dark'] .toolbar select {
+        background: #16213a;
+        border-color: #2b3a5e;
+        color: #e2e8f0;
+      }
+      html[data-theme='dark'] .story {
+        border-color: #2b3a5e;
+      }
+      html[data-theme='dark'] details.egroup summary:hover {
+        background: #1b2947;
+      }
+      html[data-theme='dark'] .pill {
+        background: #16213a;
+        border-color: #2b3a5e;
+        color: #e2e8f0;
+      }
+      html[data-theme='dark'] h2.sec {
+        color: #cbd5e1;
+      }
+      html[data-theme='dark'] footer {
+        border-color: #2b3a5e;
+      }
+      html[data-theme='dark'] .bar {
+        background: #2b3a5e;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>LegacyFlow — Build Status Board</h1>
+      <p>
+        Live build tracker for the attorney-enabled estate-planning platform. Epics follow the
+        12-week implementation plan; stories map to PRD requirement IDs. Updated at every build
+        milestone.
+      </p>
+      <div class="meta">
+        <span>Last updated: <b id="updated">2026-09-27</b></span>
+        <span
+          >Overall: <b id="opct">0%</b> (<span id="odone">0</span>/<span id="ototal">0</span>
+          stories done)</span
+        >
+        <span>Source of truth: <b>docs/status.html</b> in vtati/LegacyFlow</span>
+      </div>
+    </header>
+    <div class="wrap">
+      <h2 class="sec">Epic overview</h2>
+      <div class="epics" id="epics"></div>
+      <h2 class="sec">Kanban</h2>
+      <div class="toolbar">
+        <input
+          id="q"
+          type="search"
+          placeholder="Search stories… (e.g. RLS, guardian, vault)"
+          aria-label="Search stories"
+        />
+        <select id="efilter" aria-label="Filter by epic">
+          <option value="">All epics</option>
+        </select>
+      </div>
+      <div class="board" id="board"></div>
+      <footer>
+        Status values: <b>Not started</b> → <b>In progress</b> → <b>Done</b> (Blocked when flagged).
+        The build agent updates this file at every milestone commit. Safety rule: nothing ships as
+        legal advice or a released legal document without attorney approval — see CLAUDE.md.
+      </footer>
+    </div>
+    <script>
+      const EPICS = [
+        {
+          id: 'E1',
+          name: 'Foundation',
+          tag: 'Slice 1 · Weeks 1–2',
+          desc: 'Monorepo, CI, schema + RLS, auth, app shells, jurisdiction packs',
+        },
+        {
+          id: 'E2',
+          name: 'Household & Guided Intake',
+          tag: 'Slice 2 · Weeks 3–4',
+          desc: 'Family graph, guardians, trusted roles, question flow',
+        },
+        {
+          id: 'E3',
+          name: 'Assets, Decisions & Attorney Workbench',
+          tag: 'Slice 3 · Weeks 5–6',
+          desc: 'Inventory, alignment rules, review packet, approvals',
+        },
+        {
+          id: 'E4',
+          name: 'Secure Files, Grounded AI & Content',
+          tag: 'Slice 4a · Weeks 7–8',
+          desc: 'Uploads, AI gateway with citations, pack management',
+        },
+        {
+          id: 'E5',
+          name: 'Documents, Signing, Funding & Vault',
+          tag: 'Slice 4b · Weeks 9–10',
+          desc: 'Demo docs, checklists, funding tasks, vault sharing',
+        },
+        {
+          id: 'E6',
+          name: 'Hardening & Pilot Readiness',
+          tag: 'Weeks 11–12',
+          desc: 'E2E, security review, observability, launch checklist',
+        },
+        {
+          id: 'E7',
+          name: 'Phase 1.5 — Controlled Production',
+          tag: 'Post-MVP',
+          desc: 'Attorney-approved templates, production assembly',
+        },
+        {
+          id: 'E8',
+          name: 'Phase 2 — Companion & Billing',
+          tag: 'Post-MVP',
+          desc: 'Expo app, e-sign adapter, Stripe, reporting',
+        },
+        {
+          id: 'E9',
+          name: 'Phase 3 — Multi-State & Enterprise',
+          tag: 'Post-MVP',
+          desc: 'New state packs, webhooks, SSO/SAML',
+        },
+      ];
+      const STORIES = [
+        // E1 Foundation
+        {
+          id: 'E1.1',
+          epic: 'E1',
+          t: 'Monorepo bootstrap (pnpm/Turborepo, apps, packages)',
+          s: 'done',
+          fr: 'Plan §13',
+        },
+        {
+          id: 'E1.2',
+          epic: 'E1',
+          t: 'Format/lint/typecheck/test commands + GitHub Actions CI',
+          s: 'done',
+          fr: 'Plan §13',
+        },
+        {
+          id: 'E1.3',
+          epic: 'E1',
+          t: 'Supabase migrations applied to live project (10 tables)',
+          s: 'done',
+          fr: '§7.2',
+        },
+        {
+          id: 'E1.4',
+          epic: 'E1',
+          t: 'RLS allow/deny tests vs live project, two synthetic users (two-firm isolation)',
+          s: 'done',
+          fr: '§7.3 · FR-AUD-001',
+        },
+        {
+          id: 'E1.5',
+          epic: 'E1',
+          t: 'FastAPI Supabase JWT verification + GET /v1/me',
+          s: 'done',
+          fr: 'FR-AUTH-001',
+        },
+        {
+          id: 'E1.6',
+          epic: 'E1',
+          t: 'Next.js login shell (Google OAuth + magic link)',
+          s: 'done',
+          fr: 'FR-AUTH-001/002',
+        },
+        {
+          id: 'E1.7',
+          epic: 'E1',
+          t: 'Authenticated app shells (family / firm / admin nav)',
+          s: 'done',
+          fr: '§5.5',
+        },
+        {
+          id: 'E1.8',
+          epic: 'E1',
+          t: 'Design tokens + Tailwind theme + shadcn/ui setup',
+          s: 'done',
+          fr: '§5.2/5.3',
+        },
+        {
+          id: 'E1.9',
+          epic: 'E1',
+          t: 'US-VA + synthetic US-XZ jurisdiction pack seeds',
+          s: 'done',
+          fr: 'FR-JUR-001/002/005',
+        },
+        {
+          id: 'E1.10',
+          epic: 'E1',
+          t: 'README local setup + ADR-001 + CLAUDE.md',
+          s: 'done',
+          fr: 'Plan §13',
+        },
+        // E2 Intake
+        {
+          id: 'E2.1',
+          epic: 'E2',
+          t: 'Household invitations (expiry, resend, revoke, audit)',
+          s: 'todo',
+          fr: 'FR-AUTH-004',
+        },
+        {
+          id: 'E2.2',
+          epic: 'E2',
+          t: 'Household/matter creation + state machine + history',
+          s: 'todo',
+          fr: 'FR-MAT-001/004',
+        },
+        {
+          id: 'E2.3',
+          epic: 'E2',
+          t: 'Persons, relationships, household members APIs',
+          s: 'todo',
+          fr: 'FR-PLAN-001',
+        },
+        {
+          id: 'E2.4',
+          epic: 'E2',
+          t: 'Guardian nomination flow (primary + backups)',
+          s: 'todo',
+          fr: 'FR-PLAN-002',
+        },
+        {
+          id: 'E2.5',
+          epic: 'E2',
+          t: 'Trusted roles: trustee / executor / agents',
+          s: 'todo',
+          fr: 'FR-PLAN-003',
+        },
+        {
+          id: 'E2.6',
+          epic: 'E2',
+          t: 'Pack-backed question flow + autosave / resume / progress',
+          s: 'todo',
+          fr: 'FR-MAT-002',
+        },
+        {
+          id: 'E2.7',
+          epic: 'E2',
+          t: 'Family screens: dashboard, household, children, guardians',
+          s: 'todo',
+          fr: '§5.6',
+        },
+        {
+          id: 'E2.8',
+          epic: 'E2',
+          t: '“Why we ask” drawer + glossary content',
+          s: 'todo',
+          fr: 'FR-PLAN-004',
+        },
+        {
+          id: 'E2.9',
+          epic: 'E2',
+          t: 'Escalation rule fixtures (standard / business / out-of-state)',
+          s: 'todo',
+          fr: 'FR-JUR-003',
+        },
+        {
+          id: 'E2.10',
+          epic: 'E2',
+          t: 'Spouse/collaborator limited permissions',
+          s: 'todo',
+          fr: 'FR-MAT-005',
+        },
+        // E3 Assets & review
+        {
+          id: 'E3.1',
+          epic: 'E3',
+          t: 'Asset / liability / beneficiary CRUD APIs',
+          s: 'todo',
+          fr: 'FR-ASSET-001/002/003',
+        },
+        {
+          id: 'E3.2',
+          epic: 'E3',
+          t: 'Deterministic asset↔beneficiary alignment rules + flags',
+          s: 'todo',
+          fr: 'FR-ASSET-004',
+        },
+        {
+          id: 'E3.3',
+          epic: 'E3',
+          t: 'Decision records + client confirmations',
+          s: 'todo',
+          fr: 'FR-PLAN-005',
+        },
+        {
+          id: 'E3.4',
+          epic: 'E3',
+          t: 'Intake submission + attorney review packet',
+          s: 'todo',
+          fr: 'FR-REV-002',
+        },
+        {
+          id: 'E3.5',
+          epic: 'E3',
+          t: 'Attorney matter list (filter / search / paginate)',
+          s: 'todo',
+          fr: 'FR-REV-001',
+        },
+        {
+          id: 'E3.6',
+          epic: 'E3',
+          t: 'Comments + clarification requests',
+          s: 'todo',
+          fr: 'FR-REV-003',
+        },
+        {
+          id: 'E3.7',
+          epic: 'E3',
+          t: 'Approval gates (explicit, audited, server-enforced)',
+          s: 'todo',
+          fr: 'FR-REV-004/005',
+        },
+        {
+          id: 'E3.8',
+          epic: 'E3',
+          t: 'Notification outbox + email sandbox',
+          s: 'todo',
+          fr: 'FR-FUND-004',
+        },
+        {
+          id: 'E3.9',
+          epic: 'E3',
+          t: 'Content-pack import / validate + approved retrieval',
+          s: 'todo',
+          fr: 'FR-JUR-004',
+        },
+        {
+          id: 'E3.10',
+          epic: 'E3',
+          t: 'Attorney workbench screens (overview, review, composer)',
+          s: 'todo',
+          fr: '§5.6',
+        },
+        // E4 Files, AI, content
+        {
+          id: 'E4.1',
+          epic: 'E4',
+          t: 'Private upload intent/complete + metadata',
+          s: 'todo',
+          fr: 'FR-ASSET-005',
+        },
+        {
+          id: 'E4.2',
+          epic: 'E4',
+          t: 'Worker queue (Redis/Dramatiq) + dev fake scanner',
+          s: 'todo',
+          fr: '§6.5',
+        },
+        {
+          id: 'E4.3',
+          epic: 'E4',
+          t: 'Signed download URLs + per-file authorization',
+          s: 'todo',
+          fr: '§7.4',
+        },
+        {
+          id: 'E4.4',
+          epic: 'E4',
+          t: 'Legal content registry + version lifecycle',
+          s: 'todo',
+          fr: '§10.6',
+        },
+        {
+          id: 'E4.5',
+          epic: 'E4',
+          t: 'Pack import / validation pipeline',
+          s: 'todo',
+          fr: 'FR-ADM-002',
+        },
+        {
+          id: 'E4.6',
+          epic: 'E4',
+          t: 'Approved-content retrieval (scoped, pack-versioned)',
+          s: 'todo',
+          fr: 'FR-AI-001',
+        },
+        {
+          id: 'E4.7',
+          epic: 'E4',
+          t: 'AI gateway (OpenRouter-compatible) + intent/risk classifier',
+          s: 'todo',
+          fr: '§10.3',
+        },
+        {
+          id: 'E4.8',
+          epic: 'E4',
+          t: 'Structured outputs + citation validator + trace persistence',
+          s: 'todo',
+          fr: 'FR-AI-002/004',
+        },
+        {
+          id: 'E4.9',
+          epic: 'E4',
+          t: 'Refusal / escalation behavior + AI eval suite',
+          s: 'todo',
+          fr: 'FR-AI-003 · §10.7',
+        },
+        {
+          id: 'E4.10',
+          epic: 'E4',
+          t: 'Planning Guide UI panel with citations',
+          s: 'todo',
+          fr: '§5.6',
+        },
+        // E5 Documents, signing, funding, vault
+        {
+          id: 'E5.1',
+          epic: 'E5',
+          t: 'Template registry + version lifecycle',
+          s: 'todo',
+          fr: 'FR-DOC-001',
+        },
+        {
+          id: 'E5.2',
+          epic: 'E5',
+          t: 'Watermarked synthetic DOCX/PDF pipeline (fail-closed)',
+          s: 'todo',
+          fr: 'FR-DOC-002',
+        },
+        {
+          id: 'E5.3',
+          epic: 'E5',
+          t: 'Document packages / versions / audit',
+          s: 'todo',
+          fr: 'FR-DOC-004',
+        },
+        {
+          id: 'E5.4',
+          epic: 'E5',
+          t: 'Controlled assembly behind feature flag',
+          s: 'todo',
+          fr: 'FR-DOC-003 · FR-ADM-003',
+        },
+        {
+          id: 'E5.5',
+          epic: 'E5',
+          t: 'Execution profiles + signing checklist renderer',
+          s: 'todo',
+          fr: 'FR-DOC-005',
+        },
+        { id: 'E5.6', epic: 'E5', t: 'Client execution attestation', s: 'todo', fr: 'FR-DOC-006' },
+        {
+          id: 'E5.7',
+          epic: 'E5',
+          t: 'Funding task generation + transitions',
+          s: 'todo',
+          fr: 'FR-FUND-001/002',
+        },
+        {
+          id: 'E5.8',
+          epic: 'E5',
+          t: 'Funding evidence upload / review',
+          s: 'todo',
+          fr: 'FR-FUND-003',
+        },
+        {
+          id: 'E5.9',
+          epic: 'E5',
+          t: 'Vault + trusted-contact sharing (expiry / revoke)',
+          s: 'todo',
+          fr: 'FR-DOC-007',
+        },
+        {
+          id: 'E5.10',
+          epic: 'E5',
+          t: 'Nonbinding family instruction letter',
+          s: 'todo',
+          fr: 'FR-PLAN-006',
+        },
+        { id: 'E5.11', epic: 'E5', t: 'Reminder scheduling', s: 'todo', fr: 'FR-FUND-004' },
+        // E6 Hardening
+        { id: 'E6.1', epic: 'E6', t: 'E2E critical path (Playwright)', s: 'todo', fr: '§12' },
+        {
+          id: 'E6.2',
+          epic: 'E6',
+          t: 'RLS audit + deny-path tests, all tables',
+          s: 'todo',
+          fr: '§17',
+        },
+        {
+          id: 'E6.3',
+          epic: 'E6',
+          t: 'Upload hardening, rate limits, idempotency',
+          s: 'todo',
+          fr: '§11',
+        },
+        {
+          id: 'E6.4',
+          epic: 'E6',
+          t: 'Observability: logs, traces, Sentry, dashboards',
+          s: 'todo',
+          fr: '§4.2',
+        },
+        { id: 'E6.5', epic: 'E6', t: 'Accessibility review (WCAG 2.2 AA)', s: 'todo', fr: '§5.9' },
+        { id: 'E6.6', epic: 'E6', t: 'Performance pass (P95 targets)', s: 'todo', fr: '§4.2' },
+        {
+          id: 'E6.7',
+          epic: 'E6',
+          t: 'Feature flags by firm / jurisdiction',
+          s: 'todo',
+          fr: 'FR-ADM-003',
+        },
+        {
+          id: 'E6.8',
+          epic: 'E6',
+          t: 'Data export / delete-request skeleton',
+          s: 'todo',
+          fr: '§11.2',
+        },
+        {
+          id: 'E6.9',
+          epic: 'E6',
+          t: 'Launch readiness checklist + pilot demo',
+          s: 'todo',
+          fr: '§17',
+        },
+        // E7 Phase 1.5
+        {
+          id: 'E7.1',
+          epic: 'E7',
+          t: 'Attorney-approved VA template bundle onboarding',
+          s: 'todo',
+          fr: '§14',
+        },
+        {
+          id: 'E7.2',
+          epic: 'E7',
+          t: 'Controlled production assembly / release',
+          s: 'todo',
+          fr: '§14',
+        },
+        { id: 'E7.3', epic: 'E7', t: 'Firm branding / white labeling', s: 'todo', fr: '§14' },
+        { id: 'E7.4', epic: 'E7', t: 'Audit exports + retention controls', s: 'todo', fr: '§14' },
+        // E8 Phase 2
+        { id: 'E8.1', epic: 'E8', t: 'Expo React Native companion app', s: 'todo', fr: '§14' },
+        { id: 'E8.2', epic: 'E8', t: 'E-sign provider adapter', s: 'todo', fr: '§14' },
+        { id: 'E8.3', epic: 'E8', t: 'Stripe billing', s: 'todo', fr: '§14' },
+        { id: 'E8.4', epic: 'E8', t: 'Expanded reporting', s: 'todo', fr: '§14' },
+        // E9 Phase 3
+        { id: 'E9.1', epic: 'E9', t: '2–5 additional state packs', s: 'todo', fr: '§14' },
+        { id: 'E9.2', epic: 'E9', t: 'Integration outbox / webhooks', s: 'todo', fr: '§14' },
+        { id: 'E9.3', epic: 'E9', t: 'SSO/SAML, SCIM, enhanced audit', s: 'todo', fr: '§14' },
+      ];
+      const COLS = [
+        { k: 'todo', label: 'Not started' },
+        { k: 'doing', label: 'In progress' },
+        { k: 'blocked', label: 'Blocked' },
+        { k: 'done', label: 'Done' },
+      ];
+      const $ = (s) => document.querySelector(s);
+      function epicById(id) {
+        return EPICS.find((e) => e.id === id);
+      }
+      function render() {
+        const q = $('#q').value.toLowerCase(),
+          ef = $('#efilter').value;
+        const vis = STORIES.filter(
+          (s) =>
+            (!ef || s.epic === ef) &&
+            (!q || (s.t + ' ' + s.id + ' ' + s.fr).toLowerCase().includes(q)),
+        );
+        // epic overview
+        $('#epics').innerHTML = EPICS.map((e) => {
+          const all = STORIES.filter((s) => s.epic === e.id),
+            d = all.filter((s) => s.s === 'done').length;
+          const pct = all.length ? Math.round((d / all.length) * 100) : 0;
+          return `<div class="epic"><h3>${e.id} · ${e.name}</h3><div class="sub">${e.tag}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="counts">${d}/${all.length} done · ${pct}%</div></div>`;
-  }).join("");
-  // kanban
-  $("#board").innerHTML=COLS.map(c=>{
-    const incol=vis.filter(s=>s.s===c.k);
-    const groups=EPICS.map(e=>({e,items:incol.filter(s=>s.epic===e.id)})).filter(g=>g.items.length);
-    return `<div class="col ${c.k}"><h4>${c.label}<span class="pill">${incol.length}</span></h4>`+
-      (groups.length?groups.map(g=>`<details class="egroup" open>
-        <summary><span><span class="dot" style="background:${g.e.id==="E1"?"#B45309":"#94a3b8"}"></span>${g.e.id} · ${g.e.name}</span><span class="pill">${g.items.length}</span></summary>
-        ${g.items.map(s=>`<div class="story ${s.s}"><span class="sid">${s.id}</span><div class="stitle">${s.t}</div><span class="fr">${s.fr}</span></div>`).join("")}
-      </details>`).join(""):`<div class="empty">—</div>`)+`</div>`;
-  }).join("");
-  const d=STORIES.filter(s=>s.s==="done").length;
-  $("#odone").textContent=d; $("#ototal").textContent=STORIES.length;
-  $("#opct").textContent=Math.round(d/STORIES.length*100)+"%";
-}
-$("#efilter").innerHTML='<option value="">All epics</option>'+EPICS.map(e=>`<option value="${e.id}">${e.id} · ${e.name}</option>`).join("");
-$("#q").addEventListener("input",render); $("#efilter").addEventListener("change",render);
-render();
-</script>
-</body>
+        }).join('');
+        // kanban
+        $('#board').innerHTML = COLS.map((c) => {
+          const incol = vis.filter((s) => s.s === c.k);
+          const groups = EPICS.map((e) => ({
+            e,
+            items: incol.filter((s) => s.epic === e.id),
+          })).filter((g) => g.items.length);
+          return (
+            `<div class="col ${c.k}"><h4>${c.label}<span class="pill">${incol.length}</span></h4>` +
+            (groups.length
+              ? groups
+                  .map(
+                    (g) => `<details class="egroup" open>
+        <summary><span><span class="dot" style="background:${g.e.id === 'E1' ? '#B45309' : '#94a3b8'}"></span>${g.e.id} · ${g.e.name}</span><span class="pill">${g.items.length}</span></summary>
+        ${g.items.map((s) => `<div class="story ${s.s}"><span class="sid">${s.id}</span><div class="stitle">${s.t}</div><span class="fr">${s.fr}</span></div>`).join('')}
+      </details>`,
+                  )
+                  .join('')
+              : `<div class="empty">—</div>`) +
+            `</div>`
+          );
+        }).join('');
+        const d = STORIES.filter((s) => s.s === 'done').length;
+        $('#odone').textContent = d;
+        $('#ototal').textContent = STORIES.length;
+        $('#opct').textContent = Math.round((d / STORIES.length) * 100) + '%';
+      }
+      $('#efilter').innerHTML =
+        '<option value="">All epics</option>' +
+        EPICS.map((e) => `<option value="${e.id}">${e.id} · ${e.name}</option>`).join('');
+      $('#q').addEventListener('input', render);
+      $('#efilter').addEventListener('change', render);
+      render();
+    </script>
+  </body>
 </html>

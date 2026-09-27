@@ -38,7 +38,11 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
           </Link>
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Saved-state placeholder — wired to real persistence in a later slice. */}
-            <p className="hidden items-center gap-1.5 text-xs text-lf-text-subtle md:flex" role="status" aria-label="Saved state">
+            <p
+              className="hidden items-center gap-1.5 text-xs text-lf-text-subtle md:flex"
+              role="status"
+              aria-label="Saved state"
+            >
               <CheckCheck className="size-4 text-lf-success-700" aria-hidden="true" />
               All changes saved
             </p>
@@ -62,7 +66,10 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
       </div>
 
       {/* Mobile: horizontal nav under the header (no permanent sidebar on small screens). */}
-      <nav aria-label={`${section} navigation (mobile)`} className="border-t border-lf-border bg-lf-canvas-elevated px-4 py-2 md:hidden">
+      <nav
+        aria-label={`${section} navigation (mobile)`}
+        className="border-t border-lf-border bg-lf-canvas-elevated px-4 py-2 md:hidden"
+      >
         <SectionNav section={section} />
       </nav>
 

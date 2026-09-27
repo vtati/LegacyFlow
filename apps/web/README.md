@@ -19,16 +19,16 @@ pnpm dev         # http://localhost:3000
 
 ## Environment variables
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | only for real auth | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | only for real auth | Supabase anon key |
+| Variable                        | Required           | Purpose              |
+| ------------------------------- | ------------------ | -------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | only for real auth | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | only for real auth | Supabase anon key    |
 
 **Mock auth (default local dev):** when the two variables above are unset, the
 app uses `lib/auth/mock.ts` — an in-memory adapter backed by the
 `lf_mock_session` cookie. The login page shows a prominent banner:
 “Local dev mock auth — no real Supabase configured.” Signing in with Google
-creates a *synthetic* demo user (`demo.user@example.invalid`); the magic-link
+creates a _synthetic_ demo user (`demo.user@example.invalid`); the magic-link
 form enters a mock “sent” state. Nothing leaves the browser. Set the env vars
 to use real Supabase auth (Google OAuth via `signInWithOAuth`, magic links via
 `signInWithOtp`, `/auth/callback` code exchange).
@@ -55,9 +55,9 @@ pnpm build       # next build
 ## Notes
 
 - Design tokens come from `@legacyflow/design-tokens` (`--lf-*` CSS variables
-  + Tailwind v3 preset). UI primitives are shadcn-style components owned
-  locally under `components/ui/` (the shadcn CLI prompts interactively, so the
-  set was hand-placed instead).
+  - Tailwind v3 preset). UI primitives are shadcn-style components owned
+    locally under `components/ui/` (the shadcn CLI prompts interactively, so the
+    set was hand-placed instead).
 - Safety label (every footer + about page): “Demo scaffold — attorney-pending.
   Not legal advice. Synthetic data only.”
 - Accessibility: skip-to-content link, labeled forms with inline errors,

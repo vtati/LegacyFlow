@@ -13,7 +13,11 @@ describe('Button', () => {
   });
 
   it('applies the accent variant and small size', () => {
-    render(<Button variant="accent" size="sm">Save</Button>);
+    render(
+      <Button variant="accent" size="sm">
+        Save
+      </Button>,
+    );
     const btn = screen.getByRole('button', { name: 'Save' });
     expect(btn.className).toContain('bg-lf-accent-700');
     expect(btn.className).toContain('h-8');

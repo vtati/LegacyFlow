@@ -1,0 +1,26 @@
+# Synthetic household question set — visibly different labels from US-VA.
+question_set:
+  id: household
+  version: 1.0.0
+  title: 'XZ Household profile (synthetic)'
+sections:
+  - id: basics
+    title: 'XZ basics (synthetic)'
+    questions:
+      - key: marital_status
+        type: single_select
+        label: 'XZ: household composition? (synthetic wording)'
+        help: 'XZ synthetic help text.'
+        required: true
+        options:
+          - value: married
+            label: 'XZ-Married'
+          - value: partnered
+            label: 'XZ-Partnered'
+        maps_to: facts.marital_status
+      - key: has_three_or_more_minor_children
+        type: boolean
+        label: 'XZ: three or more minor children? (synthetic)'
+        help: 'XZ synthetic help text.'
+        required: true
+        maps_to: facts.has_three_or_more_minor_children
