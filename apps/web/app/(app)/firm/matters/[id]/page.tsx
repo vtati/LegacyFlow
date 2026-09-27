@@ -4,17 +4,27 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
+import { AssistantPanel } from '@/components/ai/assistant-panel';
 import { MatterOverview } from '@/components/firm/matter-overview';
 import { ReviewPacketTab } from '@/components/firm/review-packet-tab';
 import { CommentsTab } from '@/components/firm/comments-tab';
 import { ClarificationsTab } from '@/components/firm/clarifications-tab';
 import { GatesTab } from '@/components/firm/gates-tab';
+import { FilesTab } from '@/components/firm/files-tab';
+import { DocumentsTab } from '@/components/firm/documents-tab';
+import { SigningTab } from '@/components/firm/signing-tab';
+import { FundingTab } from '@/components/firm/funding-tab';
 import { api, firmApi, type HouseholdResponse, type MatterDetail } from '@/lib/api-client';
 import { formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'files', label: 'Files' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'signing', label: 'Signing' },
+  { id: 'funding', label: 'Funding' },
+  { id: 'assistant', label: 'AI assistant' },
   { id: 'review', label: 'Review packet' },
   { id: 'comments', label: 'Comments' },
   { id: 'clarifications', label: 'Clarifications' },
@@ -131,6 +141,16 @@ export default function FirmMatterDetailPage({
             className="pt-2"
           >
             {tab === 'overview' && <MatterOverview matter={matter} household={household} />}
+            {tab === 'files' && <FilesTab matterId={matterId} />}
+            {tab === 'documents' && <DocumentsTab matterId={matterId} />}
+            {tab === 'signing' && <SigningTab matterId={matterId} />}
+            {tab === 'funding' && <FundingTab matterId={matterId} />}
+            {tab === 'assistant' && (
+              <AssistantPanel
+                panelId="firm-assistant"
+                ask={(question) => firmApi.askAi(matterId, question)}
+              />
+            )}
             {tab === 'review' && <ReviewPacketTab matterId={matterId} />}
             {tab === 'comments' && <CommentsTab matterId={matterId} />}
             {tab === 'clarifications' && <ClarificationsTab matterId={matterId} />}

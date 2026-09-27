@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
-import { formatStatus, useMatters } from '@/components/family/matter-context';
-import type { MatterSummary } from '@/lib/api-client';
+import { AssistantPanel } from '@/components/ai/assistant-panel';
+import { MatterSelect, formatStatus, useMatters } from '@/components/family/matter-context';
+import { api, type MatterSummary } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 function statusTone(status: string): string {
@@ -67,6 +69,7 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
 /** Family dashboard — the family's matters with progress and continue links. */
 export default function FamilyDashboardPage(): React.JSX.Element {
   const { matters, loading, error, reload } = useMatters();
+  const [assistantMatterId, setAssistantMatterId] = useState<string | null>(null);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -94,6 +97,21 @@ export default function FamilyDashboardPage(): React.JSX.Element {
             <MatterCard key={matter.id} matter={matter} />
           ))}
         </div>
+      )}
+
+      {!loading && !error && matters.length > 0 && (
+        <section aria-label="AI assistant" className="space-y-4 pt-2">
+          <MatterSelect
+            matters={matters}
+            value={assistantMatterId ?? matters[0]?.id ?? null}
+            onChange={setAssistantMatterId}
+            id="assistant-matter-select"
+          />
+          <AssistantPanel
+            panelId="dashboard-assistant"
+            ask={(question) => api.askAi(assistantMatterId ?? matters[0]?.id ?? '', question)}
+          />
+        </section>
       )}
     </div>
   );

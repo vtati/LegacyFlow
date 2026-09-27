@@ -10,7 +10,7 @@ describe('SectionNav (family)', () => {
     const nav = screen.getByRole('navigation', { name: 'family navigation' });
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(FAMILY_NAV.length);
-    expect(FAMILY_NAV).toHaveLength(16);
+    expect(FAMILY_NAV).toHaveLength(18);
     for (const item of FAMILY_NAV) {
       expect(within(nav).getByRole('link', { name: item.label })).toBeDefined();
     }

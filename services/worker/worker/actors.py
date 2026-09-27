@@ -14,6 +14,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from worker.broker import get_broker
+from worker.scanning import perform_file_scan
 from worker.settings import get_worker_settings
 
 logger = logging.getLogger(__name__)
@@ -145,3 +146,27 @@ def drain_outbox(batch_size: int = 25) -> dict[str, int]:
                     failed += 1
     logger.info("send_notifications processed batch: sent=%d failed=%d", sent, failed)
     return {"sent": sent, "failed": failed}
+
+
+# ---------------------------------------------------------------------------
+# File scanning (Slice 4, Track B4)
+# ---------------------------------------------------------------------------
+
+
+@dramatiq.actor(broker=broker)
+def scan_file(upload_id: str) -> dict[str, Any]:
+    """Scan one upload's bytes with the DevScanner magic-byte check.
+
+    Records ``scan_status`` ``clean`` or ``quarantined`` on the
+    ``file_uploads`` row. Deployments trigger this per completed upload
+    (or run ``worker.scanning.scan_pending_uploads`` periodically). The
+    plain-function core :func:`worker.scanning.perform_file_scan` is
+    directly testable.
+    """
+    settings = get_worker_settings()
+    if not settings.DATABASE_URL:
+        logger.warning("DATABASE_URL is not set; scan_file has nothing to scan.")
+        return {"scanned": 0, "status": "no_database"}
+    with psycopg.connect(settings.DATABASE_URL, row_factory=dict_row) as conn:
+        with conn.transaction():
+            return perform_file_scan(conn, UUID(upload_id))

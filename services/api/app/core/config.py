@@ -1,6 +1,8 @@
 """Application configuration loaded from the environment (pydantic-settings)."""
 
+import tempfile
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,6 +27,34 @@ class Settings(BaseSettings):
     # Deployment environment name. Invitation accept tokens are returned in
     # API responses only when this is not "production" (Slice 2).
     ENVIRONMENT: str = "development"
+    # Directory where Slice 4 rendered documents and evidence files are
+    # stored server-side (``file_uploads.stored_path`` points into it).
+    # Defaults to a ``legacyflow-documents`` directory under the system
+    # temp dir when unset.
+    DOCUMENT_STORAGE_DIR: str | None = None
+    # Directory where Track B4 client file uploads are stored server-side
+    # (``file_uploads.stored_path`` points into it). Kept separate from the
+    # rendered-document directory above. Defaults to a
+    # ``legacyflow-uploads`` directory under the system temp dir when unset.
+    STORAGE_DIR: str | None = None
+    # HMAC secret used to sign file download tokens (Track B4). The
+    # download endpoints fail closed when it is unset — downloads must
+    # never be mintable without a configured secret.
+    DOWNLOAD_TOKEN_SECRET: str | None = None
+
+    @property
+    def document_storage_dir(self) -> Path:
+        """Resolved server-side document storage directory."""
+        if self.DOCUMENT_STORAGE_DIR:
+            return Path(self.DOCUMENT_STORAGE_DIR)
+        return Path(tempfile.gettempdir()) / "legacyflow-documents"
+
+    @property
+    def storage_dir(self) -> Path:
+        """Resolved server-side client-upload storage directory."""
+        if self.STORAGE_DIR:
+            return Path(self.STORAGE_DIR)
+        return Path(tempfile.gettempdir()) / "legacyflow-uploads"
 
     @property
     def jwks_url(self) -> str | None:

@@ -93,6 +93,39 @@ export async function apiFetch<T>(
   return (await response.json()) as T;
 }
 
+/** Download a binary response (generated demo documents). Throws ApiError on failure. */
+export async function apiFetchBlob(
+  path: string,
+  options: ApiClientOptions & { signal?: AbortSignal; method?: 'GET' | 'POST' } = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const { baseUrl = '', getToken, signal, method = 'POST' } = options;
+  const headers: Record<string, string> = {};
+  const token = await getToken?.();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const response = await fetch(`${baseUrl}/v1${path}`, { method, headers, signal });
+  if (!response.ok) {
+    let parsed: unknown = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    const { message, code } = readErrorMessage(response.status, parsed);
+    throw new ApiError(response.status, message, { code, details: parsed });
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  return { blob, filename: match?.[1] ?? 'document' };
+}
+
+/** Build the same-origin download URL for a file given a short-lived token. */
+export function fileDownloadUrl(fileId: string, token: string, baseUrl = ''): string {
+  return `${baseUrl}/v1/files/${fileId}/download?token=${encodeURIComponent(token)}`;
+}
+
 /* ------------------------------------------------------------------ types */
 
 export interface HouseholdRef {
@@ -456,6 +489,201 @@ export interface GateDecisionInput {
   notes?: string | null;
 }
 
+/* ------------------------------------------------------------------ files */
+
+export type FileScanStatus = 'pending' | 'clean' | 'quarantined' | string;
+
+export interface MatterFile {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  scan_status: FileScanStatus;
+  uploaded_by_user_id: string;
+  created_at: string;
+}
+
+export interface FileUploadIntentInput {
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+}
+
+export interface FileUploadIntent {
+  upload_id: string;
+  /** Pre-signed URL the browser PUTs the file bytes to directly. */
+  upload_url: string;
+}
+
+export interface DownloadTokenResponse {
+  download_token: string;
+  expires_at: string;
+}
+
+/* ------------------------------------------------------------ ai assistant */
+
+export interface AiCitation {
+  pack: string;
+  section: string;
+}
+
+export interface AiAskResponse {
+  answer: string;
+  citations: AiCitation[];
+  refused: boolean;
+  /** Safe completion shown when `refused` is true. */
+  safe_message: string | null;
+}
+
+export interface AiAskInput {
+  question: string;
+}
+
+/* -------------------------------------------------------------- documents */
+
+export interface DocumentTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  jurisdiction_code: string;
+  pack_version: string;
+}
+
+export interface DocumentPackageInput {
+  template_ids: string[];
+  notes?: string | null;
+}
+
+export interface DocumentPackage {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  template_ids: string[];
+  status: string;
+  created_at: string;
+}
+
+export type DemoFormat = 'pdf' | 'docx';
+
+export interface GeneratedDemo {
+  package: DocumentPackage;
+  versions: DemoDocument[];
+}
+
+export interface DemoDocument {
+  id: string;
+  package_id: string;
+  version: number;
+  file_format: 'docx' | 'pdf';
+  file_name: string;
+  content_type: string;
+  watermark_text: string | null;
+  is_demo: boolean;
+  download_url: string;
+  created_at: string;
+}
+
+/* ---------------------------------------------------------------- signing */
+
+export interface SigningChecklistItem {
+  key: string;
+  label: string;
+  detail: string | null;
+}
+
+export interface SigningRequirement {
+  id: string;
+  label: string;
+  kind: string;
+  detail: string | null;
+}
+
+export interface SigningAttestation {
+  id: string;
+  requirement_id: string;
+  attested_at: string;
+  attested_by_user_id: string;
+}
+
+export interface SigningChecklist {
+  id: string;
+  matter_id: string;
+  execution_profile_id: string;
+  document_type: string;
+  requirements: Record<string, unknown>;
+  items: SigningChecklistItem[];
+  attestations: SigningAttestation[];
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface AttestInput {
+  requirement_id: string;
+  /** Non-certifying acknowledgement the client confirms before attesting. */
+  acknowledgement: string;
+}
+
+/* ---------------------------------------------------------------- funding */
+
+export type FundingTaskStatus = 'pending' | 'in_progress' | 'complete' | string;
+
+export interface FundingTask {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  title: string;
+  description: string | null;
+  status: FundingTaskStatus;
+  evidence_file_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FundingTaskUpdateInput {
+  status: FundingTaskStatus;
+  note?: string | null;
+  evidence_file_id?: string | null;
+}
+
+/* ------------------------------------------------------------------ vault */
+
+export interface VaultShareInput {
+  label: string;
+  expires_at?: string | null;
+}
+
+export interface VaultShare {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  label: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface VaultShareCreated extends VaultShare {
+  /** Bearer token shown exactly once at creation. */
+  token: string;
+}
+
+export interface VaultDocumentSummary {
+  filename: string;
+  content_type: string;
+}
+
+export interface VaultAccessSummary {
+  share_label: string;
+  matter_title: string;
+  jurisdiction_code: string;
+  /** Always true: the public page only ever sees the redacted summary. */
+  redacted: boolean;
+  documents: VaultDocumentSummary[];
+  expires_at: string | null;
+}
+
 /* ------------------------------------------------------------------ client */
 
 export interface FamilyApi {
@@ -502,6 +730,27 @@ export interface FamilyApi {
   getLiability: (liabilityId: string) => Promise<Liability>;
   updateLiability: (liabilityId: string, input: LiabilityPatchInput) => Promise<Liability>;
   deleteLiability: (liabilityId: string) => Promise<void>;
+  /* files (matter-scoped) */
+  listFiles: (matterId: string) => Promise<MatterFile[]>;
+  requestIntent: (matterId: string, input: FileUploadIntentInput) => Promise<FileUploadIntent>;
+  completeUpload: (uploadId: string) => Promise<MatterFile>;
+  getDownloadToken: (matterId: string, fileId: string) => Promise<DownloadTokenResponse>;
+  /* ai assistant */
+  askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
+  /* documents (demo, family-visible) */
+  listDemoDocuments: (matterId: string) => Promise<DemoDocument[]>;
+  downloadDemoDocument: (downloadUrl: string) => Promise<{ blob: Blob; filename: string }>;
+  /* signing */
+  getChecklist: (matterId: string) => Promise<SigningChecklist>;
+  attest: (checklistId: string, input: AttestInput) => Promise<SigningAttestation>;
+  /* funding */
+  listFundingTasks: (matterId: string) => Promise<FundingTask[]>;
+  updateFundingTask: (taskId: string, input: FundingTaskUpdateInput) => Promise<FundingTask>;
+  /* vault */
+  listShares: (matterId: string) => Promise<VaultShare[]>;
+  createShare: (matterId: string, input: VaultShareInput) => Promise<VaultShareCreated>;
+  revokeShare: (shareId: string) => Promise<VaultShare>;
+  accessByToken: (token: string) => Promise<VaultAccessSummary>;
 }
 
 export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
@@ -578,6 +827,60 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       call<Liability>(`/liabilities/${liabilityId}`, { method: 'PATCH', body: input }),
     deleteLiability: (liabilityId) =>
       call<void>(`/liabilities/${liabilityId}`, { method: 'DELETE' }),
+    /* files */
+    listFiles: (matterId) => call<MatterFile[]>(`/matters/${matterId}/files`),
+    requestIntent: (matterId, input) =>
+      call<FileUploadIntent>(`/matters/${matterId}/files/intent`, {
+        method: 'POST',
+        body: input,
+      }),
+    completeUpload: (uploadId) =>
+      call<MatterFile>(`/files/uploads/${uploadId}/complete`, { method: 'POST' }),
+    getDownloadToken: (matterId, fileId) =>
+      call<DownloadTokenResponse>(`/matters/${matterId}/files/${fileId}/download-token`),
+    /* ai assistant */
+    askAi: (matterId, question) =>
+      call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {
+        method: 'POST',
+        body: { question } satisfies AiAskInput,
+      }),
+    /* documents (demo, family-visible) */
+    listDemoDocuments: (matterId) =>
+      call<DemoDocument[]>(`/matters/${matterId}/document-versions`),
+    downloadDemoDocument: (downloadUrl: string) => {
+      // Backend returns "/v1/document-versions/{id}/download"; strip the /v1 prefix
+      // since apiFetchBlob adds it.
+      const path = downloadUrl.replace(/^\/v1/, '');
+      return apiFetchBlob(path, { ...options, method: 'GET' });
+    },
+    /* signing */
+    getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing-checklist`),
+    attest: (checklistId, input) =>
+      call<SigningAttestation>(`/signing-checklists/${checklistId}/attest`, {
+        method: 'POST',
+        body: input,
+      }),
+    /* funding */
+    listFundingTasks: (matterId) => call<FundingTask[]>(`/matters/${matterId}/funding-tasks`),
+    updateFundingTask: (taskId, input) =>
+      call<FundingTask>(`/funding-tasks/${taskId}`, { method: 'PATCH', body: input }),
+    /* vault */
+    listShares: (matterId) => call<VaultShare[]>(`/matters/${matterId}/vault-shares`),
+    createShare: (matterId, input) =>
+      call<VaultShareCreated>(`/matters/${matterId}/vault-shares`, {
+        method: 'POST',
+        body: input,
+      }),
+    revokeShare: (shareId) =>
+      call<VaultShare>(`/vault-shares/${shareId}/revoke`, { method: 'POST' }),
+    /* Public endpoint: never send a token, even if the shared client has one wired. */
+    accessByToken: (token) =>
+      apiFetch<VaultAccessSummary>(`/vault/access`, {
+        ...options,
+        getToken: () => null,
+        method: 'POST',
+        body: { token },
+      }),
   };
 }
 
@@ -617,6 +920,22 @@ export interface FirmApi {
   listGates: (matterId: string) => Promise<Gate[]>;
   createGate: (matterId: string, input: GateInput) => Promise<Gate>;
   decideGate: (gateId: string, input: GateDecisionInput) => Promise<Gate>;
+  /* files (matter-scoped, read + download) */
+  listFiles: (matterId: string) => Promise<MatterFile[]>;
+  getDownloadToken: (matterId: string, fileId: string) => Promise<DownloadTokenResponse>;
+  /* ai assistant */
+  askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
+  /* documents */
+  listTemplates: () => Promise<DocumentTemplate[]>;
+  listPackages: (matterId: string) => Promise<DocumentPackage[]>;
+  createPackage: (matterId: string, input: DocumentPackageInput) => Promise<DocumentPackage>;
+  generateDemo: (packageId: string, format: DemoFormat) => Promise<GeneratedDemo>;
+  releaseProduction: (packageId: string) => Promise<void>;
+  /* signing */
+  getChecklist: (matterId: string) => Promise<SigningChecklist>;
+  /* funding */
+  generateFundingTasks: (matterId: string) => Promise<FundingTask[]>;
+  listFundingTasks: (matterId: string) => Promise<FundingTask[]>;
 }
 
 /** Typed client for the LegacyFlow firm (attorney) API. */
@@ -674,6 +993,38 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
         method: 'POST',
         body: input,
       }),
+    /* files */
+    listFiles: (matterId) => call<MatterFile[]>(`/matters/${matterId}/files`),
+    getDownloadToken: (matterId, fileId) =>
+      call<DownloadTokenResponse>(`/matters/${matterId}/files/${fileId}/download-token`),
+    /* ai assistant */
+    askAi: (matterId, question) =>
+      call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {
+        method: 'POST',
+        body: { question } satisfies AiAskInput,
+      }),
+    /* documents */
+    listTemplates: () =>
+      call<DocumentTemplate[]>(`/document-templates`),
+    listPackages: (matterId) => call<DocumentPackage[]>(`/matters/${matterId}/document-packages`),
+    createPackage: (matterId, input) =>
+      call<DocumentPackage>(`/matters/${matterId}/document-packages`, {
+        method: 'POST',
+        body: input,
+      }),
+    generateDemo: (packageId, format) =>
+      call<GeneratedDemo>(`/packages/${packageId}/generate-demo`, {
+        method: 'POST',
+        body: { format },
+      }),
+    releaseProduction: (packageId) =>
+      call<void>(`/packages/${packageId}/release-production`, { method: 'POST' }),
+    /* signing */
+    getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing/checklist`),
+    /* funding */
+    generateFundingTasks: (matterId) =>
+      call<FundingTask[]>(`/matters/${matterId}/funding-tasks/generate`, { method: 'POST' }),
+    listFundingTasks: (matterId) => call<FundingTask[]>(`/matters/${matterId}/funding-tasks`),
   };
 }
 
