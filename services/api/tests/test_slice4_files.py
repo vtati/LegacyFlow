@@ -535,7 +535,7 @@ def test_expired_token_rejected(db, api_client):
     upload_id = intent["upload_id"]
 
     expired_token, _ = files_service.build_download_token(
-        UUID(upload_id), secret=TEST_DOWNLOAD_KEY, ttl_seconds=-60
+        UUID(upload_id), secret=TEST_DOWNLOAD_KEY, ttl_seconds=-60  # gitleaks:allow
     )
     response = api_client.get(f"/v1/files/download?token={expired_token}")
     assert response.status_code == 401
@@ -561,7 +561,9 @@ def test_tampered_and_unknown_tokens_rejected(db, api_client):
     assert api_client.get("/v1/files/download").status_code == 422
 
     # well-formed token for an upload that does not exist -> 404
-    ghost_token, _ = files_service.build_download_token(uuid4(), secret=TEST_DOWNLOAD_KEY)
+    ghost_token, _ = files_service.build_download_token(
+        uuid4(), secret=TEST_DOWNLOAD_KEY  # gitleaks:allow
+    )
     assert api_client.get(f"/v1/files/download?token={ghost_token}").status_code == 404
 
 
