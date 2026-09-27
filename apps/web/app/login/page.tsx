@@ -8,7 +8,10 @@ export const metadata: Metadata = {
 
 export default function LoginPage(): React.JSX.Element {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-lf-canvas px-4 py-12">
+    <main
+      id="main-content"
+      className="flex min-h-screen items-center justify-center bg-lf-canvas px-4 py-12"
+    >
       <LoginForm />
     </main>
   );

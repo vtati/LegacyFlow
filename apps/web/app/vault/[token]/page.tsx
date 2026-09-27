@@ -35,7 +35,10 @@ export default function VaultAccessPage({ params }: VaultAccessPageProps): React
   }, [token]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-12">
+    <main
+      id="main-content"
+      className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-12"
+    >
       {loading && (
         <div role="status" aria-label="Loading shared summary" className="space-y-3">
           <div className="h-8 w-1/2 animate-pulse rounded-lf-card bg-lf-canvas-subtle" />

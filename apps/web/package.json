@@ -19,6 +19,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.34.0",
+    "@playwright/test": "^1.57.0",
+    "@axe-core/playwright": "^4.11.0",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.1",
     "@types/node": "^22.7.4",
@@ -40,6 +42,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "e2e": "playwright test",
     "lint": "eslint .",
     "start": "next start",
     "test": "vitest run",

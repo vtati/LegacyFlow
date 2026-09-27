@@ -318,7 +318,16 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                     <span className="min-w-0">
                       <span className="block truncate">{entry.section.title}</span>
                       {setProgress && (
-                        <span className="block text-xs font-normal text-lf-text-subtle">
+                        <span
+                          className={cn(
+                            'block text-xs font-normal',
+                            // Active step sits on bg-lf-primary-50 (#EEF2FF):
+                            // text-lf-text-subtle (#64748B) is only 4.25:1
+                            // there, below the 4.5:1 WCAG AA bar. Use the
+                            // darker muted tone on the tinted background.
+                            isActive ? 'text-lf-text-muted' : 'text-lf-text-subtle',
+                          )}
+                        >
                           {setProgress.percent_complete}% complete
                         </span>
                       )}

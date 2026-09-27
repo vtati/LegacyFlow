@@ -14,21 +14,65 @@ interface ModalProps {
 }
 
 /**
+ * Elements that can receive keyboard focus, in DOM order.
+ * Used by the focus trap; excludes disabled and inert elements.
+ */
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), ' +
+  'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
  * Accessible modal dialog: Escape closes, backdrop click closes, focus lands
- * on the title when the dialog opens, body scroll is locked while open.
+ * on the title when the dialog opens, focus is trapped inside while open,
+ * and focus returns to the element that opened the dialog when it closes.
+ * Body scroll is locked while open.
  */
 export function Modal({ open, onClose, title, description, children }: ModalProps) {
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = `modal-title-${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
 
   useEffect(() => {
     if (!open) return;
+    // Remember the trigger so focus can return to it on close.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         onClose();
+        return;
+      }
+      if (event.key === 'Tab') {
+        // Trap Tab navigation inside the dialog.
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+          (element) => element.offsetParent !== null,
+        );
+        if (focusable.length === 0) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey) {
+          // The title (tabIndex={-1}) receives initial focus but is excluded
+          // from FOCUSABLE_SELECTOR; treat it as the first boundary so
+          // Shift+Tab from it wraps to the last control instead of escaping
+          // the dialog.
+          if (active === first || active === titleRef.current) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (active === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     };
+
     document.addEventListener('keydown', onKeyDown);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -36,6 +80,8 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
+      // Return focus to the trigger that opened the dialog.
+      previouslyFocused?.focus?.();
     };
   }, [open, onClose]);
 
@@ -49,6 +95,7 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
