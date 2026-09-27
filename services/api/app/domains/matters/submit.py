@@ -28,6 +28,7 @@ from app.domains.matters import repository as repo
 from app.domains.matters import service as matters_service
 from app.domains.matters.schemas import MatterOut
 from app.domains.matters.state_machine import MatterStatus, validate_transition
+from app.domains.review import repository as review_repo
 
 
 class IntakeIncompleteError(ConflictError):
@@ -151,4 +152,20 @@ def submit_matter(conn: Any, *, actor_sub: str, matter_id: UUID) -> MatterOut:
         resource_id=matter_id,
         after_summary={"completeness_pct": overall},
     )
+    # Slice 3: notify the firm team that a matter is ready for attorney review.
+    recipients = review_repo.firm_staff_recipients(conn, firm_id)
+    for recipient in recipients:
+        review_repo.enqueue_notification(
+            conn,
+            firm_id=firm_id,
+            matter_id=matter_id,
+            template_key="matter.submitted",
+            payload={
+                "matter_id": str(matter_id),
+                "status": MatterStatus.INTAKE_SUBMITTED.value,
+                "title": str(matter.get("title") or ""),
+            },
+            recipient_user_id=UUID(str(recipient["user_id"])),
+            recipient_email=str(recipient["email"]),
+        )
     return matters_service.matter_out(updated)

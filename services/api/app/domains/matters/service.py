@@ -41,6 +41,7 @@ from app.domains.matters.state_machine import (
     gate_required_for,
     validate_transition,
 )
+from app.domains.review import repository as review_repo
 
 
 class UnknownJurisdictionError(ValidationAppError):
@@ -166,41 +167,72 @@ def list_matters(
     *,
     actor_sub: str,
     status: str | None = None,
-    page: int = 1,
-    page_size: int = 25,
+    q: str | None = None,
+    jurisdiction_code: str | None = None,
+    assigned_to: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
 ) -> MatterListResponse:
     """List matters visible to the caller.
 
     Firm members see their firm's matters; household clients see the matters
     of households they actively belong to.
+
+    Filters: ``q`` matches matter title or household (client) name
+    case-insensitively; ``jurisdiction_code`` is shaped ``COUNTRY-SUBDIVISION``
+    (e.g. ``US-VA``); ``assigned_to`` is an attorney user id.
+    Pagination is limit/offset based; the legacy ``page``/``page_size``
+    envelope is derived for response compatibility.
     """
     actor_id = caller_id(actor_sub)
+    if limit < 1 or offset < 0:
+        raise ValidationAppError("Limit must be at least 1 and offset at least 0.")
     if status is not None:
         try:
             MatterStatus(status)
         except ValueError as exc:
             raise ValidationAppError("The status filter is not a known matter status.") from exc
+    country_code: str | None = None
+    subdivision_code: str | None = None
+    if jurisdiction_code is not None:
+        parts = jurisdiction_code.split("-", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise ValidationAppError(
+                "The jurisdiction_code filter must look like COUNTRY-SUBDIVISION (e.g. US-VA)."
+            )
+        country_code, subdivision_code = parts[0].upper(), parts[1].upper()
+    assigned_to_id: UUID | None = None
+    if assigned_to is not None:
+        try:
+            assigned_to_id = UUID(assigned_to)
+        except ValueError as exc:
+            raise ValidationAppError("The assigned_to filter is not a valid user id.") from exc
 
     try:
         firm_id = authz.get_user_firm_id(conn, actor_id)
     except AuthorizationError:
         firm_id = None
 
+    filters = {
+        "status": status,
+        "q": q,
+        "country_code": country_code,
+        "subdivision_code": subdivision_code,
+        "assigned_to": assigned_to_id,
+        "limit": limit,
+        "offset": offset,
+    }
     if firm_id is not None:
-        items, total = repo.list_matters_for_firm(
-            conn, firm_id, status=status, page=page, page_size=page_size
-        )
+        items, total = repo.list_matters_for_firm(conn, firm_id, **filters)
     else:
         household_ids = repo.active_household_ids_for_user(conn, actor_id)
         if not household_ids:
             raise AuthorizationError("The caller has no matters to list.")
-        items, total = repo.list_matters_for_households(
-            conn, household_ids, status=status, page=page, page_size=page_size
-        )
+        items, total = repo.list_matters_for_households(conn, household_ids, **filters)
     return MatterListResponse(
         items=[matter_out(row) for row in items],
-        page=page,
-        page_size=page_size,
+        page=offset // limit + 1,
+        page_size=limit,
         total=total,
     )
 
@@ -265,11 +297,14 @@ def transition_matter(
 
     gate = gate_required_for(from_status, to_status)
     if gate is not None:
-        # Approval gates land in Slice 3; until then gated transitions fail
-        # closed with a machine-readable 409.
-        raise ApprovalGateRequiredError(
-            f"Transition {from_status} -> {to_status} requires the '{gate}' approval gate."
-        )
+        # Slice 3: a recorded, still-applicable approved gate of the required
+        # type satisfies the gate; without one the transition fails closed
+        # with a machine-readable 409.
+        approved = review_repo.latest_gate_by_status(conn, matter_id, gate, "approved")
+        if approved is None:
+            raise ApprovalGateRequiredError(
+                f"Transition {from_status} -> {to_status} requires the '{gate}' approval gate."
+            )
 
     submitted_at = datetime.now(UTC) if to_status == MatterStatus.INTAKE_SUBMITTED.value else None
     updated = repo.update_matter_status(

@@ -113,61 +113,99 @@ def insert_status_history(
         )
 
 
-def _page_clause(page: int, page_size: int) -> tuple[int, int]:
-    return page_size, (page - 1) * page_size
+def _search_clauses(
+    *,
+    status: str | None,
+    q: str | None,
+    country_code: str | None,
+    subdivision_code: str | None,
+    assigned_to: UUID | None,
+) -> tuple[list[str], list[Any]]:
+    """Build WHERE clauses + params for the matter list filters (Slice 3)."""
+    where: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        where.append("m.status = %s")
+        params.append(status)
+    if q:
+        where.append("(m.title ILIKE %s OR h.display_name ILIKE %s)")
+        like = f"%{q}%"
+        params.extend([like, like])
+    if country_code is not None and subdivision_code is not None:
+        where.append("j.country_code = %s AND j.subdivision_code = %s")
+        params.extend([country_code, subdivision_code])
+    if assigned_to is not None:
+        where.append("m.assigned_attorney_id = %s")
+        params.append(str(assigned_to))
+    return where, params
+
+
+def _list_matters_query(
+    conn: Any,
+    *,
+    base_where: str,
+    base_params: list[Any],
+    filters: dict[str, Any],
+) -> tuple[list[dict[str, Any]], int]:
+    """Run the filtered matter list + count for a caller scope."""
+    where_clauses, filter_params = _search_clauses(
+        status=filters.get("status"),
+        q=filters.get("q"),
+        country_code=filters.get("country_code"),
+        subdivision_code=filters.get("subdivision_code"),
+        assigned_to=filters.get("assigned_to"),
+    )
+    where = base_where
+    params = [*base_params, *filter_params]
+    if where_clauses:
+        where += " AND " + " AND ".join(where_clauses)
+    limit = int(filters.get("limit", 20))
+    offset = int(filters.get("offset", 0))
+    joins = (
+        " FROM matters m"
+        " LEFT JOIN households h ON h.id = m.household_id"
+        " LEFT JOIN jurisdictions j ON j.id = m.primary_jurisdiction_id"
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT m.*, h.display_name AS household_name,"
+            f" (j.country_code || '-' || j.subdivision_code) AS jurisdiction_code"
+            f"{joins} WHERE {where} ORDER BY m.created_at DESC LIMIT %s OFFSET %s",
+            (*params, limit, offset),
+        )
+        items = [dict(row) for row in cur.fetchall()]
+        cur.execute(f"SELECT COUNT(*) AS total{joins} WHERE {where}", params)
+        total = int(cur.fetchone()["total"])
+    return items, total
 
 
 def list_matters_for_firm(
     conn: Any,
     firm_id: UUID,
-    *,
-    status: str | None,
-    page: int,
-    page_size: int,
+    **filters: Any,
 ) -> tuple[list[dict[str, Any]], int]:
-    """List a firm's matters (newest first) with a total count."""
-    limit, offset = _page_clause(page, page_size)
-    where = "firm_id = %s"
-    params: list[Any] = [str(firm_id)]
-    if status is not None:
-        where += " AND status = %s"
-        params.append(status)
-    with conn.cursor() as cur:
-        cur.execute(
-            f"SELECT * FROM matters WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
-            (*params, limit, offset),
-        )
-        items = [dict(row) for row in cur.fetchall()]
-        cur.execute(f"SELECT COUNT(*) AS total FROM matters WHERE {where}", params)
-        total = int(cur.fetchone()["total"])
-    return items, total
+    """List a firm's matters (newest first) with search/filter + total count."""
+    return _list_matters_query(
+        conn,
+        base_where="m.firm_id = %s",
+        base_params=[str(firm_id)],
+        filters=filters,
+    )
 
 
 def list_matters_for_households(
     conn: Any,
     household_ids: list[UUID],
-    *,
-    status: str | None,
-    page: int,
-    page_size: int,
+    **filters: Any,
 ) -> tuple[list[dict[str, Any]], int]:
-    """List matters for the given households (newest first) with a total."""
-    limit, offset = _page_clause(page, page_size)
+    """List matters for the given households with search/filter + total count."""
     id_params = [str(h) for h in household_ids]
-    where = "household_id = ANY(%s)"
-    params: list[Any] = [id_params]
-    if status is not None:
-        where += " AND status = %s"
-        params.append(status)
-    with conn.cursor() as cur:
-        cur.execute(
-            f"SELECT * FROM matters WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
-            (*params, limit, offset),
-        )
-        items = [dict(row) for row in cur.fetchall()]
-        cur.execute(f"SELECT COUNT(*) AS total FROM matters WHERE {where}", params)
-        total = int(cur.fetchone()["total"])
-    return items, total
+    return _list_matters_query(
+        conn,
+        base_where="m.household_id = ANY(%s)",
+        base_params=[id_params],
+        filters=filters,
+    )
 
 
 def active_household_ids_for_user(conn: Any, user_id: UUID) -> list[UUID]:

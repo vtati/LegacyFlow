@@ -32,6 +32,7 @@ from app.domains.invitations.schemas import (
     InvitationCreateResponse,
     InvitationOut,
 )
+from app.domains.review import repository as review_repo
 
 # Roles that may manage invitations (create/resend/revoke/list).
 INVITE_MANAGER_ROLES = {"firm_admin", "attorney"}
@@ -138,6 +139,16 @@ def create_invitation(
         resource_id=UUID(str(row["id"])),
         correlation_id=correlation_id,
         metadata={"role": payload.role},
+    )
+    # Slice 3: queue the invitee notification for the worker sandbox.
+    review_repo.enqueue_notification(
+        conn,
+        firm_id=firm_id,
+        matter_id=None,
+        template_key="invitation.created",
+        payload={"invitation_id": str(row["id"]), "role": payload.role},
+        recipient_user_id=None,
+        recipient_email=str(payload.email),
     )
 
     accept_token = None

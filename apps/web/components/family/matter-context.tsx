@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api, type MatterSummary } from '@/lib/api-client';
+import { formatStatus } from '@/lib/format';
 
 interface UseMattersResult {
   matters: MatterSummary[];
@@ -77,13 +78,8 @@ export function MatterSelect({
   );
 }
 
-export function formatStatus(status: string): string {
-  return status
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
+
+export { formatStatus };

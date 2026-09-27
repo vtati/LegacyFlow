@@ -40,6 +40,8 @@ class MatterOut(BaseModel):
     current_step: str | None = None
     created_at: datetime
     updated_at: datetime
+    jurisdiction_code: str | None = None
+    household_name: str | None = None
 
 
 class MatterTransition(BaseModel):

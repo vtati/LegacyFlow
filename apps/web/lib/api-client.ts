@@ -110,10 +110,19 @@ export interface MatterSummary {
   completeness_pct: number;
   household: HouseholdRef;
   created_at: string;
+  updated_at: string;
 }
 
 export interface MattersListResponse {
   items: MatterSummary[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+/** Generic paginated list envelope (Slice 3 list endpoints). */
+export interface PaginatedList<T> {
+  items: T[];
   page: number;
   page_size: number;
   total: number;
@@ -255,6 +264,198 @@ export interface NominationInput {
   notes?: string | null;
 }
 
+/* ------------------------------------------------------------------- assets */
+
+export type AssetType = string;
+export type OwnershipType = string;
+
+export interface BeneficiaryEntry {
+  name: string;
+  relationship: string | null;
+}
+
+export interface BeneficiaryDesignation {
+  primary: BeneficiaryEntry[];
+  contingent: BeneficiaryEntry[];
+}
+
+export interface Asset {
+  id: string;
+  firm_id: string;
+  household_id: string;
+  matter_id: string | null;
+  asset_type: AssetType;
+  label: string;
+  estimated_value_cents: number | null;
+  ownership: OwnershipType | null;
+  beneficiary_designation: BeneficiaryDesignation;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetInput {
+  matter_id?: string | null;
+  asset_type: string;
+  label: string;
+  estimated_value_cents: number;
+  ownership?: string | null;
+  beneficiary_designation?: BeneficiaryDesignation | null;
+  notes?: string | null;
+}
+
+export interface AssetPatchInput {
+  matter_id?: string | null;
+  asset_type?: string;
+  label?: string;
+  estimated_value_cents?: number;
+  ownership?: string | null;
+  notes?: string | null;
+}
+
+export interface AssetFlag {
+  id: string;
+  firm_id: string;
+  asset_id: string;
+  flag_type: string;
+  severity: RuleSeverity;
+  message: string;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface AlignmentEvaluationResponse {
+  asset_id: string;
+  flags: AssetFlag[];
+  flag_counts: Record<string, number>;
+}
+
+/* -------------------------------------------------------------- liabilities */
+
+export type LiabilityType = string;
+
+export interface Liability {
+  id: string;
+  firm_id: string;
+  household_id: string;
+  matter_id: string | null;
+  liability_type: LiabilityType;
+  label: string;
+  balance_cents: number;
+  monthly_payment_cents: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LiabilityInput {
+  matter_id?: string | null;
+  liability_type: string;
+  label: string;
+  balance_cents: number;
+  monthly_payment_cents?: number | null;
+  notes?: string | null;
+}
+
+export interface LiabilityPatchInput {
+  matter_id?: string | null;
+  liability_type?: string;
+  label?: string;
+  balance_cents?: number;
+  monthly_payment_cents?: number | null;
+  notes?: string | null;
+}
+
+/* ------------------------------------------------------------- review packet */
+
+export interface ReviewPacketSummary {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  version: number;
+  created_by_user_id: string;
+  created_at: string;
+}
+
+export interface ReviewPacketDetail extends ReviewPacketSummary {
+  /** Rendered snapshot content for the attorney viewer. */
+  snapshot: Record<string, unknown>;
+}
+
+export interface ReviewPacketGenerateInput {
+  notes?: string | null;
+}
+
+/* ----------------------------------------------------------------- comments */
+
+export interface MatterComment {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  author_user_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface CommentInput {
+  body: string;
+}
+
+/* ------------------------------------------------------------ clarifications */
+
+export type ClarificationStatus = 'open' | 'answered';
+
+export interface Clarification {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  question: string;
+  status: ClarificationStatus;
+  created_by_user_id: string;
+  answered_by_user_id: string | null;
+  answered_at: string | null;
+  response: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClarificationInput {
+  question: string;
+}
+
+export interface ClarificationRespondInput {
+  response: string;
+}
+
+/* -------------------------------------------------------------------- gates */
+
+export type GateType = string;
+export type GateDecision = 'approved' | 'rejected';
+export type GateStatus = 'pending' | 'approved' | 'rejected';
+
+export interface Gate {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  gate_type: GateType;
+  status: GateStatus;
+  decided_by_user_id: string | null;
+  decided_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GateInput {
+  gate_type: string;
+  notes?: string | null;
+}
+
+export interface GateDecisionInput {
+  decision: GateDecision;
+  notes?: string | null;
+}
+
 /* ------------------------------------------------------------------ client */
 
 export interface FamilyApi {
@@ -276,6 +477,31 @@ export interface FamilyApi {
   listNominations: (matterId: string, type: NominationType) => Promise<Nomination[]>;
   createNomination: (matterId: string, input: NominationInput) => Promise<Nomination>;
   deleteNomination: (matterId: string, nominationId: string) => Promise<void>;
+  /* assets (household-scoped; pass the matter's household id) */
+  listAssets: (
+    householdId: string,
+    page?: number,
+    pageSize?: number,
+  ) => Promise<PaginatedList<Asset>>;
+  createAsset: (householdId: string, input: AssetInput) => Promise<Asset>;
+  getAsset: (assetId: string) => Promise<Asset>;
+  updateAsset: (assetId: string, input: AssetPatchInput) => Promise<Asset>;
+  deleteAsset: (assetId: string) => Promise<void>;
+  updateAssetBeneficiaries: (
+    assetId: string,
+    designation: BeneficiaryDesignation,
+  ) => Promise<Asset>;
+  evaluateAssetAlignment: (assetId: string) => Promise<AlignmentEvaluationResponse>;
+  /* liabilities (household-scoped; pass the matter's household id) */
+  listLiabilities: (
+    householdId: string,
+    page?: number,
+    pageSize?: number,
+  ) => Promise<PaginatedList<Liability>>;
+  createLiability: (householdId: string, input: LiabilityInput) => Promise<Liability>;
+  getLiability: (liabilityId: string) => Promise<Liability>;
+  updateLiability: (liabilityId: string, input: LiabilityPatchInput) => Promise<Liability>;
+  deleteLiability: (liabilityId: string) => Promise<void>;
 }
 
 export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
@@ -317,6 +543,41 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       call<Nomination>(`/matters/${matterId}/nominations`, { method: 'POST', body: input }),
     deleteNomination: (matterId, nominationId) =>
       call<void>(`/matters/${matterId}/nominations/${nominationId}`, { method: 'DELETE' }),
+    /* assets */
+    listAssets: (householdId, page = 1, pageSize = 25) =>
+      call<PaginatedList<Asset>>(
+        `/households/${householdId}/assets?page=${page}&page_size=${pageSize}`,
+      ),
+    createAsset: (householdId, input) =>
+      call<Asset>(`/households/${householdId}/assets`, { method: 'POST', body: input }),
+    getAsset: (assetId) => call<Asset>(`/assets/${assetId}`),
+    updateAsset: (assetId, input) =>
+      call<Asset>(`/assets/${assetId}`, { method: 'PATCH', body: input }),
+    deleteAsset: (assetId) => call<void>(`/assets/${assetId}`, { method: 'DELETE' }),
+    updateAssetBeneficiaries: (assetId, designation) =>
+      call<Asset>(`/assets/${assetId}/beneficiary`, {
+        method: 'PATCH',
+        body: designation,
+      }),
+    evaluateAssetAlignment: (assetId) =>
+      call<AlignmentEvaluationResponse>(`/assets/${assetId}/evaluate-alignment`, {
+        method: 'POST',
+      }),
+    /* liabilities */
+    listLiabilities: (householdId, page = 1, pageSize = 25) =>
+      call<PaginatedList<Liability>>(
+        `/households/${householdId}/liabilities?page=${page}&page_size=${pageSize}`,
+      ),
+    createLiability: (householdId, input) =>
+      call<Liability>(`/households/${householdId}/liabilities`, {
+        method: 'POST',
+        body: input,
+      }),
+    getLiability: (liabilityId) => call<Liability>(`/liabilities/${liabilityId}`),
+    updateLiability: (liabilityId, input) =>
+      call<Liability>(`/liabilities/${liabilityId}`, { method: 'PATCH', body: input }),
+    deleteLiability: (liabilityId) =>
+      call<void>(`/liabilities/${liabilityId}`, { method: 'DELETE' }),
   };
 }
 
@@ -325,3 +586,99 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
  * lands (see note at the top of this file).
  */
 export const api: FamilyApi = createFamilyApi();
+
+/* ------------------------------------------------------------------ firm api */
+
+export interface FirmMatterFilters {
+  q?: string;
+  status?: string;
+  jurisdictionCode?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FirmApi {
+  listMatters: (filters?: FirmMatterFilters) => Promise<MattersListResponse>;
+  getMatter: (matterId: string) => Promise<MatterDetail>;
+  generateReviewPacket: (
+    matterId: string,
+    input?: ReviewPacketGenerateInput,
+  ) => Promise<ReviewPacketDetail>;
+  listReviewPackets: (matterId: string) => Promise<ReviewPacketSummary[]>;
+  getReviewPacket: (matterId: string, packetId: string) => Promise<ReviewPacketDetail>;
+  listComments: (matterId: string) => Promise<MatterComment[]>;
+  createComment: (matterId: string, input: CommentInput) => Promise<MatterComment>;
+  listClarifications: (matterId: string) => Promise<Clarification[]>;
+  createClarification: (matterId: string, input: ClarificationInput) => Promise<Clarification>;
+  respondClarification: (
+    clarificationId: string,
+    input: ClarificationRespondInput,
+  ) => Promise<Clarification>;
+  listGates: (matterId: string) => Promise<Gate[]>;
+  createGate: (matterId: string, input: GateInput) => Promise<Gate>;
+  decideGate: (gateId: string, input: GateDecisionInput) => Promise<Gate>;
+}
+
+/** Typed client for the LegacyFlow firm (attorney) API. */
+export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
+  const call = <T>(
+    path: string,
+    init?: {
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      body?: unknown;
+      signal?: AbortSignal;
+    },
+  ): Promise<T> => apiFetch<T>(path, { ...options, ...init });
+
+  return {
+    listMatters: (filters = {}) => {
+      const params = new URLSearchParams();
+      if (filters.q?.trim()) params.set('q', filters.q.trim());
+      if (filters.status) params.set('status', filters.status);
+      if (filters.jurisdictionCode?.trim()) {
+        params.set('jurisdiction_code', filters.jurisdictionCode.trim());
+      }
+      params.set('page', String(filters.page ?? 1));
+      params.set('page_size', String(filters.pageSize ?? 20));
+      return call<MattersListResponse>(`/matters?${params.toString()}`);
+    },
+    getMatter: (matterId) => call<MatterDetail>(`/matters/${matterId}`),
+    generateReviewPacket: (matterId, input) =>
+      call<ReviewPacketDetail>(`/matters/${matterId}/review-packets`, {
+        method: 'POST',
+        body: input ?? {},
+      }),
+    listReviewPackets: (matterId) =>
+      call<ReviewPacketSummary[]>(`/matters/${matterId}/review-packets`),
+    getReviewPacket: (matterId, packetId) =>
+      call<ReviewPacketDetail>(`/matters/${matterId}/review-packets/${packetId}`),
+    listComments: (matterId) => call<MatterComment[]>(`/matters/${matterId}/comments`),
+    createComment: (matterId, input) =>
+      call<MatterComment>(`/matters/${matterId}/comments`, { method: 'POST', body: input }),
+    listClarifications: (matterId) => call<Clarification[]>(`/matters/${matterId}/clarifications`),
+    createClarification: (matterId, input) =>
+      call<Clarification>(`/matters/${matterId}/clarifications`, {
+        method: 'POST',
+        body: input,
+      }),
+    respondClarification: (clarificationId, input) =>
+      call<Clarification>(`/clarifications/${clarificationId}/respond`, {
+        method: 'POST',
+        body: input,
+      }),
+    listGates: (matterId) => call<Gate[]>(`/matters/${matterId}/gates`),
+    createGate: (matterId, input) =>
+      call<Gate>(`/matters/${matterId}/gates`, { method: 'POST', body: input }),
+    decideGate: (gateId, input) =>
+      call<Gate>(`/gates/${gateId}/decide`, {
+        method: 'POST',
+        body: input,
+      }),
+  };
+}
+
+/**
+ * Shared browser client for the firm workspace. Uses a no-op `getToken` until
+ * the API auth integration lands (see note at the top of this file).
+ */
+export const firmApi: FirmApi = createFirmApi();

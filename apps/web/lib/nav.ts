@@ -8,6 +8,7 @@ import {
   Building2,
   ClipboardCheck,
   ClipboardList,
+  CreditCard,
   FileText,
   Flag,
   Gauge,
@@ -106,6 +107,20 @@ export const FAMILY_NAV: NavItem[] = [
     href: '/family/assets-accounts',
     icon: Wallet,
     blurb: 'What you own and where it lives.',
+  },
+  {
+    slug: 'assets',
+    label: 'Assets',
+    href: '/family/assets',
+    icon: Wallet,
+    blurb: 'Your assets, their values, and beneficiaries.',
+  },
+  {
+    slug: 'liabilities',
+    label: 'Liabilities',
+    href: '/family/liabilities',
+    icon: CreditCard,
+    blurb: 'Debts and recurring obligations.',
   },
   {
     slug: 'documents',

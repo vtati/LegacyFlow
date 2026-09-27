@@ -46,13 +46,31 @@ def create_matter(
 def list_matters(
     claims: Annotated[Claims, Depends(get_current_user)],
     status: Annotated[str | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    jurisdiction_code: Annotated[str | None, Query(max_length=16)] = None,
+    assigned_to: Annotated[str | None, Query()] = None,
+    limit: Annotated[int | None, Query(ge=1, le=100)] = None,
+    offset: Annotated[int | None, Query(ge=0)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> MatterListResponse:
-    """List matters visible to the caller (paginated)."""
+    """List matters visible to the caller (paginated).
+
+    ``q`` searches matter title and client (household) name; ``limit``/``offset``
+    (defaults 20/0) take precedence over the legacy ``page``/``page_size`` pair.
+    """
+    effective_limit = limit if limit is not None else page_size
+    effective_offset = offset if offset is not None else (page - 1) * page_size
     with db.transaction() as conn:
         return service.list_matters(
-            conn, actor_sub=claims.sub, status=status, page=page, page_size=page_size
+            conn,
+            actor_sub=claims.sub,
+            status=status,
+            q=q,
+            jurisdiction_code=jurisdiction_code,
+            assigned_to=assigned_to,
+            limit=effective_limit,
+            offset=effective_offset,
         )
 
 

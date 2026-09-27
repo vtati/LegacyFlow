@@ -90,16 +90,16 @@ class ConflictError(AppError):
 class ApprovalGateRequiredError(ConflictError):
     """A state transition needs a recorded attorney approval gate (HTTP 409).
 
-    The machine-readable ``code`` is ``approval_gate_required``. Approval
-    gates land in Slice 3; until then every gated transition is rejected
-    with this error.
+    The machine-readable ``code`` is ``approval_gate_required``. Slice 3
+    records gates in ``approval_gates``; transitions whose gate type has a
+    recorded ``approved`` gate proceed, others fail closed here.
     """
 
     type = "urn:legacyflow:error:approval_gate_required"
     title = "Approval gate required"
     detail = (
         "This transition requires a recorded attorney approval gate. "
-        "Approval gates are not yet implemented."
+        "Create and approve one via the approval-gates endpoints."
     )
 
 
