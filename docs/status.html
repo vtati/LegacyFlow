@@ -309,7 +309,7 @@
         >
         &middot; FastAPI + Dramatiq worker + Redis + 15-min reminder cron on
         Railway (project <code>legacyflow-staging</code>), database on live
-        Supabase. Login via magic link (Google OAuth disabled in Supabase).
+        Supabase. Login via email+password, magic link, or Google (Google OAuth currently disabled in Supabase).
       </div>
       <h2 class="sec">Epic overview</h2>
       <div class="epics" id="epics"></div>
@@ -460,6 +460,13 @@
           t: 'README local setup + ADR-001 + CLAUDE.md',
           s: 'done',
           fr: 'Plan §13',
+        },
+        {
+          id: 'E1.11',
+          epic: 'E1',
+          t: 'Email+password auth: sign-up, sign-in, reset flow (stays alongside Google OAuth + magic link)',
+          s: 'done',
+          fr: 'FR-AUTH-001/002',
         },
         // E2 Intake
         {
