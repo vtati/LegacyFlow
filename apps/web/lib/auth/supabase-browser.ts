@@ -49,12 +49,15 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
       } = await supabase.auth.getSession();
       if (error) throw error;
       if (!session?.user) return null;
+      // Supabase reports 'google' for OAuth and 'email' for password/magic-link
+      // sign-ins via app_metadata.provider — surface the real one.
+      const rawProvider = session.user.app_metadata?.['provider'];
       return {
         user: {
           id: session.user.id,
           email: session.user.email ?? null,
           displayName: session.user.user_metadata?.['full_name'] ?? session.user.email ?? null,
-          provider: 'google',
+          provider: rawProvider === 'google' ? 'google' : 'email',
         },
         expiresAt: new Date((session.expires_at ?? 0) * 1000).toISOString(),
       };

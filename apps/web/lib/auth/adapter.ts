@@ -7,7 +7,7 @@ export interface AuthUser {
   id: string;
   email: string | null;
   displayName: string | null;
-  provider: 'google' | 'magic-link' | 'mock';
+  provider: 'google' | 'email' | 'mock';
 }
 
 export interface AuthSession {

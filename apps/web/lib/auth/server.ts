@@ -40,12 +40,13 @@ export async function getServerSession(): Promise<AuthSession | null> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
+  const rawProvider = user.app_metadata?.['provider'];
   return {
     user: {
       id: user.id,
       email: user.email ?? null,
       displayName: (user.user_metadata?.['full_name'] as string | undefined) ?? user.email ?? null,
-      provider: 'google',
+      provider: rawProvider === 'google' ? 'google' : 'email',
     },
     expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   };
