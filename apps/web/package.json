@@ -42,7 +42,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "e2e": "playwright test",
+    "e2e": "pnpm --filter @legacyflow/web^... build && playwright test",
     "lint": "eslint .",
     "start": "next start",
     "test": "vitest run",
