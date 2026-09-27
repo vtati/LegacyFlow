@@ -1,4 +1,4 @@
-# LegacyFlow CI — install, format/lint, typecheck, tests, migration validation, secrets.
+LegacyFlow CI — install, format/lint, typecheck, tests, migration validation, secrets.
 name: CI
 
 on:
@@ -95,10 +95,16 @@ jobs:
           done
           psql "$DATABASE_URL" -c "\dt" | grep -E "matters|audit_events" || exit 1
 
-  live-supabase:
+    live-supabase:
     name: RLS tests (live Supabase)
     runs-on: ubuntu-latest
-    if: ${{ secrets.SUPABASE_URL != '' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      LIVE_TEST_USER_A_EMAIL: ${{ secrets.LIVE_TEST_USER_A_EMAIL }}
+      LIVE_TEST_USER_A_PASSWORD: ${{ secrets.LIVE_TEST_USER_A_PASSWORD }}
+      LIVE_TEST_USER_B_EMAIL: ${{ secrets.LIVE_TEST_USER_B_EMAIL }}
+      LIVE_TEST_USER_B_PASSWORD: ${{ secrets.LIVE_TEST_USER_B_PASSWORD }}
     defaults:
       run:
         working-directory: supabase
@@ -108,14 +114,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest httpx
-      - run: pytest tests/test_rls_live.py -q
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          LIVE_TEST_USER_A_EMAIL: ${{ secrets.LIVE_TEST_USER_A_EMAIL }}
-          LIVE_TEST_USER_A_PASSWORD: ${{ secrets.LIVE_TEST_USER_A_PASSWORD }}
-          LIVE_TEST_USER_B_EMAIL: ${{ secrets.LIVE_TEST_USER_B_EMAIL }}
-          LIVE_TEST_USER_B_PASSWORD: ${{ secrets.LIVE_TEST_USER_B_PASSWORD }}
+      - name: Live RLS allow/deny tests
+        if: ${{ env.SUPABASE_URL != '' }}
+        run: pytest tests/test_rls_live.py -q
 
   secrets:
     name: Secret scanning
