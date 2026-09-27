@@ -845,8 +845,7 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         body: { question } satisfies AiAskInput,
       }),
     /* documents (demo, family-visible) */
-    listDemoDocuments: (matterId) =>
-      call<DemoDocument[]>(`/matters/${matterId}/document-versions`),
+    listDemoDocuments: (matterId) => call<DemoDocument[]>(`/matters/${matterId}/document-versions`),
     downloadDemoDocument: (downloadUrl: string) => {
       // Backend returns "/v1/document-versions/{id}/download"; strip the /v1 prefix
       // since apiFetchBlob adds it.
@@ -1004,8 +1003,7 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
         body: { question } satisfies AiAskInput,
       }),
     /* documents */
-    listTemplates: () =>
-      call<DocumentTemplate[]>(`/document-templates`),
+    listTemplates: () => call<DocumentTemplate[]>(`/document-templates`),
     listPackages: (matterId) => call<DocumentPackage[]>(`/matters/${matterId}/document-packages`),
     createPackage: (matterId, input) =>
       call<DocumentPackage>(`/matters/${matterId}/document-packages`, {

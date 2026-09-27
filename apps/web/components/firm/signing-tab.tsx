@@ -79,8 +79,8 @@ export function SigningTab({ matterId }: { matterId: string }): React.JSX.Elemen
         <CardHeader>
           <CardTitle>Signing checklist</CardTitle>
           <CardDescription>
-            Profile {checklist.execution_profile_id} · {attested} of {total} requirements attested by the
-            client.
+            Profile {checklist.execution_profile_id} · {attested} of {total} requirements attested
+            by the client.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -88,7 +88,9 @@ export function SigningTab({ matterId }: { matterId: string }): React.JSX.Elemen
             Witnesses required:{' '}
             <strong className="text-lf-text">{getWitnessCount(checklist.requirements)}</strong>
             {' · '}Notary required:{' '}
-            <strong className="text-lf-text">{isNotaryRequired(checklist.requirements) ? 'Yes' : 'No'}</strong>
+            <strong className="text-lf-text">
+              {isNotaryRequired(checklist.requirements) ? 'Yes' : 'No'}
+            </strong>
           </p>
           {checklist.items.length === 0 ? (
             <EmptyState
@@ -114,9 +116,7 @@ export function SigningTab({ matterId }: { matterId: string }): React.JSX.Elemen
                     )}
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-lf-text">{item.label}</p>
-                      {item.detail && (
-                        <p className="text-sm text-lf-text-muted">{item.detail}</p>
-                      )}
+                      {item.detail && <p className="text-sm text-lf-text-muted">{item.detail}</p>}
                       <p className="mt-0.5 text-xs text-lf-text-subtle">
                         {attestedAt ? `Attested ${formatDateTime(attestedAt)}` : 'Not yet attested'}
                       </p>

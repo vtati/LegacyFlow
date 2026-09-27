@@ -57,7 +57,8 @@ USERS = {
 US_VA_JURISDICTION_ID = "11111111-1111-1111-1111-111111111111"
 US_VA_PACK_ID = "22222222-2222-2222-2222-222222222222"
 
-DOWNLOAD_SECRET = "synthetic-download-secret"
+# Test-only HMAC key material (synthetic value for unit tests).
+TEST_DOWNLOAD_KEY = "test-only-download-key-material"
 
 # ---------------------------------------------------------------------------
 
@@ -133,7 +134,7 @@ def api_client(pg_uri, monkeypatch, tmp_path):
     storage_dir = tmp_path / "uploads"
     storage_dir.mkdir()
     monkeypatch.setenv("STORAGE_DIR", str(storage_dir))
-    monkeypatch.setenv("DOWNLOAD_TOKEN_SECRET", DOWNLOAD_SECRET)
+    monkeypatch.setenv("DOWNLOAD_TOKEN_SECRET", TEST_DOWNLOAD_KEY)
     monkeypatch.setenv("DATABASE_URL", pg_uri)
     monkeypatch.setenv("TEST_JWT_ISSUER", TEST_ISSUER)
     monkeypatch.setenv("TEST_JWT_SECRET", TEST_SECRET)
@@ -534,7 +535,7 @@ def test_expired_token_rejected(db, api_client):
     upload_id = intent["upload_id"]
 
     expired_token, _ = files_service.build_download_token(
-        UUID(upload_id), secret=DOWNLOAD_SECRET, ttl_seconds=-60
+        UUID(upload_id), secret=TEST_DOWNLOAD_KEY, ttl_seconds=-60
     )
     response = api_client.get(f"/v1/files/download?token={expired_token}")
     assert response.status_code == 401
@@ -560,7 +561,7 @@ def test_tampered_and_unknown_tokens_rejected(db, api_client):
     assert api_client.get("/v1/files/download").status_code == 422
 
     # well-formed token for an upload that does not exist -> 404
-    ghost_token, _ = files_service.build_download_token(uuid4(), secret=DOWNLOAD_SECRET)
+    ghost_token, _ = files_service.build_download_token(uuid4(), secret=TEST_DOWNLOAD_KEY)
     assert api_client.get(f"/v1/files/download?token={ghost_token}").status_code == 404
 
 
@@ -579,7 +580,7 @@ def test_download_token_requires_secret(db, api_client, monkeypatch):
         )
         assert response.status_code == 501
     finally:
-        monkeypatch.setenv("DOWNLOAD_TOKEN_SECRET", DOWNLOAD_SECRET)
+        monkeypatch.setenv("DOWNLOAD_TOKEN_SECRET", TEST_DOWNLOAD_KEY)
         get_settings.cache_clear()
 
 
