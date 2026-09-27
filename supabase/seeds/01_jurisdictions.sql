@@ -55,6 +55,7 @@ values (
       "minimum_platform_version": "1.0.0",
       "required_question_set_versions": {
         "household": "1.0.0",
+        "guardians": "1.0.0",
         "assets": "1.0.0"
       }
     },
@@ -75,14 +76,16 @@ values (
       }
     ]
   }'::jsonb,
-  'synthetic-dev-only'
+  '4667574458e5de9ac67e06ef0827afec7dc4c975f37d6eab73d5b3e830e37589'
 )
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- US-XZ — Synthetic Xanadu (TEST ONLY)
--- Visibly different config from VA: education/eligibility_triage/funding off,
--- execution_guidance disabled, and a 9.9.9-test question set version.
+-- Visibly different config from VA without code changes: fewer question
+-- sets (household only vs household/guardians/assets), a distinct source id
+-- namespace, and a different pack id / display name. Manifest mirrors
+-- content-packs/us-xz-synthetic/v1/manifest.yaml.
 -- ---------------------------------------------------------------------------
 insert into jurisdictions (id, country_code, subdivision_code, display_name, jurisdiction_type, is_enabled)
 values (
@@ -106,7 +109,7 @@ values (
       "id": "us-xz-synthetic",
       "country_code": "US",
       "subdivision_code": "XZ",
-      "display_name": "Synthetic Xanadu (TEST ONLY)",
+      "display_name": "Xanadu (synthetic test jurisdiction)",
       "semantic_version": "1.0.0",
       "status": "internal_testing",
       "effective_from": "2026-09-26"
@@ -118,30 +121,29 @@ values (
     },
     "capabilities": {
       "intake": true,
-      "education": false,
-      "eligibility_triage": false,
+      "education": true,
+      "eligibility_triage": true,
       "attorney_review": true,
       "document_assembly": false,
-      "execution_guidance": "disabled",
-      "funding_guidance": false
+      "execution_guidance": "attorney_pending",
+      "funding_guidance": true
     },
     "requirements": {
       "minimum_platform_version": "1.0.0",
       "required_question_set_versions": {
-        "household": "9.9.9-test",
-        "assets": "9.9.9-test"
+        "household": "1.0.0"
       }
     },
     "sources": [
       {
-        "source_id": "xz-synthetic-fixture",
+        "source_id": "xz-synthetic-statute",
         "authority_type": "other",
-        "citation": "Synthetic fixture — no legal authority",
+        "citation": "XZ Synthetic Code § 000.000 (test fixture, not law)",
         "source_url": null,
         "retrieved_on": "2026-09-26"
       }
     ]
   }'::jsonb,
-  'synthetic-dev-only'
+  '6c2df4a1e614ed5b6dd874c5234c7ee0ff380f89771afc47e4f1f01ef4a53198'
 )
 on conflict (id) do nothing;

@@ -276,7 +276,9 @@ def _tokenize(expression: str) -> list[tuple[str, str]]:
     while pos < len(expression):
         match = _TOKEN_RE.match(expression, pos)
         if not match or match.end() == pos:
-            raise ValueError(f"Cannot tokenize rule expression near: {expression[pos:pos+20]!r}")
+            raise ValueError(
+                f"Cannot tokenize rule expression near: {expression[pos : pos + 20]!r}"
+            )
         kind = match.lastgroup or "ws"
         text = match.group()
         pos = match.end()

@@ -25,7 +25,7 @@ import uuid
 import pytest
 
 SUPABASE_DIR = pathlib.Path(__file__).resolve().parent.parent
-MIGRATION_FILE = SUPABASE_DIR / "migrations" / "20260926220000_foundation_slice1.sql"
+MIGRATIONS_DIR = SUPABASE_DIR / "migrations"
 SEED_FILE = SUPABASE_DIR / "seeds" / "01_jurisdictions.sql"
 
 # ---------------------------------------------------------------------------
@@ -89,8 +89,10 @@ def db(db_url):
                 as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;
                 """
             )
-            # --- migration + seeds (seeds applied twice: idempotency check)
-            cur.execute(MIGRATION_FILE.read_text())
+            # --- migrations (all, in filename order — mirrors CI) + seeds
+            # (seeds applied twice: idempotency check)
+            for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                cur.execute(migration.read_text())
             cur.execute(SEED_FILE.read_text())
             cur.execute(SEED_FILE.read_text())
             cur.execute(
@@ -152,8 +154,8 @@ def db(db_url):
             cur.execute(
                 "insert into matters (id, firm_id, household_id, primary_jurisdiction_id, "
                 "jurisdiction_pack_id, plan_type, status, assigned_attorney_id) values "
-                "(%s, %s, %s, %s, %s, 'will', 'intake', %s), "
-                "(%s, %s, %s, %s, %s, 'will', 'intake', %s)",
+                "(%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS', %s), "
+                "(%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS', %s)",
                 (
                     MATTER_A, FIRM_A, HOUSEHOLD_A, VA_JURISDICTION, VA_PACK, USER_A,
                     MATTER_B, FIRM_B, HOUSEHOLD_B, VA_JURISDICTION, VA_PACK, USER_B,
@@ -161,8 +163,8 @@ def db(db_url):
             )
             cur.execute(
                 "insert into matter_status_history (matter_id, from_status, to_status, reason_code, actor_user_id) values "
-                "(%s, null, 'intake', 'created', %s), "
-                "(%s, null, 'intake', 'created', %s)",
+                "(%s, null, 'INTAKE_IN_PROGRESS', 'created', %s), "
+                "(%s, null, 'INTAKE_IN_PROGRESS', 'created', %s)",
                 (MATTER_A, USER_A, MATTER_B, USER_B),
             )
             cur.execute(

@@ -7,6 +7,7 @@ jurisdiction).
 
 import pytest
 
+from app.core.errors import ValidationAppError
 from app.domains.legal_content.pack_loader import (
     evaluate_rule_expression,
     get_pack,
@@ -18,8 +19,6 @@ from app.domains.matters.state_machine import (
     gate_required_for,
     validate_transition,
 )
-from app.core.errors import ValidationAppError
-
 
 # ---------------------------------------------------------------------------
 # State machine
@@ -99,9 +98,7 @@ def test_missing_facts_fail_closed():
 
 def test_dotted_lookup():
     facts = {"assets": {"real_property_outside_jurisdiction": True}}
-    assert evaluate_rule_expression(
-        "assets.real_property_outside_jurisdiction == true", facts
-    )
+    assert evaluate_rule_expression("assets.real_property_outside_jurisdiction == true", facts)
 
 
 def test_malformed_expression_rejected():

@@ -48,8 +48,7 @@ def get_user_firm_id(conn: Any, user_id: UUID) -> UUID:
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT firm_id FROM firm_memberships"
-            " WHERE user_id = %s AND status = 'active'",
+            "SELECT firm_id FROM firm_memberships WHERE user_id = %s AND status = 'active'",
             (str(user_id),),
         )
         rows = cur.fetchall()
@@ -108,7 +107,9 @@ def get_matter_scope(conn: Any, matter_id: UUID, user_id: UUID) -> MatterScope:
 
         firm_role = get_firm_role(conn, user_id, firm_id)
         if firm_role is not None:
-            return MatterScope(matter=dict(matter), via="firm", firm_role=firm_role, household_role=None)
+            return MatterScope(
+                matter=dict(matter), via="firm", firm_role=firm_role, household_role=None
+            )
 
         cur.execute(
             "SELECT relationship_role FROM household_members"

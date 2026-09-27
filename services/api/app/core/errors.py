@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+_ERROR_URN_PREFIX = "urn:legacyflow:error:"
+
 
 class AppError(Exception):
     """Base application error carrying an RFC 7807 problem detail."""
@@ -18,6 +20,16 @@ class AppError(Exception):
         self.detail = detail or self.detail
         self.request_id = request_id or uuid.uuid4().hex
 
+    @property
+    def code(self) -> str:
+        """Machine-readable code: the ``type`` URN suffix.
+
+        ``urn:legacyflow:error:approval_gate_required`` -> ``approval_gate_required``.
+        """
+        if self.type.startswith(_ERROR_URN_PREFIX):
+            return self.type[len(_ERROR_URN_PREFIX) :]
+        return self.type
+
     def to_response(self) -> dict[str, str | int]:
         """Serialize as an RFC 7807 problem-details object."""
         return {
@@ -25,6 +37,7 @@ class AppError(Exception):
             "title": self.title,
             "status": self.status,
             "detail": self.detail,
+            "code": self.code,
             "request_id": self.request_id,
         }
 
@@ -63,6 +76,40 @@ class ValidationAppError(AppError):
     title = "Validation failed"
     status = 422
     detail = "The request failed validation."
+
+
+class ConflictError(AppError):
+    """Request conflicts with current resource state (HTTP 409)."""
+
+    type = "urn:legacyflow:error:conflict"
+    title = "Conflict"
+    status = 409
+    detail = "The request conflicts with the current state of the resource."
+
+
+class ApprovalGateRequiredError(ConflictError):
+    """A state transition needs a recorded attorney approval gate (HTTP 409).
+
+    The machine-readable ``code`` is ``approval_gate_required``. Approval
+    gates land in Slice 3; until then every gated transition is rejected
+    with this error.
+    """
+
+    type = "urn:legacyflow:error:approval_gate_required"
+    title = "Approval gate required"
+    detail = (
+        "This transition requires a recorded attorney approval gate. "
+        "Approval gates are not yet implemented."
+    )
+
+
+class GoneError(AppError):
+    """Resource is no longer available (HTTP 410)."""
+
+    type = "urn:legacyflow:error:gone"
+    title = "Gone"
+    status = 410
+    detail = "The requested resource is no longer available."
 
 
 class ConfigurationError(AppError):

@@ -88,7 +88,7 @@ def test_cross_firm_matter_insert_denied(db):
             cur.execute(
                 "insert into matters (firm_id, household_id, primary_jurisdiction_id, "
                 "jurisdiction_pack_id, plan_type, status) "
-                "values (%s, %s, %s, %s, 'will', 'intake')",
+                "values (%s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS')",
                 (FIRM_B, HOUSEHOLD_B, VA_JURISDICTION, VA_PACK),
             )
 
@@ -100,7 +100,7 @@ def test_own_firm_matter_insert_allowed(db):
         cur.execute(
             "insert into matters (id, firm_id, household_id, primary_jurisdiction_id, "
             "jurisdiction_pack_id, plan_type, status) "
-            "values (%s, %s, %s, %s, %s, 'will', 'intake')",
+            "values (%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS')",
             (new_id, FIRM_A, HOUSEHOLD_A, VA_JURISDICTION, VA_PACK),
         )
         cur.execute("select count(*) from matters where id = %s", (new_id,))
@@ -114,7 +114,7 @@ def test_household_member_cannot_insert_matter(db):
             cur.execute(
                 "insert into matters (firm_id, household_id, primary_jurisdiction_id, "
                 "jurisdiction_pack_id, plan_type, status) "
-                "values (%s, %s, %s, %s, 'will', 'intake')",
+                "values (%s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS')",
                 (FIRM_A, HOUSEHOLD_A, VA_JURISDICTION, VA_PACK),
             )
 
@@ -200,31 +200,41 @@ def test_jurisdiction_reference_readable_not_writable(db):
 
 def test_packs_distinguishable_by_config(db):
     """§12.2 scenario 6: VA vs synthetic XZ packs differ by *config* —
-    application code must read the manifest, never hard-code state behavior."""
+    application code must read the manifest, never hard-code state behavior.
+
+    Slice 2 syncs the pack manifests to the YAML files under content-packs/
+    (us-va v0.1.0, us-xz-synthetic v1.0.0); the distinguishing fields below
+    come from those files.
+    """
     with as_user(db, USER_A) as cur:
         cur.execute(
             "select manifest->'pack'->>'display_name', "
-            "       (manifest->'capabilities'->>'education')::boolean, "
-            "       manifest->'capabilities'->>'execution_guidance', "
-            "       manifest->'requirements'->'required_question_set_versions'->>'household' "
+            "       manifest->'requirements'->'required_question_set_versions'->>'household', "
+            "       manifest->'requirements'->'required_question_set_versions'->>'guardians', "
+            "       manifest->'requirements'->'required_question_set_versions'->>'assets', "
+            "       jsonb_array_length(manifest->'sources'), "
+            "       manifest->'sources'->0->>'source_id' "
             "from jurisdiction_packs where id = %s",
             (VA_PACK,),
         )
         va = cur.fetchone()
         cur.execute(
             "select manifest->'pack'->>'display_name', "
-            "       (manifest->'capabilities'->>'education')::boolean, "
-            "       manifest->'capabilities'->>'execution_guidance', "
-            "       manifest->'requirements'->'required_question_set_versions'->>'household' "
+            "       manifest->'requirements'->'required_question_set_versions'->>'household', "
+            "       manifest->'requirements'->'required_question_set_versions'->>'guardians', "
+            "       manifest->'requirements'->'required_question_set_versions'->>'assets', "
+            "       jsonb_array_length(manifest->'sources'), "
+            "       manifest->'sources'->0->>'source_id' "
             "from jurisdiction_packs where id = %s",
             (XZ_PACK,),
         )
         xz = cur.fetchone()
-    assert va[0] == "Virginia" and va[1] is True and va[2] == "attorney_pending"
-    assert va[3] == "1.0.0"
-    assert xz[0] == "Synthetic Xanadu (TEST ONLY)" and xz[1] is False and xz[2] == "disabled"
-    assert xz[3] == "9.9.9-test"
-    assert va[1:] != xz[1:]
+        cur.execute("select manifest from jurisdiction_packs where id in (%s, %s)", (VA_PACK, XZ_PACK))
+        manifests = [r[0] for r in cur.fetchall()]
+    assert va == ("Virginia", "1.0.0", "1.0.0", "1.0.0", 2, "va-code-will-execution")
+    assert xz == ("Xanadu (synthetic test jurisdiction)", "1.0.0", None, None, 1, "xz-synthetic-statute")
+    assert va != xz
+    assert manifests[0] != manifests[1]
 
 
 def test_updated_at_trigger_fires(db):
@@ -238,21 +248,21 @@ def test_updated_at_trigger_fires(db):
         conn.commit()
     try:
         with as_user(db, USER_A) as cur:
-            cur.execute("update matters set status = 'intake' where id = %s", (MATTER_A,))
+            cur.execute("update matters set status = 'INTAKE_IN_PROGRESS' where id = %s", (MATTER_A,))
             assert cur.rowcount == 1
             cur.execute("select updated_at > '2000-01-01 00:00:00+00' from matters where id = %s", (MATTER_A,))
             assert cur.fetchone()[0] is True
     finally:
         # restore: trigger fires again, which is fine
         with conn.cursor() as cur:
-            cur.execute("update matters set status = 'intake' where id = %s", (MATTER_A,))
+            cur.execute("update matters set status = 'INTAKE_IN_PROGRESS' where id = %s", (MATTER_A,))
             conn.commit()
 
 
 def test_cross_firm_matter_update_is_noop(db):
     """uA's UPDATE of firm B's matter touches zero rows (deny-by-filter)."""
     with as_user(db, USER_A) as cur:
-        cur.execute("update matters set status = 'intake' where id = %s", (MATTER_B,))
+        cur.execute("update matters set status = 'INTAKE_IN_PROGRESS' where id = %s", (MATTER_B,))
         assert cur.rowcount == 0
 
 

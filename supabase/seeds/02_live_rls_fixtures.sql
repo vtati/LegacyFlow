@@ -61,8 +61,56 @@ begin
     (id, jurisdiction_id, version, status, effective_from, manifest, source_bundle_hash)
   values (
     v_va_pack, v_va_jur, '0.1.0', 'internal_testing', date '2026-09-26',
-    '{"pack": {"id": "us-va", "note": "minimal fixture row for live RLS tests"}}',
-    'fixture-no-real-bundle'
+    '{
+      "pack": {
+        "id": "us-va",
+        "country_code": "US",
+        "subdivision_code": "VA",
+        "display_name": "Virginia",
+        "semantic_version": "0.1.0",
+        "status": "internal_testing",
+        "effective_from": "2026-09-26"
+      },
+      "governance": {
+        "legal_content_owner_type": "attorney_or_firm",
+        "review_status": "pending",
+        "approved_by": null
+      },
+      "capabilities": {
+        "intake": true,
+        "education": true,
+        "eligibility_triage": true,
+        "attorney_review": true,
+        "document_assembly": false,
+        "execution_guidance": "attorney_pending",
+        "funding_guidance": true
+      },
+      "requirements": {
+        "minimum_platform_version": "1.0.0",
+        "required_question_set_versions": {
+          "household": "1.0.0",
+          "guardians": "1.0.0",
+          "assets": "1.0.0"
+        }
+      },
+      "sources": [
+        {
+          "source_id": "va-code-will-execution",
+          "authority_type": "statute",
+          "citation": "Va. Code § 64.2-403",
+          "source_url": "https://law.lis.virginia.gov/vacode/title64.2/chapter2/section64.2-403/",
+          "retrieved_on": "2026-09-26"
+        },
+        {
+          "source_id": "va-code-advance-directive",
+          "authority_type": "statute",
+          "citation": "Va. Code § 54.1-2983 and § 54.1-2984",
+          "source_url": "https://law.lis.virginia.gov/vacode/title54.1/chapter29/section54.1-2984/",
+          "retrieved_on": "2026-09-26"
+        }
+      ]
+    }'::jsonb,
+    '0c747be4bdd50f569998af226fdc10b46604185e064b887bb89afc10bf4c9a4a'
   )
   on conflict (id) do nothing;
 
@@ -99,8 +147,8 @@ begin
     (id, firm_id, household_id, primary_jurisdiction_id, jurisdiction_pack_id,
      plan_type, status, assigned_attorney_id)
   values
-    (v_matter_a, v_firm_a, v_household_a, v_va_jur, v_va_pack, 'will', 'intake', v_user_a),
-    (v_matter_b, v_firm_b, v_household_b, v_va_jur, v_va_pack, 'will', 'intake', v_user_b)
+    (v_matter_a, v_firm_a, v_household_a, v_va_jur, v_va_pack, 'will', 'INTAKE_IN_PROGRESS', v_user_a),
+    (v_matter_b, v_firm_b, v_household_b, v_va_jur, v_va_pack, 'will', 'INTAKE_IN_PROGRESS', v_user_b)
   on conflict (id) do nothing;
 
   -- --- audit events (one per firm; insert only once) ---

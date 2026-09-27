@@ -8,10 +8,24 @@ Callers are responsible for redacting before calling.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID, uuid4
 
-import json
+
+def correlation_id_from_request_id(value: str | None) -> UUID | None:
+    """Convert a middleware request id (``request.state.request_id``) to the
+    UUID stored on ``audit_events.correlation_id``.
+
+    Returns ``None`` when the value is missing or not UUID-shaped so audit
+    writes never fail on a malformed correlation value.
+    """
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except ValueError:
+        return None
 
 
 def record_audit_event(

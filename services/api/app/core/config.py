@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     TEST_JWT_ISSUER: str | None = None
     TEST_JWT_SECRET: str | None = None
     API_ENV: str = "development"
+    # Deployment environment name. Invitation accept tokens are returned in
+    # API responses only when this is not "production" (Slice 2).
+    ENVIRONMENT: str = "development"
 
     @property
     def jwks_url(self) -> str | None:

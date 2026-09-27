@@ -17,7 +17,7 @@ from enum import Enum
 from app.core.errors import ValidationAppError
 
 
-class MatterStatus(str, Enum):
+class MatterStatus(str, Enum):  # noqa: UP042 -- str-mixin keeps .value semantics stable
     """Controlled matter lifecycle states."""
 
     DRAFT = "DRAFT"
@@ -36,8 +36,10 @@ class MatterStatus(str, Enum):
 
 _TRANSITIONS: dict[MatterStatus, frozenset[MatterStatus]] = {
     MatterStatus.DRAFT: frozenset({MatterStatus.INTAKE_IN_PROGRESS, MatterStatus.ARCHIVED}),
+    # A blocking escalation discovered during intake routes the matter to
+    # ESCALATED for attorney disposition (Slice 2 guided intake).
     MatterStatus.INTAKE_IN_PROGRESS: frozenset(
-        {MatterStatus.INTAKE_SUBMITTED, MatterStatus.ARCHIVED}
+        {MatterStatus.INTAKE_SUBMITTED, MatterStatus.ESCALATED, MatterStatus.ARCHIVED}
     ),
     MatterStatus.INTAKE_SUBMITTED: frozenset(
         {MatterStatus.ATTORNEY_REVIEW, MatterStatus.ESCALATED, MatterStatus.ARCHIVED}
@@ -51,7 +53,7 @@ _TRANSITIONS: dict[MatterStatus, frozenset[MatterStatus]] = {
         }
     ),
     MatterStatus.CLARIFICATION_REQUESTED: frozenset(
-        {MatterStatus.ATTORNEY_REVIEW, MatterStatus.ARCHIVED}
+        {MatterStatus.ATTORNEY_REVIEW, MatterStatus.ESCALATED, MatterStatus.ARCHIVED}
     ),
     MatterStatus.ESCALATED: frozenset({MatterStatus.ATTORNEY_REVIEW, MatterStatus.ARCHIVED}),
     MatterStatus.APPROVED_FOR_ASSEMBLY: frozenset(
@@ -68,9 +70,7 @@ _TRANSITIONS: dict[MatterStatus, frozenset[MatterStatus]] = {
     ),
     # Annual checkup / life-event updates can route an implemented plan back
     # through attorney review (FR-FUND-005).
-    MatterStatus.PLAN_IMPLEMENTED: frozenset(
-        {MatterStatus.ATTORNEY_REVIEW, MatterStatus.ARCHIVED}
-    ),
+    MatterStatus.PLAN_IMPLEMENTED: frozenset({MatterStatus.ATTORNEY_REVIEW, MatterStatus.ARCHIVED}),
     MatterStatus.ARCHIVED: frozenset(),
 }
 
@@ -82,24 +82,30 @@ GATE_REQUIRED: dict[tuple[MatterStatus, MatterStatus], str] = {
 }
 
 
+def _coerce_status(value: MatterStatus | str) -> MatterStatus:
+    """Return the enum member or raise a 422-style error for unknown states."""
+    try:
+        return MatterStatus(value)
+    except ValueError as exc:
+        raise ValidationAppError(f"Unknown matter status: {value!r}.") from exc
+
+
 def allowed_transitions(from_status: MatterStatus | str) -> list[str]:
     """Return the valid target states for ``from_status``."""
-    current = MatterStatus(from_status)
+    current = _coerce_status(from_status)
     return sorted(t.value for t in _TRANSITIONS[current])
 
 
 def validate_transition(from_status: MatterStatus | str, to_status: MatterStatus | str) -> None:
     """Raise :class:`ValidationAppError` when the transition is not allowed."""
-    current = MatterStatus(from_status)
-    target = MatterStatus(to_status)
+    current = _coerce_status(from_status)
+    target = _coerce_status(to_status)
     if target not in _TRANSITIONS[current]:
         raise ValidationAppError(
             f"Transition from {current.value} to {target.value} is not allowed."
         )
 
 
-def gate_required_for(
-    from_status: MatterStatus | str, to_status: MatterStatus | str
-) -> str | None:
+def gate_required_for(from_status: MatterStatus | str, to_status: MatterStatus | str) -> str | None:
     """Return the approval-gate type required for a transition, if any."""
-    return GATE_REQUIRED.get((MatterStatus(from_status), MatterStatus(to_status)))
+    return GATE_REQUIRED.get((_coerce_status(from_status), _coerce_status(to_status)))
