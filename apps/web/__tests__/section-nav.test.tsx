@@ -5,12 +5,12 @@ import { SectionNav } from '../components/section-nav';
 import { FAMILY_NAV } from '../lib/nav';
 
 describe('SectionNav (family)', () => {
-  it('renders all 9 family nav items (§5.5)', () => {
+  it('renders all 14 family nav items (§5.5)', () => {
     render(<SectionNav section="family" />);
     const nav = screen.getByRole('navigation', { name: 'family navigation' });
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(FAMILY_NAV.length);
-    expect(FAMILY_NAV).toHaveLength(9);
+    expect(FAMILY_NAV).toHaveLength(14);
     for (const item of FAMILY_NAV) {
       expect(within(nav).getByRole('link', { name: item.label })).toBeDefined();
     }
