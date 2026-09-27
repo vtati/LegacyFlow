@@ -9,10 +9,12 @@ supabase/
 ├── migrations/
 │   └── 20260926220000_foundation_slice1.sql   # schema + triggers + RLS
 ├── seeds/
-│   └── 01_jurisdictions.sql                  # US-VA + synthetic US-XZ packs
+│   ├── 01_jurisdictions.sql                  # US-VA + synthetic US-XZ packs
+│   └── 02_live_rls_fixtures.sql              # live-project RLS fixtures (dashboard)
 ├── tests/
 │   ├── conftest.py                           # DB bootstrap + auth shim + fixtures
-│   └── test_rls.py                           # RLS allow/deny integration tests
+│   ├── test_rls.py                           # RLS allow/deny integration tests (local DB)
+│   └── test_rls_live.py                      # RLS allow/deny tests vs live project (PostgREST)
 └── README.md
 ```
 
@@ -106,3 +108,44 @@ The CI job for `supabase/` should:
 Migration hygiene: one forward-only migration per change, never edit a
 shipped migration file; new tables get `ENABLE ROW LEVEL SECURITY` and an
 explicit deny-path test before merge.
+
+## Live-project targeting (RLS verification end to end)
+
+`test_rls.py` proves the policies against a local database. `test_rls_live.py`
+proves them against the real Supabase project through PostgREST, where
+`auth.uid()` resolves from actual user JWTs. Sandbox/CI never applies SQL
+to the live project — a human applies it in the dashboard, then the tests run.
+
+**One-time provisioning (project owner, dashboard):**
+
+1. SQL editor: run `supabase/migrations/20260926220000_foundation_slice1.sql`.
+2. SQL editor: run `supabase/seeds/01_jurisdictions.sql`.
+3. Authentication → Users: create two synthetic users (auto-confirm email,
+   set passwords), e.g. `slice1-rls-a@example.test` and
+   `slice1-rls-b@example.test`.
+4. SQL editor: run `supabase/seeds/02_live_rls_fixtures.sql` (idempotent;
+   creates two firms, profiles, memberships, households, matters, audit
+   events with fixed synthetic UUIDs).
+
+**Run the live tests (locally or CI):**
+
+```bash
+export SUPABASE_URL="https://<ref>.supabase.co"
+export SUPABASE_ANON_KEY="<anon key>"
+export LIVE_TEST_USER_A_EMAIL="slice1-rls-a@example.test"
+export LIVE_TEST_USER_A_PASSWORD="<chosen password>"
+export LIVE_TEST_USER_B_EMAIL="slice1-rls-b@example.test"
+export LIVE_TEST_USER_B_PASSWORD="<chosen password>"
+python3 -m pytest supabase/tests/test_rls_live.py -v
+```
+
+The suite authenticates each user via `/auth/v1/token?grant_type=password`
+and asserts, through the anon key + user bearer tokens: each user sees only
+their firm's firms/matters/roster/audit rows, explicit cross-firm filters
+return nothing, unauthenticated access sees no protected rows, cross-firm
+and firm inserts are denied, and authenticated reference-data reads succeed.
+Write-denied attempts leave no residue (RLS rejects before insert).
+
+Any missing prerequisite (env vars, users, migrations) produces a precise
+skip message instead of a failure — the suite stays green in CI until the
+live project is provisioned. Once provisioned, every test must pass.

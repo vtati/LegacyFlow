@@ -70,7 +70,7 @@
   <h1>LegacyFlow — Build Status Board</h1>
   <p>Live build tracker for the attorney-enabled estate-planning platform. Epics follow the 12-week implementation plan; stories map to PRD requirement IDs. Updated at every build milestone.</p>
   <div class="meta">
-    <span>Last updated: <b id="updated">2026-09-26</b></span>
+    <span>Last updated: <b id="updated">2026-09-27</b></span>
     <span>Overall: <b id="opct">0%</b> (<span id="odone">0</span>/<span id="ototal">0</span> stories done)</span>
     <span>Source of truth: <b>docs/status.html</b> in vtati/LegacyFlow</span>
   </div>
@@ -105,8 +105,8 @@ const STORIES=[
  // E1 Foundation
  {id:"E1.1",epic:"E1",t:"Monorepo bootstrap (pnpm/Turborepo, apps, packages)",s:"done",fr:"Plan §13"},
  {id:"E1.2",epic:"E1",t:"Format/lint/typecheck/test commands + GitHub Actions CI",s:"done",fr:"Plan §13"},
- {id:"E1.3",epic:"E1",t:"Supabase migrations: profiles → audit_events (10 tables)",s:"done",fr:"§7.2"},
- {id:"E1.4",epic:"E1",t:"RLS policies + allow/deny tests (two-firm isolation)",s:"done",fr:"§7.3 · FR-AUD-001"},
+ {id:"E1.3",epic:"E1",t:"Supabase migrations applied to live project (10 tables)",s:"doing",fr:"§7.2"},
+ {id:"E1.4",epic:"E1",t:"RLS allow/deny tests vs live project, two synthetic users (two-firm isolation)",s:"doing",fr:"§7.3 · FR-AUD-001"},
  {id:"E1.5",epic:"E1",t:"FastAPI Supabase JWT verification + GET /v1/me",s:"done",fr:"FR-AUTH-001"},
  {id:"E1.6",epic:"E1",t:"Next.js login shell (Google OAuth + magic link)",s:"doing",fr:"FR-AUTH-001/002"},
  {id:"E1.7",epic:"E1",t:"Authenticated app shells (family / firm / admin nav)",s:"doing",fr:"§5.5"},

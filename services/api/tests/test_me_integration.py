@@ -84,6 +84,8 @@ def db_client(seeded_db: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     monkeypatch.setenv("TEST_JWT_ISSUER", TEST_ISSUER)
     monkeypatch.setenv("TEST_JWT_SECRET", TEST_SECRET)
     monkeypatch.setenv("SUPABASE_JWT_AUDIENCE", TEST_AUDIENCE)
+    # Service role key is required-but-empty in Slice 1 (see config.py).
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
     monkeypatch.setenv("DATABASE_URL", seeded_db)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)

@@ -48,6 +48,8 @@ def test_settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("TEST_JWT_ISSUER", TEST_ISSUER)
     monkeypatch.setenv("TEST_JWT_SECRET", TEST_SECRET)
     monkeypatch.setenv("SUPABASE_JWT_AUDIENCE", TEST_AUDIENCE)
+    # Service role key is required-but-empty in Slice 1 (see config.py).
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)

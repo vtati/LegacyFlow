@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str | None = None
     SUPABASE_JWKS_URL: str | None = None
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
+    SUPABASE_ANON_KEY: str | None = None
+    # Required-but-empty in Slice 1: the variable must be declared (deployments
+    # fail fast if it is missing) but no real value is used yet — the API makes
+    # no Supabase admin calls in this slice. Never expose it to the browser.
+    SUPABASE_SERVICE_ROLE_KEY: str
     DATABASE_URL: str | None = None
     TEST_JWT_ISSUER: str | None = None
     TEST_JWT_SECRET: str | None = None
@@ -42,4 +47,6 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the cached application settings singleton."""
-    return Settings()
+    # pydantic-settings populates required fields (e.g.
+    # SUPABASE_SERVICE_ROLE_KEY) from the environment at runtime.
+    return Settings()  # type: ignore[call-arg]

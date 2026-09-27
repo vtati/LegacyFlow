@@ -1,7 +1,10 @@
 """Supabase JWT verification.
 
-Production path: validates RS256 signatures against the Supabase JWKS
-endpoint (cached for 10 minutes), checking ``exp``, ``iss`` and ``aud``.
+Production path: validates signatures against the Supabase JWKS endpoint
+(cached for 10 minutes), checking ``exp``, ``iss`` and ``aud``. Both RSA
+(RS256) and EC (ES256) signing keys are supported — the key type is taken
+from the JWK itself, and the token's ``alg`` header must match, which
+prevents algorithm-confusion attacks.
 
 Test override: when ``TEST_JWT_ISSUER`` is configured and the token's
 unverified ``iss`` claim matches it, the token is validated as HS256 with
@@ -20,7 +23,7 @@ from typing import Any
 
 import httpx
 import jwt
-from jwt.algorithms import RSAAlgorithm
+from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 from pydantic import BaseModel, ConfigDict
 
 from app.core.config import get_settings
@@ -69,8 +72,13 @@ def _fetch_jwks(url: str) -> dict[str, Any]:
     return document
 
 
-def _signing_key_for(token: str, jwks_url: str) -> Any:
-    """Resolve the RSA public key matching the token's ``kid`` header."""
+def _signing_key_for(token: str, jwks_url: str) -> tuple[Any, str]:
+    """Resolve the public key and algorithm matching the token's ``kid``.
+
+    The algorithm comes from the JWK's ``kty`` (RSA -> RS256, EC -> ES256);
+    ``jwt.decode`` is then restricted to exactly that algorithm, so a token
+    whose ``alg`` header disagrees with its key is rejected.
+    """
     try:
         kid = jwt.get_unverified_header(token).get("kid")
     except jwt.PyJWTError as exc:
@@ -81,10 +89,15 @@ def _signing_key_for(token: str, jwks_url: str) -> Any:
     keys = document.get("keys", [])
     for jwk in keys:
         if isinstance(jwk, dict) and jwk.get("kid") == kid:
+            kty = jwk.get("kty")
             try:
-                return RSAAlgorithm.from_jwk(json.dumps(jwk))
+                if kty == "EC":
+                    return ECAlgorithm.from_jwk(json.dumps(jwk)), "ES256"
+                if kty == "RSA":
+                    return RSAAlgorithm.from_jwk(json.dumps(jwk)), "RS256"
             except Exception as exc:
                 raise AuthError("The token signing key is invalid.") from exc
+            raise AuthError("The token signing key type is not supported.")
     raise AuthError("The token signing key is not recognized.")
 
 
@@ -121,12 +134,12 @@ def verify_supabase_jwt(token: str) -> Claims:
     jwks_url = settings.jwks_url
     if jwks_url is None:
         raise AuthError("Authentication is not configured for this deployment.")
-    key = _signing_key_for(token, jwks_url)
+    key, algorithm = _signing_key_for(token, jwks_url)
     try:
         payload = jwt.decode(
             token,
             key=key,
-            algorithms=["RS256"],
+            algorithms=[algorithm],
             audience=settings.SUPABASE_JWT_AUDIENCE,
             issuer=settings.jwt_issuer,
         )
