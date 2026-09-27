@@ -1,0 +1,42 @@
+# Keep generated or environment-specific files out of git.
+# Never commit real secrets: see .env.example for the required variables.
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Test / coverage
+coverage/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# Environment files (local overrides)
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
