@@ -161,7 +161,7 @@ def test_rate_limit_dependency_renders_429_with_retry_after(probe_client, fresh_
 
 
 def test_idempotency_replays_identical_request(client, fresh_limits) -> None:
-    headers = {"Idempotency-Key": "hardening-key-1"}
+    headers = {"Idempotency-Key": "hardening-key-1"}  # gitleaks:allow
     first = client.post("/v1/matters", json={"name": "synthetic"}, headers=headers)
     second = client.post("/v1/matters", json={"name": "synthetic"}, headers=headers)
 
@@ -172,7 +172,7 @@ def test_idempotency_replays_identical_request(client, fresh_limits) -> None:
 
 
 def test_idempotency_rejects_conflicting_reuse(client, fresh_limits) -> None:
-    headers = {"Idempotency-Key": "hardening-key-2"}
+    headers = {"Idempotency-Key": "hardening-key-2"}  # gitleaks:allow
     client.post("/v1/matters", json={"name": "synthetic-a"}, headers=headers)
     conflict = client.post("/v1/matters", json={"name": "synthetic-b"}, headers=headers)
 

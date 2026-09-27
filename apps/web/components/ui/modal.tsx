@@ -47,9 +47,9 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
         // Trap Tab navigation inside the dialog.
         const dialog = dialogRef.current;
         if (!dialog) return;
-        const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-          (element) => element.offsetParent !== null,
-        );
+        const focusable = Array.from(
+          dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+        ).filter((element) => element.offsetParent !== null);
         if (focusable.length === 0) {
           event.preventDefault();
           return;

@@ -300,13 +300,12 @@ test.describe('critical path (mock auth)', () => {
     const sectionsNav = page.getByRole('navigation', { name: 'Intake sections' });
     await expect(sectionsNav).toBeVisible();
     await expect(sectionsNav.getByRole('button')).toHaveCount(3);
-    await expect(
-      sectionsNav.getByRole('button', { name: /Household basics/ }),
-    ).toHaveAttribute('aria-current', 'step');
+    await expect(sectionsNav.getByRole('button', { name: /Household basics/ })).toHaveAttribute(
+      'aria-current',
+      'step',
+    );
     await expect(page.getByText('Overall progress')).toBeVisible();
-    await expect(
-      page.getByRole('progressbar', { name: 'Overall intake progress' }),
-    ).toBeVisible();
+    await expect(page.getByRole('progressbar', { name: 'Overall intake progress' })).toBeVisible();
     // First section's questions render.
     await expect(page.getByLabel('Household name')).toBeVisible();
 
@@ -326,9 +325,7 @@ test.describe('critical path (mock auth)', () => {
     await expect(page.getByText('2 matters')).toBeVisible();
   });
 
-  test('API /healthz reachable (skipped gracefully when the API is down)', async ({
-    request,
-  }) => {
+  test('API /healthz reachable (skipped gracefully when the API is down)', async ({ request }) => {
     const apiUrl = process.env.API_URL ?? 'http://localhost:8000';
     const response = await request
       .get(`${apiUrl}/healthz`, { timeout: 5_000 })

@@ -1,42 +1,39 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>LegacyFlow E2E navigation trampoline</title>
-</head>
-<body>
-  <p>LegacyFlow E2E navigation trampoline — redirecting…</p>
-  <script>
-    // Reads ?target=<encoded app URL> and performs a renderer-initiated
-    // top-level navigation to it.
-    //
-    // Why this exists: some Chromium builds (e.g. 152+) enforce Local Network
-    // Access checks on programmatic (CDP `Page.navigate` / `page.goto()`)
-    // navigations and treat a fresh tab (about:blank, opaque origin) as a
-    // *public* initiator, so `page.goto('http://localhost:…')` fails with
-    // net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS. A renderer-initiated
-    // navigation from a `file://` page is treated as a local initiator and is
-    // allowed, and once the tab is on a loopback page, further
-    // renderer-initiated navigations (loopback → loopback) are allowed too.
-    // See e2e/helpers.ts `gotoApp()`.
-    (function () {
-      try {
-        var target = new URLSearchParams(window.location.search).get('target');
-        // Safety: only ever navigate to loopback app URLs, never arbitrary
-        // hosts — this file must not become an open redirector.
-        if (
-          target &&
-          /^(https?):\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//i.test(target)
-        ) {
-          window.location.replace(target);
-        } else {
-          document.body.textContent =
-            'e2e trampoline: missing or non-loopback ?target= parameter';
+  <head>
+    <meta charset="utf-8" />
+    <title>LegacyFlow E2E navigation trampoline</title>
+  </head>
+  <body>
+    <p>LegacyFlow E2E navigation trampoline — redirecting…</p>
+    <script>
+      // Reads ?target=<encoded app URL> and performs a renderer-initiated
+      // top-level navigation to it.
+      //
+      // Why this exists: some Chromium builds (e.g. 152+) enforce Local Network
+      // Access checks on programmatic (CDP `Page.navigate` / `page.goto()`)
+      // navigations and treat a fresh tab (about:blank, opaque origin) as a
+      // *public* initiator, so `page.goto('http://localhost:…')` fails with
+      // net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS. A renderer-initiated
+      // navigation from a `file://` page is treated as a local initiator and is
+      // allowed, and once the tab is on a loopback page, further
+      // renderer-initiated navigations (loopback → loopback) are allowed too.
+      // See e2e/helpers.ts `gotoApp()`.
+      (function () {
+        try {
+          var target = new URLSearchParams(window.location.search).get('target');
+          // Safety: only ever navigate to loopback app URLs, never arbitrary
+          // hosts — this file must not become an open redirector.
+          if (target && /^(https?):\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//i.test(target)) {
+            window.location.replace(target);
+          } else {
+            document.body.textContent =
+              'e2e trampoline: missing or non-loopback ?target= parameter';
+          }
+        } catch (err) {
+          document.body.textContent = 'e2e trampoline error: ' + err;
         }
-      } catch (err) {
-        document.body.textContent = 'e2e trampoline error: ' + err;
-      }
-    })();
-  </script>
-</body>
+      })();
+    </script>
+  </body>
 </html>

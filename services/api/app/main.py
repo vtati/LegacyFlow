@@ -56,7 +56,8 @@ def _init_sentry() -> None:
 
     The SDK import is optional: the API runs fine without ``sentry-sdk``
     installed. ``send_default_pii`` stays off — engineering-contract rule 9
-    forbids shipping PII or plan content to third parties.
+    forbids shipping PII or plan content to third parties. A malformed DSN
+    is logged and ignored (observability must never break app construction).
     """
     settings = get_settings()
     if not settings.SENTRY_DSN.strip():
@@ -65,12 +66,15 @@ def _init_sentry() -> None:
         import sentry_sdk
     except ImportError:
         return
-    sentry_sdk.init(
-        dsn=settings.SENTRY_DSN,
-        environment=settings.API_ENV,
-        release=SERVICE_VERSION,
-        send_default_pii=False,
-    )
+    try:
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.API_ENV,
+            release=SERVICE_VERSION,
+            send_default_pii=False,
+        )
+    except Exception as exc:  # Sentry is best-effort; never break startup
+        logging.getLogger(__name__).warning("Sentry init failed; continuing without it: %s", exc)
 
 
 def create_app() -> FastAPI:
