@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-import pgserver
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -74,6 +73,10 @@ AS $$ SELECT NULL::uuid $$;
 @pytest.fixture(scope="session")
 def pg_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
     """Start pgserver once; apply auth stub + Slice 1/2 migrations + seeds."""
+    try:
+        import pgserver
+    except ImportError:
+        pytest.skip("pgserver is not installed")
     server = pgserver.get_server(str(tmp_path_factory.mktemp("pgdata-slice2")))
     uri = server.get_uri()
     with psycopg.connect(uri, autocommit=True) as conn:
