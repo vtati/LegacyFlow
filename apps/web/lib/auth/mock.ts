@@ -84,5 +84,11 @@ export function createMockAdapter(): AuthAdapter {
       memorySession = null;
       writeCookie(null);
     },
+
+    async getAccessToken(): Promise<string | null> {
+      // Mock sessions are synthetic — they carry no real JWT, so API calls
+      // stay unauthenticated in mock mode (as before this integration).
+      return null;
+    },
   };
 }

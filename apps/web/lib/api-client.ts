@@ -2,11 +2,13 @@
  * Typed client for the LegacyFlow family API (Tracks B/C contract).
  *
  * Token-agnostic by design: the JWT comes from the `getToken` callback so the
- * client never reaches into auth internals. INTEGRATION POINT: once Tracks B/C
- * finalize how the browser obtains the API JWT (e.g. via the auth adapter or a
- * server action), wire it in as the `getToken` callback on the shared `api`
- * export below. Until then every request is sent unauthenticated.
+ * client never reaches into auth internals. The shared `api` / `firmApi`
+ * exports below wire the browser auth adapter's access token (the Supabase
+ * JWT in real mode); callers that need a different token can build their own
+ * client with `createFamilyApi` / `createFirmApi`.
  */
+
+import { getAuthAdapter } from './auth';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -884,10 +886,12 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
 }
 
 /**
- * Shared browser client. Uses a no-op `getToken` until the API auth integration
- * lands (see note at the top of this file).
+ * Shared browser client. Sends the signed-in user's Supabase access token as
+ * the API Bearer <redacted> (null when signed out or in mock mode).
  */
-export const api: FamilyApi = createFamilyApi();
+export const api: FamilyApi = createFamilyApi({
+  getToken: () => getAuthAdapter().getAccessToken(),
+});
 
 /* ------------------------------------------------------------------ firm api */
 
@@ -1027,7 +1031,10 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
 }
 
 /**
- * Shared browser client for the firm workspace. Uses a no-op `getToken` until
- * the API auth integration lands (see note at the top of this file).
+ * Shared browser client for the firm workspace. Sends the signed-in user's
+ * Supabase access token as the API Bearer <redacted> (null when signed out or
+ * in mock mode).
  */
-export const firmApi: FirmApi = createFirmApi();
+export const firmApi: FirmApi = createFirmApi({
+  getToken: () => getAuthAdapter().getAccessToken(),
+});

@@ -65,5 +65,15 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
     },
+
+    async getAccessToken(): Promise<string | null> {
+      const supabase = getBrowserSupabase();
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+      if (error) throw error;
+      return session?.access_token ?? null;
+    },
   };
 }

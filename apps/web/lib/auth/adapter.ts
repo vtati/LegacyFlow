@@ -22,6 +22,12 @@ export interface AuthAdapter {
   signInWithMagicLink(email: string): Promise<void>;
   /** Current session, or null when signed out. */
   getSession(): Promise<AuthSession | null>;
+  /**
+   * JWT to send as the API `Authorization: Bearer` token, or null when the
+   * session carries none. Real adapter: the Supabase access token. Mock
+   * adapter: always null (mock sessions are not real JWTs).
+   */
+  getAccessToken(): Promise<string | null>;
   signOut(): Promise<void>;
 }
 
