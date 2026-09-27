@@ -23,12 +23,14 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 from pypdf import PdfReader
@@ -89,6 +91,7 @@ AS $$ SELECT NULL::uuid $$;
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"
+REPO_CONTENT_PACKS_DIR = Path(__file__).resolve().parents[3] / "content-packs"
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +135,18 @@ def api_client(pg_uri, monkeypatch, tmp_path):
     storage_dir = tmp_path / "documents"
     storage_dir.mkdir()
     monkeypatch.setenv("DOCUMENT_STORAGE_DIR", str(storage_dir))
+    # Document-assembly gate: the feature flag fails closed by default, so
+    # these document tests enable it explicitly and point the pack loader at
+    # a scratch copy of the us-va pack whose manifest declares the
+    # document_assembly capability.
+    monkeypatch.setenv("LF_FLAG_DOCUMENT_ASSEMBLY", "1")
+    scratch_packs = tmp_path / "content-packs"
+    shutil.copytree(REPO_CONTENT_PACKS_DIR / "us-va" / "v0", scratch_packs / "us-va" / "v0")
+    manifest_path = scratch_packs / "us-va" / "v0" / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["capabilities"]["document_assembly"] = True
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(scratch_packs))
     monkeypatch.setenv("DATABASE_URL", pg_uri)
     monkeypatch.setenv("TEST_JWT_ISSUER", TEST_ISSUER)
     monkeypatch.setenv("TEST_JWT_SECRET", TEST_SECRET)
@@ -139,6 +154,8 @@ def api_client(pg_uri, monkeypatch, tmp_path):
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    # Rate limiting is covered by its own dedicated tests; leave it off here.
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
     from app.core.config import get_settings
 
     get_settings.cache_clear()  # force settings reload for the new env

@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -125,12 +126,12 @@ def _parse_manifest(data: dict[str, Any]) -> PackManifest:
     )
 
 
-def list_packs() -> list[PackManifest]:
-    """List every pack version found under the packs root."""
-    root = _packs_root()
+@lru_cache(maxsize=32)
+def _list_packs_cached(packs_root: str) -> tuple[PackManifest, ...]:
+    root = Path(packs_root)
     manifests: list[PackManifest] = []
     if not root.is_dir():
-        return manifests
+        return tuple(manifests)
     for pack_dir in sorted(root.iterdir()):
         if not pack_dir.is_dir():
             continue
@@ -138,16 +139,22 @@ def list_packs() -> list[PackManifest]:
             manifest_path = version_dir / "manifest.yaml"
             if version_dir.is_dir() and manifest_path.is_file():
                 manifests.append(_parse_manifest(_read_yaml(manifest_path)))
-    return manifests
+    return tuple(manifests)
 
 
-def get_pack(jurisdiction_code: str, version: str | None = None) -> LoadedPack:
-    """Load a pack by jurisdiction code (e.g. ``US-VA``).
+def list_packs() -> list[PackManifest]:
+    """List every pack version found under the packs root.
 
-    When ``version`` is omitted the highest semantic version wins. Raises
-    ``FileNotFoundError`` when the pack (or version) does not exist.
+    Results are cached in-process, keyed by the packs root (so
+    ``CONTENT_PACKS_DIR`` overrides are honored); see
+    :func:`clear_pack_cache`.
     """
-    root = _packs_root()
+    return list(_list_packs_cached(str(_packs_root())))
+
+
+@lru_cache(maxsize=128)
+def _get_pack_cached(jurisdiction_code: str, version: str | None, packs_root: str) -> LoadedPack:
+    root = Path(packs_root)
     candidates: list[tuple[str, Path]] = []
     for pack_dir in root.iterdir():
         if not pack_dir.is_dir():
@@ -227,6 +234,27 @@ def get_pack(jurisdiction_code: str, version: str | None = None) -> LoadedPack:
         knowledge_docs=knowledge_docs,
         raw_dir=version_dir,
     )
+
+
+def get_pack(jurisdiction_code: str, version: str | None = None) -> LoadedPack:
+    """Load a pack by jurisdiction code (e.g. ``US-VA``).
+
+    When ``version`` is omitted the highest semantic version wins. Raises
+    ``FileNotFoundError`` when the pack (or version) does not exist.
+
+    Results are cached in-process, keyed by jurisdiction, version, and the
+    packs root (so ``CONTENT_PACKS_DIR`` overrides are honored and pack
+    metadata is not re-parsed from disk per request); treat the returned
+    pack as read-only. Use :func:`clear_pack_cache` to drop the cache
+    (tests, pack re-import).
+    """
+    return _get_pack_cached(jurisdiction_code, version, str(_packs_root()))
+
+
+def clear_pack_cache() -> None:
+    """Drop all cached pack data (tests, pack re-import)."""
+    _get_pack_cached.cache_clear()
+    _list_packs_cached.cache_clear()
 
 
 def _parse_knowledge_doc(path: Path) -> dict[str, Any]:

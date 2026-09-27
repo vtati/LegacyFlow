@@ -89,6 +89,8 @@ def db_client(seeded_db: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     monkeypatch.setenv("DATABASE_URL", seeded_db)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    # Rate limiting is covered by its own dedicated tests; leave it off here.
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
     from app.core.config import get_settings
 
     get_settings.cache_clear()

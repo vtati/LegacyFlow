@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     # download endpoints fail closed when it is unset — downloads must
     # never be mintable without a configured secret.
     DOWNLOAD_TOKEN_SECRET: str | None = None
+    # Sentry DSN for error monitoring (PRD §4.2). Empty disables Sentry;
+    # the SDK import is optional (see app.main._init_sentry).
+    SENTRY_DSN: str = ""
+    # Structured log level (e.g. "INFO", "DEBUG").
+    LOG_LEVEL: str = "INFO"
+    # Rate limiting: requests/minute per tier (see app.core.rate_limit).
+    # RATE_LIMIT_ENABLED is a kill switch for incidents.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 10
+    RATE_LIMIT_UPLOAD_AI_PER_MINUTE: int = 30
+    RATE_LIMIT_DEFAULT_PER_MINUTE: int = 120
+    # Idempotency-Key record TTL (see app.core.idempotency).
+    IDEMPOTENCY_TTL_HOURS: int = 24
 
     @property
     def document_storage_dir(self) -> Path:

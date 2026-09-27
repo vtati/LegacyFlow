@@ -53,6 +53,11 @@ def test_settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    # Rate limiting is disabled for the general suite: it is covered by its
+    # own dedicated tests in test_hardening.py (which re-enable it via the
+    # fresh_limits fixture). Leaving it on would make unrelated tests
+    # order-dependent (429s after enough requests in a session).
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
     from app.core.config import get_settings
 
     get_settings.cache_clear()

@@ -7,6 +7,8 @@ Business logic lives in ``app.domains``; routers only validate/orchestrate
 
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -18,6 +20,9 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.idempotency import IdempotencyMiddleware
+from app.core.logging import configure_logging, reset_request_id, set_request_id
+from app.core.rate_limit import RateLimitExceededError, RateLimitMiddleware, rate_limit_response
 
 SERVICE_VERSION = "0.1.0"
 
@@ -46,9 +51,33 @@ def _request_id_of(request: Request) -> str:
     return str(value) if value else uuid.uuid4().hex
 
 
+def _init_sentry() -> None:
+    """Initialize Sentry only when a DSN is configured.
+
+    The SDK import is optional: the API runs fine without ``sentry-sdk``
+    installed. ``send_default_pii`` stays off — engineering-contract rule 9
+    forbids shipping PII or plan content to third parties.
+    """
+    settings = get_settings()
+    if not settings.SENTRY_DSN.strip():
+        return
+    try:
+        import sentry_sdk
+    except ImportError:
+        return
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.API_ENV,
+        release=SERVICE_VERSION,
+        send_default_pii=False,
+    )
+
+
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     settings = get_settings()
+    configure_logging(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+    _init_sentry()
     application = FastAPI(
         title="LegacyFlow API",
         version=SERVICE_VERSION,
@@ -62,14 +91,37 @@ def create_app() -> FastAPI:
     ) -> Any:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         request.state.request_id = request_id
-        response = await call_next(request)
+        token = set_request_id(request_id)
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        finally:
+            reset_request_id(token)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
         return response
+
+    # First registered = outermost: idempotency sits outside the rate
+    # limiter so cheap replays bypass it, while fresh mutating requests
+    # are still limited.
+    application.add_middleware(IdempotencyMiddleware)
+    application.add_middleware(RateLimitMiddleware)
 
     @application.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         exc.request_id = _request_id_of(request)
         return JSONResponse(status_code=exc.status, content=exc.to_response())
+
+    @application.exception_handler(RateLimitExceededError)
+    async def rate_limit_exceeded_handler(
+        request: Request, exc: RateLimitExceededError
+    ) -> JSONResponse:
+        # Registered for the per-router ``rate_limit_dependency`` path; the
+        # global middleware renders its own 429 (middleware runs outside the
+        # exception-handler stack). Starlette dispatches to the most-derived
+        # handler, so this wins over the AppError handler above.
+        return rate_limit_response(request, exc)
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(

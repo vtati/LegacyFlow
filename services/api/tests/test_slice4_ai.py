@@ -231,6 +231,9 @@ def _env(pg_dsn: str) -> Iterator[None]:
     os.environ.pop("SUPABASE_URL", None)
     os.environ.pop("SUPABASE_JWKS_URL", None)
     os.environ.pop("AI_ALLOW_SAMPLE_CONTENT", None)
+    # Rate limiting is covered by its own dedicated tests; leave it off here
+    # so these tests are not order-dependent (429s).
+    os.environ["RATE_LIMIT_ENABLED"] = "false"
     os.environ.pop("AI_PROVIDER", None)
     get_settings.cache_clear()
     try:

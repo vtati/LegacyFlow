@@ -142,6 +142,8 @@ def api_client(pg_uri, monkeypatch, tmp_path):
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    # Rate limiting is covered by its own dedicated tests; leave it off here.
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
     from app.core.config import get_settings
 
     get_settings.cache_clear()  # force settings reload for the new env
