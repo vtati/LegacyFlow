@@ -174,3 +174,19 @@ class PackOut(BaseModel):
     version: str
     status: str
     effective_from: str | None = None
+
+
+class PackTransitionIn(BaseModel):
+    """Requested lifecycle transition for a content pack."""
+
+    to_status: str
+
+
+class PackTransitionOut(BaseModel):
+    """Result of a content-pack lifecycle transition."""
+
+    id: UUID
+    pack_id: str
+    version: str
+    from_status: str
+    to_status: str

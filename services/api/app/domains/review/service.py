@@ -18,6 +18,7 @@ Authorization summary:
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import zipfile
 from pathlib import Path
@@ -55,6 +56,7 @@ from app.domains.review.schemas import (
     GateOut,
     PackImportResponse,
     PackOut,
+    PackTransitionOut,
     ReviewPacketDetailOut,
     ReviewPacketOut,
 )
@@ -782,3 +784,87 @@ def list_packs(conn: Any, *, actor_sub: str) -> list[PackOut]:
             )
         )
     return items
+
+
+# ---------------------------------------------------------------------------
+# Content-pack lifecycle
+# ---------------------------------------------------------------------------
+
+#: Allowed pack lifecycle transitions. Forward motion is
+#: draft -> internal_testing -> attorney_review -> approved; retirement is
+#: terminal-ish: internal_testing, attorney_review, and approved may all
+#: move to retired, but draft may not retire directly and retired never
+#: moves forward again.
+PACK_TRANSITIONS: dict[str, frozenset[str]] = {
+    "draft": frozenset({"internal_testing"}),
+    "internal_testing": frozenset({"attorney_review", "retired"}),
+    "attorney_review": frozenset({"approved", "retired"}),
+    "approved": frozenset({"retired"}),
+    "retired": frozenset(),
+}
+
+
+def _pack_out_id(row: dict[str, Any]) -> str:
+    """Prefer the manifest pack id; fall back to the row id."""
+    manifest = row.get("manifest") or {}
+    if isinstance(manifest, str):
+        try:
+            manifest = json.loads(manifest)
+        except ValueError:
+            manifest = {}
+    pack = manifest.get("pack") or {}
+    return str(pack.get("id") or row["id"])
+
+
+def transition_pack(
+    conn: Any, *, actor_sub: str, pack_ref: str, to_status: str
+) -> PackTransitionOut:
+    """Move a content pack through its lifecycle.
+
+    ``pack_ref`` is a jurisdiction_pack UUID or a manifest pack id
+    (e.g. ``us-va``). Ordering is enforced by ``PACK_TRANSITIONS``;
+    the attorney_review -> approved step additionally requires the
+    attorney or firm_admin role, and every transition is audited as
+    ``packs.status_changed``. All other transitions require firm_admin.
+    """
+    actor_id = matters_service.caller_id(actor_sub)
+    firm_id = authz.get_user_firm_id(conn, actor_id)
+    row = repo.get_jurisdiction_pack_by_ref(conn, pack_ref)
+    if row is None:
+        raise NotFoundError("Content pack not found.")
+    from_status = str(row["status"])
+    to_status = str(to_status)
+    if to_status not in PACK_STATUSES:
+        raise ValidationAppError(f"Unknown pack status {to_status!r}.")
+    allowed = PACK_TRANSITIONS.get(from_status)
+    if allowed is None or to_status not in allowed:
+        raise ConflictError(f"A pack cannot transition from {from_status!r} to {to_status!r}.")
+    if to_status == "approved":
+        # Attorney approval gate: attorney or firm_admin (never staff).
+        authz.require_firm_role(conn, actor_id, firm_id, authz.ATTORNEY_ROLES)
+    else:
+        authz.require_firm_role(conn, actor_id, firm_id, {"firm_admin"})
+    updated = repo.update_jurisdiction_pack_status(
+        conn,
+        UUID(str(row["id"])),
+        status=to_status,
+        approved_by_user_id=actor_id if to_status == "approved" else None,
+    )
+    record_audit_event(
+        conn,
+        action="packs.status_changed",
+        resource_type="jurisdiction_pack",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        resource_id=UUID(str(row["id"])),
+        before_summary={"status": from_status},
+        after_summary={"status": to_status},
+    )
+    return PackTransitionOut(
+        id=UUID(str(updated["id"])),
+        pack_id=_pack_out_id(updated),
+        version=str(updated["version"]),
+        from_status=from_status,
+        to_status=to_status,
+    )

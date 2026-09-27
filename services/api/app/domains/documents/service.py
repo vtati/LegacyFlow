@@ -4,7 +4,11 @@ Authorization summary (callers are identified by JWT ``sub`` = profiles.id):
   * Templates: create is firm_admin only; list/get are firm staff. The
     caller's firm comes from ``authz.get_user_firm_id`` (MVP: one firm).
   * Packages / demo generation: firm staff on the matter
-    (``authz.require_matter_firm_role``).
+    (``authz.require_matter_firm_role``), AND the ``document_assembly``
+    feature flag must be effective for (firm_id, pack_id), AND the matter's
+    pack manifest must declare the ``document_assembly`` capability —
+    otherwise the call fails closed with HTTP 409
+    (``document_assembly_disabled``).
   * Production release: ALWAYS fails closed with HTTP 409
     (``production_release_unavailable``) — real release needs Slice 5+
     attorney gates, so no release path exists in this slice.
@@ -63,6 +67,8 @@ from ...core.errors import (
     NotFoundError,
     ValidationAppError,
 )
+from ...domains.feature_flags import service as feature_flags_service
+from ...domains.legal_content import pack_loader
 from . import repository as repo
 from . import schemas as sch
 
@@ -92,6 +98,22 @@ class ProductionReleaseUnavailableError(ConflictError):
         "marked DEMO ONLY — NOT LEGALLY VALID and are not legally valid; "
         "production release requires the attorney review gates planned for "
         "a later slice."
+    )
+
+
+class DocumentAssemblyDisabledError(ConflictError):
+    """Document assembly is disabled for this firm/pack (HTTP 409, fail closed).
+
+    The machine-readable ``code`` is ``document_assembly_disabled``.
+    """
+
+    type = "urn:legacyflow:error:document_assembly_disabled"
+    title = "Document assembly disabled"
+    detail = (
+        "Document assembly is disabled for this firm or jurisdiction pack. "
+        "Assembly requires the 'document_assembly' feature flag to be "
+        "effective for the firm/pack and the pack manifest to declare the "
+        "'document_assembly' capability."
     )
 
 
@@ -532,6 +554,62 @@ def get_template(conn: Any, *, actor_sub: str, template_id: UUID) -> sch.Documen
 
 
 # ---------------------------------------------------------------------------
+# Document-assembly gate (feature flag + pack manifest capability)
+# ---------------------------------------------------------------------------
+
+
+def _matter_pack_ref(matter: dict[str, Any]) -> tuple[str, str, str]:
+    """Return the matter's (pack_id, jurisdiction_code, semantic_version)."""
+    snapshot = matter.get("jurisdiction_snapshot") or {}
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except json.JSONDecodeError:
+            snapshot = {}
+    pack_id = str(snapshot.get("pack_id") or "us-va")
+    jurisdiction_code = str(snapshot.get("jurisdiction_code") or pack_id).upper()
+    semantic_version = str(snapshot.get("semantic_version") or "")
+    return pack_id, jurisdiction_code, semantic_version or "0.0.0"
+
+
+def _pack_manifest_capabilities(
+    jurisdiction_code: str, semantic_version: str
+) -> dict[str, Any] | None:
+    """Return manifest capabilities for the matter's exact pack version.
+
+    Resolves the pack by jurisdiction code + semantic version from the
+    matter snapshot (not the highest version on disk). Returns ``None``
+    when the pack is not present — the gate treats that as disabled
+    (fail closed).
+    """
+    try:
+        pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
+    except FileNotFoundError:
+        return None
+    capabilities = pack.manifest.capabilities
+    return dict(capabilities) if isinstance(capabilities, dict) else None
+
+
+def _require_document_assembly(
+    conn: Any, *, firm_id: UUID, pack_id: str, jurisdiction_code: str, semantic_version: str
+) -> None:
+    """Fail closed unless assembly is enabled by flag AND pack capability.
+
+    Both conditions must hold: the ``document_assembly`` feature flag must
+    be effective for (firm_id, pack_id), and the matter's exact pack
+    version (jurisdiction code + semantic version) must declare the
+    ``document_assembly`` capability.
+    """
+    if not feature_flags_service.is_enabled(
+        conn, "document_assembly", firm_id=firm_id, pack_id=pack_id
+    ):
+        raise DocumentAssemblyDisabledError()
+    capabilities = _pack_manifest_capabilities(jurisdiction_code, semantic_version)
+    if not isinstance(capabilities, dict) or capabilities.get("document_assembly") is not True:
+        raise DocumentAssemblyDisabledError()
+
+
+# ---------------------------------------------------------------------------
 # Packages
 # ---------------------------------------------------------------------------
 
@@ -547,6 +625,14 @@ def create_package(
     actor_id = _actor_id(actor_sub)
     scope = authz.require_matter_firm_role(conn, matter_id, actor_id, authz.STAFF_ROLES)
     matter = scope.matter
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    _require_document_assembly(
+        conn,
+        firm_id=UUID(str(matter["firm_id"])),
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
     template = repo.get_template(conn, payload.template_id)
     if template is None or UUID(str(template["firm_id"])) != UUID(str(matter["firm_id"])):
         raise NotFoundError("Document template not found.")
@@ -711,6 +797,14 @@ def generate_demo(
         conn, UUID(str(package["matter_id"])), actor_id, authz.STAFF_ROLES
     )
     matter = scope.matter
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    _require_document_assembly(
+        conn,
+        firm_id=UUID(str(matter["firm_id"])),
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
     template = repo.get_template(conn, UUID(str(package["template_id"])))
     if template is None:
         raise ConflictError("The package's template is missing.")

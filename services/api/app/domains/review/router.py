@@ -26,6 +26,8 @@ from app.domains.review.schemas import (
     GateOut,
     PackImportResponse,
     PackOut,
+    PackTransitionIn,
+    PackTransitionOut,
     ReviewPacketCreate,
     ReviewPacketDetailOut,
     ReviewPacketOut,
@@ -231,3 +233,23 @@ def list_packs(
     """List available content packs with versions."""
     with db.transaction() as conn:
         return service.list_packs(conn, actor_sub=claims.sub)
+
+
+@router.post("/admin/packs/{pack_id}/transition", response_model=PackTransitionOut)
+def transition_pack(
+    pack_id: str,
+    payload: PackTransitionIn,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> PackTransitionOut:
+    """Transition a content pack through its lifecycle.
+
+    Ordering: draft -> internal_testing -> attorney_review -> approved, and
+    internal_testing / attorney_review / approved -> retired. The
+    attorney_review -> approved step requires an attorney or firm_admin
+    role; all other transitions require firm_admin. Emits the
+    ``packs.status_changed`` audit event.
+    """
+    with db.transaction() as conn:
+        return service.transition_pack(
+            conn, actor_sub=claims.sub, pack_ref=pack_id, to_status=payload.to_status
+        )

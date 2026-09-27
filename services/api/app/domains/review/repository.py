@@ -496,3 +496,82 @@ def list_packs(conn: Any) -> list[dict[str, Any]]:
             """,
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Jurisdiction-pack lifecycle (UPDATE path)
+# ---------------------------------------------------------------------------
+
+
+def get_jurisdiction_pack(conn: Any, pack_id: UUID) -> dict[str, Any] | None:
+    """Return one jurisdiction_pack row by id, or ``None``."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM jurisdiction_packs WHERE id = %s", (str(pack_id),))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def get_jurisdiction_pack_by_ref(conn: Any, ref: str) -> dict[str, Any] | None:
+    """Resolve a pack by UUID id or by manifest pack id (e.g. ``us-va``).
+
+    When several versions share a manifest pack id, the most recently
+    created version wins.
+    """
+    try:
+        row = get_jurisdiction_pack(conn, UUID(ref))
+    except ValueError:
+        row = None
+    if row is not None:
+        return row
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM jurisdiction_packs
+            WHERE manifest -> 'pack' ->> 'id' = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (ref,),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def update_jurisdiction_pack_status(
+    conn: Any,
+    pack_id: UUID,
+    *,
+    status: str,
+    approved_by_user_id: UUID | None = None,
+) -> dict[str, Any]:
+    """UPDATE path for the pack lifecycle; return the updated row.
+
+    Transitions into ``approved`` record the approver and timestamp in
+    ``approved_by_user_id`` / ``approved_at``.
+    """
+    with conn.cursor() as cur:
+        if status == "approved":
+            cur.execute(
+                """
+                UPDATE jurisdiction_packs
+                SET status = %s,
+                    approved_by_user_id = %s,
+                    approved_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (
+                    status,
+                    str(approved_by_user_id) if approved_by_user_id is not None else None,
+                    str(pack_id),
+                ),
+            )
+        else:
+            cur.execute(
+                "UPDATE jurisdiction_packs SET status = %s WHERE id = %s RETURNING *",
+                (status, str(pack_id)),
+            )
+        row = cur.fetchone()
+    if row is None:
+        raise LookupError(f"jurisdiction pack {pack_id} not found")
+    return dict(row)
