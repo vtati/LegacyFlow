@@ -227,7 +227,10 @@ def list_matters(
     else:
         household_ids = repo.active_household_ids_for_user(conn, actor_id)
         if not household_ids:
-            raise AuthorizationError("The caller has no matters to list.")
+            # Authenticated but belonging to no household yet (e.g. a fresh
+            # self-serve signup): an empty list, not a 403, so the UI can
+            # render its "no matters yet" empty state.
+            return MatterListResponse(items=[], page=offset // limit + 1, page_size=limit, total=0)
         items, total = repo.list_matters_for_households(conn, household_ids, **filters)
     return MatterListResponse(
         items=[matter_out(row) for row in items],
