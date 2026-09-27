@@ -72,6 +72,7 @@ export function createMockAdapter(): AuthAdapter {
       email: string,
       _password: string,
     ): Promise<{ needsConfirmation: boolean }> {
+      void _password;
       await delay(600);
       const session: AuthSession = {
         user: { ...syntheticUser('mock'), email },
@@ -84,6 +85,7 @@ export function createMockAdapter(): AuthAdapter {
     },
 
     async signInWithPassword(email: string, _password: string): Promise<void> {
+      void _password;
       await delay(600);
       const session: AuthSession = {
         user: { ...syntheticUser('mock'), email },
@@ -101,6 +103,7 @@ export function createMockAdapter(): AuthAdapter {
 
     async updatePassword(_newPassword: string): Promise<void> {
       // Mock: nothing to persist — the synthetic session is unchanged.
+      void _newPassword;
       await delay(400);
     },
 
