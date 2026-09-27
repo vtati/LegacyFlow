@@ -37,6 +37,9 @@ dev = [
     "mypy>=1.11",
     "httpx>=0.27",
     "pypdf>=6.0",
+    # E6.6 performance harness: throwaway Postgres for load tests
+    # (pgserver bundles the binaries; skips gracefully when unavailable).
+    "pgserver>=0.1",
 ]
 
 [build-system]
