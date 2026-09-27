@@ -18,6 +18,8 @@ out/
 
 # Test / coverage
 coverage/
+test-results/
+playwright-report/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
