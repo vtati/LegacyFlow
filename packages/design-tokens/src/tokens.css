@@ -1,0 +1,95 @@
+/**
+ * LegacyFlow design tokens as CSS custom properties (`--lf-*`).
+ * Values mirror `src/tokens.ts`; this file is imported by apps (e.g. `app/globals.css`).
+ */
+
+:root {
+  /* Primary — indigo/navy (§5.2) */
+  --lf-primary-50: #eef2ff;
+  --lf-primary-100: #e0e7ff;
+  --lf-primary-200: #c7d2fe;
+  --lf-primary-300: #a5b4fc;
+  --lf-primary-400: #818cf8;
+  --lf-primary-500: #6366f1;
+  --lf-primary-600: #4f46e5;
+  --lf-primary-700: #4338ca;
+  --lf-primary-800: #1e3a8a;
+  --lf-primary-900: #1e2a5a;
+  --lf-primary-950: #172554;
+  --lf-primary-foreground: #ffffff;
+
+  /* Success/support — muted teal/sage (§5.2) */
+  --lf-success-50: #f0fdfa;
+  --lf-success-100: #ccfbf1;
+  --lf-success-200: #99f6e4;
+  --lf-success-300: #5eead4;
+  --lf-success-400: #2dd4bf;
+  --lf-success-500: #14b8a6;
+  --lf-success-600: #2d7a6b;
+  --lf-success-700: #0f766e;
+  --lf-success-800: #115e59;
+  --lf-success-900: #134e4a;
+  --lf-success-950: #042f2e;
+  --lf-success-foreground: #ffffff;
+
+  /* Action accent — warm amber/terracotta (§5.2) */
+  --lf-accent-50: #fffbeb;
+  --lf-accent-100: #fef3c7;
+  --lf-accent-200: #fde68a;
+  --lf-accent-300: #fcd34d;
+  --lf-accent-400: #fbbf24;
+  --lf-accent-500: #f59e0b;
+  --lf-accent-600: #d97706;
+  --lf-accent-700: #b45309;
+  --lf-accent-800: #c2410c;
+  --lf-accent-900: #7c2d12;
+  --lf-accent-950: #431407;
+  --lf-accent-foreground: #ffffff;
+
+  /* Error — accessible red; never color-only (§5.2) */
+  --lf-error-50: #fef2f2;
+  --lf-error-100: #fee2e2;
+  --lf-error-200: #fecaca;
+  --lf-error-300: #fca5a5;
+  --lf-error-400: #f87171;
+  --lf-error-500: #ef4444;
+  --lf-error-600: #dc2626;
+  --lf-error-700: #b91c1c;
+  --lf-error-800: #991b1b;
+  --lf-error-900: #7f1d1d;
+  --lf-error-950: #450a0a;
+  --lf-error-foreground: #ffffff;
+
+  /* Canvas — warm off-white (§5.2) */
+  --lf-canvas: #fafaf7;
+  --lf-canvas-subtle: #f8fafc;
+  --lf-canvas-elevated: #ffffff;
+
+  /* Text — slate, WCAG AA or better (§5.2) */
+  --lf-text: #0f172a;
+  --lf-text-muted: #334155;
+  --lf-text-subtle: #64748b;
+  --lf-text-inverse: #f8fafc;
+
+  /* Borders — thin, low contrast (§5.2) */
+  --lf-border: #e2e8f0;
+  --lf-border-strong: #cbd5e1;
+
+  /* Radius — 12–16px cards; 8–10px controls (§5.2) */
+  --lf-radius-none: 0px;
+  --lf-radius-sm: 6px;
+  --lf-radius-control: 8px;
+  --lf-radius-md: 12px;
+  --lf-radius-card: 14px;
+  --lf-radius-lg: 16px;
+  --lf-radius-full: 9999px;
+
+  /* Typography — Geist or Inter; editorial serif for marketing/onboarding headings only (§5.2) */
+  --lf-font-sans: Geist, Inter, ui-sans-serif, system-ui, sans-serif;
+  --lf-font-serif: Georgia, ui-serif, serif;
+  --lf-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Elevation — thin borders plus low contrast shadows (§5.2) */
+  --lf-shadow-subtle: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --lf-shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.08);
+}

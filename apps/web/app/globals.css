@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: var(--lf-font-sans);
+  }
+
+  body {
+    @apply bg-lf-canvas text-lf-text antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--lf-primary-600);
+    outline-offset: 2px;
+  }
+}

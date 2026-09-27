@@ -1,0 +1,34 @@
+/**
+ * Auth adapter interface — one surface for both the real Supabase adapter
+ * and the local-dev mock adapter.
+ */
+
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  provider: 'google' | 'magic-link' | 'mock';
+}
+
+export interface AuthSession {
+  user: AuthUser;
+  expiresAt: string;
+}
+
+export interface AuthAdapter {
+  /** Start Google OAuth (or mock sign-in as a synthetic user). */
+  signInWithGoogle(): Promise<void>;
+  /** Send a magic link (or enter the mock "sent" state). */
+  signInWithMagicLink(email: string): Promise<void>;
+  /** Current session, or null when signed out. */
+  getSession(): Promise<AuthSession | null>;
+  signOut(): Promise<void>;
+}
+
+/**
+ * Mock mode is active when the Supabase env vars are unset — the standard
+ * local-dev path for Slice 1. The login UI must label this clearly.
+ */
+export function isMockAuth(): boolean {
+  return !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+}

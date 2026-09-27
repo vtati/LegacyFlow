@@ -1,0 +1,1 @@
+{"$schema":"https://ui.shadcn.com/schema.json","aliases":{"components":"@/components","utils":"@/lib/utils"},"cssVariables":false,"iconLibrary":"lucide","name":"legacyflow-web","registries":{},"rsc":true,"style":"new-york","tailwind":{"baseColor":"slate","config":"tailwind.config.ts","css":"app/globals.css"},"tsx":true}
