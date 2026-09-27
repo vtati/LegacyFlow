@@ -1,7 +1,7 @@
 # Funding playbooks: deterministic task generation per asset category (FR-FUND-001).
 # Each playbook becomes funding task(s); evidence_type drives the evidence flow.
 playbooks:
-  - key: bank-tod-podb
+  - id: bank-tod-podb
     asset_types: [bank]
     title: 'Review transfer-on-death / payable-on-death designation'
     description_markdown: |
@@ -12,7 +12,7 @@ playbooks:
     priority: high
     evidence_type: beneficiary_confirmation
 
-  - key: brokerage-tod
+  - id: brokerage-tod
     asset_types: [brokerage]
     title: 'Review transfer-on-death registration'
     description_markdown: |
@@ -21,7 +21,7 @@ playbooks:
     priority: high
     evidence_type: beneficiary_confirmation
 
-  - key: retirement-beneficiary
+  - id: retirement-beneficiary
     asset_types: [retirement]
     title: 'Confirm retirement account beneficiaries'
     description_markdown: |
@@ -31,7 +31,7 @@ playbooks:
     priority: high
     evidence_type: beneficiary_confirmation
 
-  - key: insurance-beneficiary
+  - id: insurance-beneficiary
     asset_types: [insurance]
     title: 'Confirm life insurance beneficiaries'
     description_markdown: |
@@ -40,7 +40,7 @@ playbooks:
     priority: high
     evidence_type: beneficiary_confirmation
 
-  - key: real-property-deed
+  - id: real-property-deed
     asset_types: [real_property]
     title: 'Review real property titling and deed'
     description_markdown: |
@@ -51,7 +51,7 @@ playbooks:
     evidence_type: deed_copy
     attorney_review_recommended: true
 
-  - key: business-interest-review
+  - id: business-interest-review
     asset_types: [business]
     title: 'Attorney review of business interest transfer'
     description_markdown: |
@@ -61,7 +61,7 @@ playbooks:
     evidence_type: attorney_confirmation
     attorney_review_recommended: true
 
-  - key: vehicle-title
+  - id: vehicle-title
     asset_types: [vehicle]
     title: 'Review vehicle titling'
     description_markdown: |
@@ -70,7 +70,7 @@ playbooks:
     priority: medium
     evidence_type: title_copy
 
-  - key: 529-beneficiary
+  - id: 529-beneficiary
     asset_types: ['529']
     title: 'Confirm 529 education account beneficiaries'
     description_markdown: |
@@ -78,7 +78,7 @@ playbooks:
     priority: medium
     evidence_type: beneficiary_confirmation
 
-  - key: digital-asset-inventory
+  - id: digital-asset-inventory
     asset_types: [digital]
     title: 'Document digital asset access plan'
     description_markdown: |
@@ -88,7 +88,7 @@ playbooks:
     priority: medium
     evidence_type: inventory_list
 
-  - key: general-beneficiary-alignment
+  - id: general-beneficiary-alignment
     asset_types: [bank, brokerage, retirement, insurance, '529']
     title: 'Align beneficiary designations with plan decisions'
     description_markdown: |
