@@ -1,0 +1,127 @@
+# LegacyFlow CI — install, format/lint, typecheck, tests, migration validation, secrets.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node:
+    name: Node / Next.js
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  api:
+    name: API (FastAPI)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy app
+      - run: pytest -q
+
+  worker:
+    name: Worker (Dramatiq)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy worker
+      - run: pytest -q
+
+  migrations:
+    name: Migration validation (Postgres 16)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install psql client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply migrations to throwaway database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key);
+          create or replace function auth.uid() returns uuid
+            language sql stable as $$ select null::uuid $$;
+          SQL
+          for f in supabase/migrations/*.sql; do
+            echo "Applying $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+          psql "$DATABASE_URL" -c "\dt" | grep -E "matters|audit_events" || exit 1
+
+  live-supabase:
+    name: RLS tests (live Supabase)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SUPABASE_URL != '' }}
+    defaults:
+      run:
+        working-directory: supabase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest httpx
+      - run: pytest tests/test_rls_live.py -q
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          LIVE_TEST_USER_A_EMAIL: ${{ secrets.LIVE_TEST_USER_A_EMAIL }}
+          LIVE_TEST_USER_A_PASSWORD: ${{ secrets.LIVE_TEST_USER_A_PASSWORD }}
+          LIVE_TEST_USER_B_EMAIL: ${{ secrets.LIVE_TEST_USER_B_EMAIL }}
+          LIVE_TEST_USER_B_PASSWORD: ${{ secrets.LIVE_TEST_USER_B_PASSWORD }}
+
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
