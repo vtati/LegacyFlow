@@ -297,6 +297,20 @@
       </div>
     </header>
     <div class="wrap">
+      <div
+        style="margin:18px 0 4px;padding:14px 18px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:14px;"
+      >
+        <strong>Staging is live</strong> (deployed 2026-09-27):
+        web
+        <a href="https://legacyflow-web.vercel.app">legacyflow-web.vercel.app</a>
+        &middot; API
+        <a href="https://api-production-9f9e.up.railway.app/healthz"
+          >api-production-9f9e.up.railway.app</a
+        >
+        &middot; FastAPI + Dramatiq worker + Redis + 15-min reminder cron on
+        Railway (project <code>legacyflow-staging</code>), database on live
+        Supabase. Login via magic link (Google OAuth disabled in Supabase).
+      </div>
       <h2 class="sec">Epic overview</h2>
       <div class="epics" id="epics"></div>
       <h2 class="sec">Kanban</h2>
