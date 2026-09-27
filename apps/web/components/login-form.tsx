@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,12 +11,20 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 const magicLinkSchema = z.object({
   email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
 });
 
 type MagicLinkValues = z.infer<typeof magicLinkSchema>;
+
+const passwordSignInSchema = z.object({
+  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
+  password: z.string().min(1, 'Password is required.'),
+});
+
+type PasswordSignInValues = z.infer<typeof passwordSignInSchema>;
 
 function GoogleIcon(): React.JSX.Element {
   // Simple "G" mark — placeholder brand glyph for the OAuth button.
@@ -29,26 +38,27 @@ function GoogleIcon(): React.JSX.Element {
   );
 }
 
+type Tab = 'password' | 'magic';
+
+function nextPath(): string {
+  if (typeof window === 'undefined') return '/family/home';
+  return new URLSearchParams(window.location.search).get('next') ?? '/family/home';
+}
+
 /**
- * Login form (§5.6): Google OAuth button + magic-link email form.
- * Works with both adapters; mock mode is labeled prominently.
+ * Login form (§5.6): Google OAuth button plus email sign-in with
+ * password / magic-link tabs. Works with both adapters; mock mode is
+ * labeled prominently.
  */
 export function LoginForm(): React.JSX.Element {
   const mock = isMockAuth();
+  const [tab, setTab] = useState<Tab>('password');
   const [googleLoading, setGoogleLoading] = useState(false);
   const [magicSent, setMagicSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<MagicLinkValues>({ resolver: zodResolver(magicLinkSchema) });
-
-  function nextPath(): string {
-    if (typeof window === 'undefined') return '/family/home';
-    return new URLSearchParams(window.location.search).get('next') ?? '/family/home';
-  }
+  const magicForm = useForm<MagicLinkValues>({ resolver: zodResolver(magicLinkSchema) });
+  const passwordForm = useForm<PasswordSignInValues>({ resolver: zodResolver(passwordSignInSchema) });
 
   async function handleGoogle(): Promise<void> {
     setGoogleLoading(true);
@@ -78,11 +88,25 @@ export function LoginForm(): React.JSX.Element {
     }
   }
 
+  async function handlePasswordSignIn(values: PasswordSignInValues): Promise<void> {
+    setError(null);
+    try {
+      await getAuthAdapter().signInWithPassword(values.email, values.password);
+      window.location.href = nextPath();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? friendlyAuthError(err.message)
+          : 'Could not sign in. Please check your email and password.',
+      );
+    }
+  }
+
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle className="text-2xl">Sign in to LegacyFlow</CardTitle>
-        <CardDescription>Use Google or a magic link sent to your email.</CardDescription>
+        <CardDescription>Use Google, your password, or a magic link sent to your email.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {mock && (
@@ -125,7 +149,113 @@ export function LoginForm(): React.JSX.Element {
           <span className="h-px flex-1 bg-lf-border" />
         </div>
 
-        {magicSent ? (
+        <div
+          role="tablist"
+          aria-label="Email sign-in method"
+          className="grid grid-cols-2 gap-1 rounded-lf-control bg-lf-canvas p-1"
+        >
+          {(
+            [
+              { id: 'password', label: 'Password' },
+              { id: 'magic', label: 'Magic link' },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => {
+                setTab(t.id);
+                setError(null);
+              }}
+              className={cn(
+                'rounded-lf-control px-3 py-2 text-sm font-medium transition-colors',
+                tab === t.id
+                  ? 'bg-white text-lf-text shadow-sm'
+                  : 'text-lf-text-muted hover:text-lf-text',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'password' ? (
+          <form
+            onSubmit={passwordForm.handleSubmit(handlePasswordSignIn)}
+            noValidate
+            className="flex flex-col gap-3"
+            role="tabpanel"
+            aria-label="Sign in with password"
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="password-email">Email address</Label>
+              <Input
+                id="password-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                aria-invalid={passwordForm.formState.errors.email ? 'true' : undefined}
+                aria-describedby={
+                  passwordForm.formState.errors.email ? 'password-email-error' : undefined
+                }
+                {...passwordForm.register('email')}
+              />
+              {passwordForm.formState.errors.email && (
+                <p id="password-email-error" role="alert" className="text-xs text-lf-error-700">
+                  {passwordForm.formState.errors.email.message}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password-password">Password</Label>
+                <Link
+                  href="/auth/reset-password"
+                  className="text-xs font-medium text-lf-primary-700 underline-offset-2 hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <Input
+                id="password-password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Your password"
+                aria-invalid={passwordForm.formState.errors.password ? 'true' : undefined}
+                aria-describedby={
+                  passwordForm.formState.errors.password ? 'password-password-error' : undefined
+                }
+                {...passwordForm.register('password')}
+              />
+              {passwordForm.formState.errors.password && (
+                <p id="password-password-error" role="alert" className="text-xs text-lf-error-700">
+                  {passwordForm.formState.errors.password.message}
+                </p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              disabled={passwordForm.formState.isSubmitting}
+              className="w-full"
+            >
+              {passwordForm.formState.isSubmitting && (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              )}
+              {passwordForm.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
+            </Button>
+            <p className="text-center text-sm text-lf-text-muted">
+              New to LegacyFlow?{' '}
+              <Link
+                href="/signup"
+                className="font-medium text-lf-primary-700 underline-offset-2 hover:underline"
+              >
+                Create an account
+              </Link>
+            </p>
+          </form>
+        ) : magicSent ? (
           <div
             role="status"
             className="flex flex-col items-center gap-2 rounded-lf-control border border-lf-success-300 bg-lf-success-50 px-4 py-6 text-center"
@@ -147,7 +277,13 @@ export function LoginForm(): React.JSX.Element {
             </Button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit(handleMagicLink)} noValidate className="flex flex-col gap-3">
+          <form
+            onSubmit={magicForm.handleSubmit(handleMagicLink)}
+            noValidate
+            className="flex flex-col gap-3"
+            role="tabpanel"
+            aria-label="Sign in with magic link"
+          >
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="magic-email">Email address</Label>
               <Input
@@ -155,19 +291,28 @@ export function LoginForm(): React.JSX.Element {
                 type="email"
                 autoComplete="email"
                 placeholder="you@example.com"
-                aria-invalid={errors.email ? 'true' : undefined}
-                aria-describedby={errors.email ? 'magic-email-error' : undefined}
-                {...register('email')}
+                aria-invalid={magicForm.formState.errors.email ? 'true' : undefined}
+                aria-describedby={
+                  magicForm.formState.errors.email ? 'magic-email-error' : undefined
+                }
+                {...magicForm.register('email')}
               />
-              {errors.email && (
+              {magicForm.formState.errors.email && (
                 <p id="magic-email-error" role="alert" className="text-xs text-lf-error-700">
-                  {errors.email.message}
+                  {magicForm.formState.errors.email.message}
                 </p>
               )}
             </div>
-            <Button type="submit" variant="outline" disabled={isSubmitting} className="w-full">
-              {isSubmitting && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {isSubmitting ? 'Sending…' : 'Email me a sign-in link'}
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={magicForm.formState.isSubmitting}
+              className="w-full"
+            >
+              {magicForm.formState.isSubmitting && (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              )}
+              {magicForm.formState.isSubmitting ? 'Sending…' : 'Email me a sign-in link'}
             </Button>
           </form>
         )}
@@ -178,4 +323,22 @@ export function LoginForm(): React.JSX.Element {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Supabase auth errors are technical ("Invalid login credentials"); map the
+ * common ones to friendlier copy without leaking which half was wrong.
+ */
+function friendlyAuthError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('invalid login credentials')) {
+    return 'Incorrect email or password. If you signed up with Google or a magic link, use that method instead — or reset your password.';
+  }
+  if (normalized.includes('email not confirmed')) {
+    return 'Please confirm your email first — check your inbox for the confirmation link.';
+  }
+  if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
+    return 'Too many attempts. Please wait a little while and try again.';
+  }
+  return message;
 }

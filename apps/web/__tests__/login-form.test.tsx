@@ -5,12 +5,14 @@ import userEvent from '@testing-library/user-event';
 import { LoginForm } from '../components/login-form';
 
 describe('LoginForm', () => {
-  it('renders the Google button and the magic-link email form', () => {
+  it('renders the Google button and the password tab by default', () => {
     render(<LoginForm />);
 
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeDefined();
+    expect(screen.getByRole('tab', { name: 'Password' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('Email address')).toBeDefined();
-    expect(screen.getByRole('button', { name: 'Email me a sign-in link' })).toBeDefined();
+    expect(screen.getByLabelText('Password')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDefined();
   });
 
   it('labels mock mode when Supabase is not configured', () => {
@@ -18,16 +20,40 @@ describe('LoginForm', () => {
     expect(screen.getByRole('note')).toHaveTextContent('Local dev mock auth');
   });
 
-  it('shows an inline error when submitting an empty email', async () => {
+  it('links to sign-up and password reset from the password tab', () => {
     render(<LoginForm />);
-    fireEvent.click(screen.getByRole('button', { name: 'Email me a sign-in link' }));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Email is required.');
+    expect(screen.getByRole('link', { name: 'Create an account' })).toHaveAttribute(
+      'href',
+      '/signup',
+    );
+    expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute(
+      'href',
+      '/auth/reset-password',
+    );
   });
 
-  it('shows the mock "sent" state after a valid email submit', async () => {
+  it('shows an inline error when submitting an empty password form', async () => {
+    render(<LoginForm />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.some((a) => a.textContent === 'Email is required.')).toBe(true);
+  });
+
+  it('switches to the magic-link tab on click', async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
+    await user.click(screen.getByRole('tab', { name: 'Magic link' }));
+    expect(screen.getByRole('tab', { name: 'Magic link' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Email me a sign-in link' })).toBeDefined();
+  });
+
+  it('shows the mock "sent" state after a valid magic-link submit', async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.click(screen.getByRole('tab', { name: 'Magic link' }));
     await user.type(screen.getByLabelText('Email address'), 'demo@example.com');
     await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }));
     const status = await screen.findByRole('status');

@@ -3,7 +3,7 @@ import { LoginForm } from '@/components/login-form';
 
 export const metadata: Metadata = {
   title: 'Sign in — LegacyFlow',
-  description: 'Sign in to LegacyFlow with Google or a magic link.',
+  description: 'Sign in to LegacyFlow with Google, your password, or a magic link.',
 };
 
 export default function LoginPage(): React.JSX.Element {

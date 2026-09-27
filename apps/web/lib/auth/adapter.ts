@@ -20,6 +20,21 @@ export interface AuthAdapter {
   signInWithGoogle(): Promise<void>;
   /** Send a magic link (or enter the mock "sent" state). */
   signInWithMagicLink(email: string): Promise<void>;
+  /**
+   * Create an account with an email and password.
+   * Resolves with `needsConfirmation: true` when the user must confirm via
+   * email before the first sign-in (Supabase "confirm email" setting).
+   */
+  signUpWithPassword(email: string, password: string): Promise<{ needsConfirmation: boolean }>;
+  /** Sign in with an email and password. */
+  signInWithPassword(email: string, password: string): Promise<void>;
+  /** Send a password-reset email (or mock the "sent" state). */
+  sendPasswordReset(email: string): Promise<void>;
+  /**
+   * Set a new password for the current user. Used after the user follows a
+   * password-recovery link (recovery session) and from account settings.
+   */
+  updatePassword(newPassword: string): Promise<void>;
   /** Current session, or null when signed out. */
   getSession(): Promise<AuthSession | null>;
   /**

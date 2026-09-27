@@ -68,6 +68,42 @@ export function createMockAdapter(): AuthAdapter {
       await delay(600);
     },
 
+    async signUpWithPassword(
+      email: string,
+      _password: string,
+    ): Promise<{ needsConfirmation: boolean }> {
+      await delay(600);
+      const session: AuthSession = {
+        user: { ...syntheticUser('mock'), email },
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+      };
+      memorySession = session;
+      writeCookie(session);
+      // Mock mode never requires email confirmation.
+      return { needsConfirmation: false };
+    },
+
+    async signInWithPassword(email: string, _password: string): Promise<void> {
+      await delay(600);
+      const session: AuthSession = {
+        user: { ...syntheticUser('mock'), email },
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+      };
+      memorySession = session;
+      writeCookie(session);
+    },
+
+    async sendPasswordReset(email: string): Promise<void> {
+      // Mock: pretend the reset email was sent; the caller shows the "sent" state.
+      void email;
+      await delay(600);
+    },
+
+    async updatePassword(_newPassword: string): Promise<void> {
+      // Mock: nothing to persist — the synthetic session is unchanged.
+      await delay(400);
+    },
+
     async getSession(): Promise<AuthSession | null> {
       const session = readCookie();
       if (!session) return null;

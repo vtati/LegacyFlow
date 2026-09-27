@@ -75,5 +75,43 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
       if (error) throw error;
       return session?.access_token ?? null;
     },
+
+    async signUpWithPassword(
+      email: string,
+      password: string,
+    ): Promise<{ needsConfirmation: boolean }> {
+      const supabase = getBrowserSupabase();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/family/home`,
+        },
+      });
+      if (error) throw error;
+      // With "confirm email" enabled Supabase creates the user but returns no
+      // session until the confirmation link is followed.
+      return { needsConfirmation: !data.session };
+    },
+
+    async signInWithPassword(email: string, password: string): Promise<void> {
+      const supabase = getBrowserSupabase();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    },
+
+    async sendPasswordReset(email: string): Promise<void> {
+      const supabase = getBrowserSupabase();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/auth/update-password`,
+      });
+      if (error) throw error;
+    },
+
+    async updatePassword(newPassword: string): Promise<void> {
+      const supabase = getBrowserSupabase();
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+    },
   };
 }
