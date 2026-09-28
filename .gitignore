@@ -42,3 +42,4 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+staging-e2e/
