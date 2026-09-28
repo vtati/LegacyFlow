@@ -548,10 +548,23 @@ export interface AiAskInput {
 
 export interface DocumentTemplate {
   id: string;
+  firm_id: string;
   name: string;
-  description: string | null;
-  jurisdiction_code: string;
-  pack_version: string;
+  template_type: string;
+  pack_id: string | null;
+  version: string;
+  content: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentTemplateCreateInput {
+  name: string;
+  template_type: string;
+  pack_id?: string | null;
+  version?: string;
+  content: string;
 }
 
 export interface DocumentPackageInput {
@@ -908,6 +921,138 @@ export const api: FamilyApi = createFamilyApi({
   getToken: () => getAuthAdapter().getAccessToken(),
 });
 
+/* -------------------------------------------------- firm administration */
+
+export interface FirmProfile {
+  id: string;
+  legal_name: string;
+  display_name: string;
+  status: 'active' | 'suspended' | 'trial';
+  created_at: string;
+}
+
+export type FirmMemberRole = 'firm_admin' | 'attorney' | 'staff' | 'auditor';
+
+export interface FirmMember {
+  id: string;
+  firm_id: string;
+  user_id: string;
+  role: FirmMemberRole;
+  status: 'active' | 'invited' | 'disabled';
+  created_at: string;
+  display_name: string | null;
+  email: string | null;
+}
+
+export interface EffectiveFeatureFlag {
+  key: string;
+  is_enabled: boolean;
+  source: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  firm_id: string | null;
+  matter_id: string | null;
+  actor_user_id: string | null;
+  actor_type: string;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  correlation_id: string | null;
+  before_summary: Record<string, unknown> | null;
+  after_summary: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditEventFilters {
+  action?: string;
+  resourceType?: string;
+  actorType?: string;
+  matterId?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AuditEventListResponse {
+  items: AuditEvent[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface ContentPack {
+  jurisdiction_code: string;
+  pack_id: string;
+  display_name: string;
+  version: string;
+  status: string;
+  effective_from: string | null;
+}
+
+export interface PackTransitionResult {
+  id: string;
+  pack_id: string;
+  version: string;
+  from_status: string;
+  to_status: string;
+}
+
+export interface PackImportResult {
+  pack_id: string;
+  jurisdiction_code: string;
+  version: string;
+  status: string;
+  source_bundle_hash: string;
+  jurisdiction_id: string;
+}
+
+export interface FeatureFlagOut {
+  id: string;
+  key: string;
+  scope: string;
+  scope_ref: string;
+  is_enabled: boolean;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Invitation {
+  id: string;
+  firm_id: string;
+  email: string;
+  role: string;
+  household_id: string | null;
+  status: string;
+  expires_at: string;
+  accepted_user_id: string | null;
+  created_at: string;
+}
+
+export interface InvitationCreateInput {
+  email: string;
+  role: string;
+  household_id?: string | null;
+}
+
+export interface InvitationCreateResponse {
+  invitation: Invitation;
+  accept_token: string | null;
+}
+
+export interface Escalation {
+  id: string;
+  matter_id: string;
+  rule_id: string;
+  severity: string;
+  outcome: string;
+  facts_snapshot: Record<string, unknown>;
+  status: string;
+  created_at: string;
+}
+
 /* ------------------------------------------------------------------ firm api */
 
 export interface FirmMatterFilters {
@@ -945,6 +1090,8 @@ export interface FirmApi {
   askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
   /* documents */
   listTemplates: () => Promise<DocumentTemplate[]>;
+  getTemplate: (templateId: string) => Promise<DocumentTemplate>;
+  createTemplate: (input: DocumentTemplateCreateInput) => Promise<DocumentTemplate>;
   listPackages: (matterId: string) => Promise<DocumentPackage[]>;
   createPackage: (matterId: string, input: DocumentPackageInput) => Promise<DocumentPackage>;
   generateDemo: (packageId: string, format: DemoFormat) => Promise<GeneratedDemo>;
@@ -954,6 +1101,12 @@ export interface FirmApi {
   /* funding */
   generateFundingTasks: (matterId: string) => Promise<FundingTask[]>;
   listFundingTasks: (matterId: string) => Promise<FundingTask[]>;
+  /* invitations */
+  listInvitations: () => Promise<Invitation[]>;
+  createInvitation: (input: InvitationCreateInput) => Promise<InvitationCreateResponse>;
+  revokeInvitation: (invitationId: string) => Promise<Invitation>;
+  /* escalations */
+  listEscalations: (matterId: string) => Promise<Escalation[]>;
 }
 
 /** Typed client for the LegacyFlow firm (attorney) API. */
@@ -1033,6 +1186,9 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       }),
     /* documents */
     listTemplates: () => call<DocumentTemplate[]>(`/document-templates`),
+    getTemplate: (templateId) => call<DocumentTemplate>(`/document-templates/${templateId}`),
+    createTemplate: (input) =>
+      call<DocumentTemplate>(`/document-templates`, { method: 'POST', body: input }),
     listPackages: (matterId) => call<DocumentPackage[]>(`/matters/${matterId}/document-packages`),
     createPackage: (matterId, input) =>
       call<DocumentPackage>(`/matters/${matterId}/document-packages`, {
@@ -1052,6 +1208,14 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
     generateFundingTasks: (matterId) =>
       call<FundingTask[]>(`/matters/${matterId}/funding-tasks/generate`, { method: 'POST' }),
     listFundingTasks: (matterId) => call<FundingTask[]>(`/matters/${matterId}/funding-tasks`),
+    /* invitations */
+    listInvitations: () => call<Invitation[]>(`/firms/invitations`),
+    createInvitation: (input) =>
+      call<InvitationCreateResponse>(`/firms/invitations`, { method: 'POST', body: input }),
+    revokeInvitation: (invitationId) =>
+      call<Invitation>(`/firms/invitations/${invitationId}/revoke`, { method: 'POST' }),
+    /* escalations */
+    listEscalations: (matterId) => call<Escalation[]>(`/matters/${matterId}/escalations`),
   };
 }
 
@@ -1061,5 +1225,104 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
  * in mock mode).
  */
 export const firmApi: FirmApi = createFirmApi({
+  getToken: () => getAuthAdapter().getAccessToken(),
+});
+
+/* -------------------------------------------------------------- admin api */
+
+export interface AdminApi {
+  getCurrentFirm: () => Promise<FirmProfile>;
+  listFirmMembers: () => Promise<FirmMember[]>;
+  listFeatureFlags: () => Promise<EffectiveFeatureFlag[]>;
+  setFeatureFlag: (key: string, isEnabled: boolean) => Promise<FeatureFlagOut>;
+  listAuditEvents: (filters?: AuditEventFilters) => Promise<AuditEventListResponse>;
+  listPacks: () => Promise<ContentPack[]>;
+  transitionPack: (packId: string, toStatus: string) => Promise<PackTransitionResult>;
+  importPack: (input: {
+    packDir?: string;
+    bundle?: File;
+    expectedBundleHash?: string;
+  }) => Promise<PackImportResult>;
+}
+
+/** Typed client for the LegacyFlow firm-administration API (firm_admin only). */
+export function createAdminApi(options: ApiClientOptions = {}): AdminApi {
+  const call = <T>(
+    path: string,
+    init?: {
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      body?: unknown;
+      signal?: AbortSignal;
+    },
+  ): Promise<T> => {
+    const { ...fetchInit } = init ?? {};
+    const promise = apiFetch<T>(path, { ...options, ...fetchInit });
+    const method = init?.method ?? 'GET';
+    const isMutation =
+      method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    return isMutation ? trackSave(promise) : promise;
+  };
+
+  return {
+    getCurrentFirm: () => call<FirmProfile>(`/firms/current`),
+    listFirmMembers: () => call<FirmMember[]>(`/firms/members`),
+    listFeatureFlags: () => call<EffectiveFeatureFlag[]>(`/admin/feature-flags`),
+    setFeatureFlag: (key, isEnabled) =>
+      call<FeatureFlagOut>(`/admin/feature-flags/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: { is_enabled: isEnabled },
+      }),
+    listAuditEvents: (filters = {}) => {
+      const params = new URLSearchParams();
+      if (filters.action?.trim()) params.set('action', filters.action.trim());
+      if (filters.resourceType?.trim()) params.set('resource_type', filters.resourceType.trim());
+      if (filters.actorType?.trim()) params.set('actor_type', filters.actorType.trim());
+      if (filters.matterId?.trim()) params.set('matter_id', filters.matterId.trim());
+      params.set('page', String(filters.page ?? 1));
+      params.set('page_size', String(filters.pageSize ?? 50));
+      return call<AuditEventListResponse>(`/admin/audit-events?${params.toString()}`);
+    },
+    listPacks: () => call<ContentPack[]>(`/packs`),
+    transitionPack: (packId, toStatus) =>
+      call<PackTransitionResult>(`/admin/packs/${encodeURIComponent(packId)}/transition`, {
+        method: 'POST',
+        body: { to_status: toStatus },
+      }),
+    importPack: async (input) => {
+      const form = new FormData();
+      if (input.packDir?.trim()) form.append('pack_dir', input.packDir.trim());
+      if (input.bundle) form.append('bundle', input.bundle);
+      if (input.expectedBundleHash?.trim()) {
+        form.append('expected_bundle_hash', input.expectedBundleHash.trim());
+      }
+      const token = await options.getToken?.();
+      const response = await fetch(`${options.baseUrl ?? ''}/v1/admin/packs/import`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      if (!response.ok) {
+        let parsed: unknown = null;
+        try {
+          parsed = await response.json();
+        } catch {
+          parsed = null;
+        }
+        const body = (parsed ?? {}) as { message?: string; detail?: string; code?: string };
+        const message =
+          body.message ?? body.detail ?? `Request failed with status ${response.status}.`;
+        throw new ApiError(response.status, message, { code: body.code, details: parsed });
+      }
+      return (await response.json()) as PackImportResult;
+    },
+  };
+}
+
+/**
+ * Shared browser client for firm administration. Sends the signed-in user's
+ * Supabase access token as the API Bearer <redacted> Endpoints are firm_admin-only;
+ * callers must handle 403s for other roles.
+ */
+export const adminApi: AdminApi = createAdminApi({
   getToken: () => getAuthAdapter().getAccessToken(),
 });

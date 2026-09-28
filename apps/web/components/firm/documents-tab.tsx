@@ -257,13 +257,9 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
                       <span className="block text-sm font-medium text-lf-text">
                         {template.name}
                       </span>
-                      {template.description && (
-                        <span className="block text-sm text-lf-text-muted">
-                          {template.description}
-                        </span>
-                      )}
                       <span className="block text-xs text-lf-text-subtle">
-                        {template.jurisdiction_code} · pack {template.pack_version}
+                        {template.template_type} · v{template.version}
+                        {template.pack_id ? ` · pack ${template.pack_id}` : ''}
                       </span>
                     </span>
                   </label>
