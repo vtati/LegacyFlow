@@ -288,7 +288,7 @@
         milestone.
       </p>
       <div class="meta">
-        <span>Last updated: <b id="updated">2026-09-27</b></span>
+        <span>Last updated: <b id="updated">2026-09-28</b></span>
         <span
           >Overall: <b id="opct">0%</b> (<span id="odone">0</span>/<span id="ototal">0</span>
           stories done)</span
@@ -300,7 +300,7 @@
       <div
         style="margin:18px 0 4px;padding:14px 18px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:14px;"
       >
-        <strong>Staging is live</strong> (deployed 2026-09-27):
+        <strong>Staging is live</strong> (deployed 2026-09-27, fixes 2026-09-28):
         web
         <a href="https://legacyflow-web.vercel.app">legacyflow-web.vercel.app</a>
         &middot; API
@@ -310,6 +310,11 @@
         &middot; FastAPI + Dramatiq worker + Redis + 15-min reminder cron on
         Railway (project <code>legacyflow-staging</code>), database on live
         Supabase. Login via email+password, magic link, or Google (Google OAuth currently disabled in Supabase).
+        <br />2026-09-28: fixed staging 500s (psycopg prepared-statement
+        collisions via pooler), matter lists now return nested household data,
+        blank feature-flag env vars treated as unset, template deletion for
+        firm admins, full seed data applied (parts 1–6), full API suite green
+        (261 passed).
       </div>
       <h2 class="sec">Epic overview</h2>
       <div class="epics" id="epics"></div>
