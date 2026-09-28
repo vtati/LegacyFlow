@@ -109,6 +109,30 @@ begin
     (v_hh_b, v_firm, 'Demo Household B', v_user)
   on conflict (id) do nothing;
 
+  -- --- persons (household B) ---
+  insert into public.persons (id, household_id, full_name, date_of_birth, email, kind, notes)
+  values
+    (v_p_b1, v_hh_b, 'Jordan Blake', date '1979-01-30', null, 'adult',
+     'Primary client of Demo Household B. Synthetic demo record.')
+  on conflict (id) do nothing;
+
+  -- --- persons (household A; all names except the account holder synthetic) ---
+  insert into public.persons (id, household_id, full_name, date_of_birth, email, kind, notes)
+  values
+    (v_p_user,   v_hh_a, 'Venugopal Tati', null, v_email, 'adult',
+     'Primary client (staging test account).'),
+    (v_p_spouse, v_hh_a, 'Maya Tati', date '1987-03-22', null, 'adult',
+     'Spouse of primary client. Synthetic demo record.'),
+    (v_p_kid1,   v_hh_a, 'Arjun Tati', date '2014-09-10', null, 'minor',
+     'Minor child. Synthetic demo record.'),
+    (v_p_kid2,   v_hh_a, 'Sara Tati', date '2018-02-28', null, 'minor',
+     'Minor child. Synthetic demo record.'),
+    (v_p_guard1, v_hh_a, 'Priya Sharma', date '1983-11-02', null, 'adult',
+     'Maternal aunt of the minor children; nominated guardian (primary). Does not reside in household. Synthetic demo record.'),
+    (v_p_guard2, v_hh_a, 'David Chen', date '1980-07-19', null, 'adult',
+     'Family friend; nominated guardian (backup). Synthetic demo record.')
+  on conflict (id) do nothing;
+
   -- --- household membership links (all persons; guarded for idempotent re-runs) ---
   insert into public.household_members (household_id, user_id, person_id, relationship_role, access_status)
   select v_hh_a, v_user, v_p_user, 'primary_client', 'active'
@@ -138,29 +162,6 @@ begin
   select v_hh_b, null, v_p_b1, 'primary_client', 'active'
   where not exists (select 1 from public.household_members
                     where household_id = v_hh_b and person_id = v_p_b1);
-
-  -- --- persons (household A; all names except the account holder synthetic) ---
-  insert into public.persons (id, household_id, full_name, date_of_birth, email, kind, notes)
-  values
-    (v_p_user,   v_hh_a, 'Venugopal Tati', null, v_email, 'adult',
-     'Primary client (staging test account).'),
-    (v_p_spouse, v_hh_a, 'Maya Tati', date '1987-03-22', null, 'adult',
-     'Spouse of primary client. Synthetic demo record.'),
-    (v_p_kid1,   v_hh_a, 'Arjun Tati', date '2014-09-10', null, 'minor',
-     'Minor child. Synthetic demo record.'),
-    (v_p_kid2,   v_hh_a, 'Sara Tati', date '2018-02-28', null, 'minor',
-     'Minor child. Synthetic demo record.'),
-    (v_p_guard1, v_hh_a, 'Priya Sharma', date '1983-11-02', null, 'adult',
-     'Maternal aunt of the minor children; nominated guardian (primary). Does not reside in household. Synthetic demo record.'),
-    (v_p_guard2, v_hh_a, 'David Chen', date '1980-07-19', null, 'adult',
-     'Family friend; nominated guardian (backup). Synthetic demo record.')
-  on conflict (id) do nothing;
-
-  insert into public.persons (id, household_id, full_name, date_of_birth, email, kind, notes)
-  values
-    (v_p_b1, v_hh_b, 'Jordan Blake', date '1979-01-30', null, 'adult',
-     'Primary client of Demo Household B. Synthetic demo record.')
-  on conflict (id) do nothing;
 
   -- --- relationships (household A; guarded for idempotent re-runs) ---
   insert into public.relationships (household_id, from_person_id, to_person_id, relationship_type)
