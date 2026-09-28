@@ -16,10 +16,11 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from app.core.errors import ConfigurationError
+from app.core.errors import ConfigurationError, ProviderError
 from app.domains.ai.schemas import Citation
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,7 @@ class InterviewTurnResponse:
     reply: str
     citations: list[Citation] = field(default_factory=list)
     proposals: list[FieldProposalDraft] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 class LLMProvider(Protocol):
@@ -196,9 +198,7 @@ class STTProvider(Protocol):
 
     name: str
 
-    def transcribe(
-        self, audio: bytes, *, filename: str, language: str | None = None
-    ) -> str:
+    def transcribe(self, audio: bytes, *, filename: str, language: str | None = None) -> str:
         """Transcribe ``audio``; return the transcript text."""
         ...
 
@@ -222,7 +222,11 @@ class DeterministicDevInterviewProvider:
     ) -> InterviewTurnResponse:
         del system_prompt, messages
         citations = [
-            Citation(source=context.pack_id, section=doc.section, excerpt=_excerpt(doc.body_markdown, 320))
+            Citation(
+                source=context.pack_id,
+                section=doc.section,
+                excerpt=_excerpt(doc.body_markdown, 320),
+            )
             for doc in context.documents
         ]
         if context.missing_required_keys:
@@ -246,9 +250,7 @@ class DeterministicDevSTTProvider:
 
     name = "deterministic_dev"
 
-    def transcribe(
-        self, audio: bytes, *, filename: str, language: str | None = None
-    ) -> str:
+    def transcribe(self, audio: bytes, *, filename: str, language: str | None = None) -> str:
         del audio, filename, language
         return "[test transcription]"
 
@@ -327,11 +329,14 @@ class OpenAIChatProvider:
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise ConfigurationError(f"OpenAI chat request failed: {exc}") from exc
+            # Log provider internals server-side; the client gets a generic
+            # 502 (ProviderError), never network or API detail.
+            logger.warning("OpenAI chat request failed: %s", exc)
+            raise ProviderError() from exc
         data = response.json()
         choice = (data.get("choices") or [{}])[0]
         message = choice.get("message") or {}
-        reply = str(message.get("content") or "")
+        reply = str(message.get("content") or "").strip()
         proposals: list[FieldProposalDraft] = []
         for call in message.get("tool_calls") or []:
             fn = call.get("function") or {}
@@ -354,11 +359,32 @@ class OpenAIChatProvider:
                         source_snippet=str(item.get("source_snippet", ""))[:500],
                     )
                 )
+        if not reply:
+            # The model emitted only tool calls (or an empty message): never
+            # hand the user a blank turn. This fallback carries no legal
+            # content and keeps the interview moving.
+            reply = (
+                "Thanks — I've noted that. Could you tell me a little more, "
+                "or shall we move on to the next item?"
+            )
+        usage: dict[str, int] = {}
+        raw_usage = data.get("usage") or {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            try:
+                usage[key] = int(raw_usage.get(key, 0))
+            except (TypeError, ValueError):
+                pass
         citations = [
-            Citation(source=context.pack_id, section=doc.section, excerpt=_excerpt(doc.body_markdown, 320))
+            Citation(
+                source=context.pack_id,
+                section=doc.section,
+                excerpt=_excerpt(doc.body_markdown, 320),
+            )
             for doc in context.documents
         ]
-        return InterviewTurnResponse(reply=reply, citations=citations, proposals=proposals)
+        return InterviewTurnResponse(
+            reply=reply, citations=citations, proposals=proposals, usage=usage
+        )
 
 
 class WhisperSTTProvider:
@@ -370,9 +396,7 @@ class WhisperSTTProvider:
         self._api_key = api_key
         self._model = model
 
-    def transcribe(
-        self, audio: bytes, *, filename: str, language: str | None = None
-    ) -> str:
+    def transcribe(self, audio: bytes, *, filename: str, language: str | None = None) -> str:
         import httpx
 
         data: dict[str, str] = {"model": self._model}
@@ -388,7 +412,8 @@ class WhisperSTTProvider:
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise ConfigurationError(f"Whisper transcription failed: {exc}") from exc
+            logger.warning("Whisper transcription failed: %s", exc)
+            raise ProviderError() from exc
         return str(response.json().get("text", ""))
 
 
@@ -396,8 +421,8 @@ class WhisperSTTProvider:
 # Registries
 # ---------------------------------------------------------------------------
 
-_LLM_FACTORIES: dict[str, Any] = {}
-_STT_FACTORIES: dict[str, Any] = {}
+_LLM_FACTORIES: dict[str, Callable[[], LLMProvider]] = {}
+_STT_FACTORIES: dict[str, Callable[[], STTProvider]] = {}
 
 
 def _openai_chat_factory() -> LLMProvider:
@@ -405,9 +430,7 @@ def _openai_chat_factory() -> LLMProvider:
 
     settings = get_settings()
     if not settings.OPENAI_API_KEY:
-        raise ConfigurationError(
-            "AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set."
-        )
+        raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
     return OpenAIChatProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_CHAT_MODEL)
 
 
@@ -416,9 +439,7 @@ def _whisper_factory() -> STTProvider:
 
     settings = get_settings()
     if not settings.OPENAI_API_KEY:
-        raise ConfigurationError(
-            "AI_STT_PROVIDER=whisper requires OPENAI_API_KEY to be set."
-        )
+        raise ConfigurationError("AI_STT_PROVIDER=whisper requires OPENAI_API_KEY to be set.")
     return WhisperSTTProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_WHISPER_MODEL)
 
 
@@ -436,8 +457,7 @@ def get_llm_provider(name: str | None = None) -> LLMProvider:
     factory = _LLM_FACTORIES.get(selected)
     if factory is None:
         raise ConfigurationError(
-            f"Unknown AI_LLM_PROVIDER {selected!r}. "
-            f"Expected one of: {sorted(_LLM_FACTORIES)}."
+            f"Unknown AI_LLM_PROVIDER {selected!r}. Expected one of: {sorted(_LLM_FACTORIES)}."
         )
     return factory()
 
@@ -450,8 +470,7 @@ def get_stt_provider(name: str | None = None) -> STTProvider:
     factory = _STT_FACTORIES.get(selected)
     if factory is None:
         raise ConfigurationError(
-            f"Unknown AI_STT_PROVIDER {selected!r}. "
-            f"Expected one of: {sorted(_STT_FACTORIES)}."
+            f"Unknown AI_STT_PROVIDER {selected!r}. Expected one of: {sorted(_STT_FACTORIES)}."
         )
     return factory()
 

@@ -35,7 +35,9 @@ def start_session(
 ) -> SessionOut:
     """Start (or resume the active) interview session. Idempotent per matter+set."""
     with db.transaction() as conn:
-        return service.start_session(conn, actor_sub=claims.sub, matter_id=matter_id, payload=payload)
+        return service.start_session(
+            conn, actor_sub=claims.sub, matter_id=matter_id, payload=payload
+        )
 
 
 @router.get("/matters/{matter_id}/interview/sessions/{session_id}", response_model=SessionOut)
@@ -46,7 +48,9 @@ def get_session(
 ) -> SessionOut:
     """Session state + coverage checklist + open proposals."""
     with db.transaction() as conn:
-        return service.get_session(conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id)
+        return service.get_session(
+            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
+        )
 
 
 @router.patch("/matters/{matter_id}/interview/sessions/{session_id}", response_model=SessionOut)
@@ -63,9 +67,7 @@ def update_session_status(
         )
 
 
-@router.post(
-    "/matters/{matter_id}/interview/sessions/{session_id}/turns", response_model=TurnOut
-)
+@router.post("/matters/{matter_id}/interview/sessions/{session_id}/turns", response_model=TurnOut)
 def post_turn(
     matter_id: UUID,
     session_id: UUID,
@@ -90,7 +92,9 @@ def list_turns(
 ) -> list[TurnSummaryOut]:
     """Recent turn summaries (no raw bodies)."""
     with db.transaction() as conn:
-        return service.list_turns(conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id)
+        return service.list_turns(
+            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
+        )
 
 
 @router.get(
@@ -110,7 +114,7 @@ def get_turn(
         )
 
 
-@router.post(
+@router.get(
     "/matters/{matter_id}/interview/sessions/{session_id}/proposals",
     response_model=list[ProposalOut],
 )
@@ -138,7 +142,11 @@ def confirm_proposal(
     """Confirm a proposal as-is; the value is written to intake with provenance."""
     with db.transaction() as conn:
         return service.decide_proposal(
-            conn, actor_sub=claims.sub, matter_id=matter_id, proposal_id=proposal_id, decision="confirmed"
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            proposal_id=proposal_id,
+            decision="confirmed",
         )
 
 
@@ -176,7 +184,11 @@ def reject_proposal(
     """Reject a proposal; the key returns to the missing list."""
     with db.transaction() as conn:
         return service.decide_proposal(
-            conn, actor_sub=claims.sub, matter_id=matter_id, proposal_id=proposal_id, decision="rejected"
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            proposal_id=proposal_id,
+            decision="rejected",
         )
 
 

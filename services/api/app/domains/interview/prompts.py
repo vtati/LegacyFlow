@@ -22,11 +22,7 @@ def build_system_prompt(
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     missing = ", ".join(missing_required_keys[:12])
-    more = (
-        f" (+{len(missing_required_keys) - 12} more)"
-        if len(missing_required_keys) > 12
-        else ""
-    )
+    more = f" (+{len(missing_required_keys) - 12} more)" if len(missing_required_keys) > 12 else ""
     return f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \

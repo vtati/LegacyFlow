@@ -11,15 +11,12 @@ import json
 from typing import Any
 from uuid import UUID
 
-
 # ---------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------
 
 
-def get_active_session(
-    conn: Any, matter_id: UUID, question_set_id: str
-) -> dict[str, Any] | None:
+def get_active_session(conn: Any, matter_id: UUID, question_set_id: str) -> dict[str, Any] | None:
     """Return the active (draft/in_progress/paused) session, if any."""
     with conn.cursor() as cur:
         cur.execute(
@@ -120,6 +117,7 @@ def count_turns(conn: Any, session_id: UUID) -> int:
 def find_turn_by_idempotency(
     conn: Any, session_id: UUID, idempotency_key: str
 ) -> dict[str, Any] | None:
+    """Find the turn (the user's) carrying an idempotency key."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -127,6 +125,27 @@ def find_turn_by_idempotency(
             WHERE session_id = %s AND idempotency_key = %s
             """,
             (str(session_id), idempotency_key),
+        )
+        row = cur.fetchone()
+        return dict(row) if row is not None else None
+
+
+def find_assistant_reply_turn(conn: Any, session_id: UUID, after_seq: int) -> dict[str, Any] | None:
+    """Find the assistant turn that followed a user turn with ``after_seq``.
+
+    Turns share ``created_at`` inside one transaction (``now()`` is the
+    transaction start time), so the monotonic ``seq`` column is the only
+    reliable ordering.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM interview_turns
+            WHERE session_id = %s AND role = 'assistant' AND seq > %s
+            ORDER BY seq ASC
+            LIMIT 1
+            """,
+            (str(session_id), after_seq),
         )
         row = cur.fetchone()
         return dict(row) if row is not None else None
@@ -202,7 +221,7 @@ def list_turn_summaries(conn: Any, session_id: UUID, limit: int = 50) -> list[di
             """
             SELECT id, role, summary, created_at FROM interview_turns
             WHERE session_id = %s
-            ORDER BY created_at DESC
+            ORDER BY seq DESC
             LIMIT %s
             """,
             (str(session_id), limit),
@@ -287,26 +306,53 @@ def decide_proposal(
     status: str,
     corrected_value: Any | None,
     decided_by_user_id: UUID,
+    scrub_snippet: bool = False,
 ) -> dict[str, Any]:
+    """Decide a proposal (compare-and-set on ``status = 'proposed'``).
+
+    When ``scrub_snippet`` is set (rejections), the raw source snippet is
+    cleared: ADR-002 keeps only snippets the user explicitly confirmed.
+    """
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE field_proposals
-            SET status = %s,
-                corrected_value = %s::jsonb,
-                confirmed_by_user_id = %s,
-                decided_at = now(),
-                updated_at = now()
-            WHERE id = %s AND status = 'proposed'
-            RETURNING *
-            """,
-            (
-                status,
-                json.dumps(corrected_value) if corrected_value is not None else None,
-                str(decided_by_user_id),
-                str(proposal_id),
-            ),
-        )
+        if scrub_snippet:
+            cur.execute(
+                """
+                UPDATE field_proposals
+                SET status = %s,
+                    corrected_value = %s::jsonb,
+                    source_snippet = NULL,
+                    confirmed_by_user_id = %s,
+                    decided_at = now(),
+                    updated_at = now()
+                WHERE id = %s AND status = 'proposed'
+                RETURNING *
+                """,
+                (
+                    status,
+                    json.dumps(corrected_value) if corrected_value is not None else None,
+                    str(decided_by_user_id),
+                    str(proposal_id),
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE field_proposals
+                SET status = %s,
+                    corrected_value = %s::jsonb,
+                    confirmed_by_user_id = %s,
+                    decided_at = now(),
+                    updated_at = now()
+                WHERE id = %s AND status = 'proposed'
+                RETURNING *
+                """,
+                (
+                    status,
+                    json.dumps(corrected_value) if corrected_value is not None else None,
+                    str(decided_by_user_id),
+                    str(proposal_id),
+                ),
+            )
         row = cur.fetchone()
         return dict(row) if row is not None else {}
 
@@ -327,7 +373,8 @@ def list_open_proposals(conn: Any, session_id: UUID) -> list[dict[str, Any]]:
 def count_open_proposals(conn: Any, session_id: UUID) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) AS n FROM field_proposals WHERE session_id = %s AND status = 'proposed'",
+            "SELECT COUNT(*) AS n FROM field_proposals "
+            "WHERE session_id = %s AND status = 'proposed'",
             (str(session_id),),
         )
         row = cur.fetchone()
@@ -337,7 +384,8 @@ def count_open_proposals(conn: Any, session_id: UUID) -> int:
 def open_proposal_keys(conn: Any, session_id: UUID) -> set[str]:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT question_key FROM field_proposals WHERE session_id = %s AND status = 'proposed'",
+            "SELECT question_key FROM field_proposals "
+            "WHERE session_id = %s AND status = 'proposed'",
             (str(session_id),),
         )
         return {str(row["question_key"]) for row in cur.fetchall()}
@@ -394,9 +442,7 @@ def insert_ai_trace(
         return dict(cur.fetchone())
 
 
-def list_recent_bodies(
-    conn: Any, session_id: UUID, limit: int = 10
-) -> list[dict[str, Any]]:
+def list_recent_bodies(conn: Any, session_id: UUID, limit: int = 10) -> list[dict[str, Any]]:
     """Recent turn bodies (ciphertext) with roles, oldest first — for history."""
     with conn.cursor() as cur:
         cur.execute(
@@ -405,7 +451,7 @@ def list_recent_bodies(
             FROM interview_turns t
             JOIN interview_turn_bodies b ON b.turn_id = t.id
             WHERE t.session_id = %s
-            ORDER BY t.created_at DESC
+            ORDER BY t.seq DESC
             LIMIT %s
             """,
             (str(session_id), limit),
@@ -429,3 +475,37 @@ def get_turn(conn: Any, turn_id: UUID) -> dict[str, Any] | None:
         cur.execute("SELECT * FROM interview_turns WHERE id = %s", (str(turn_id),))
         row = cur.fetchone()
         return dict(row) if row is not None else None
+
+
+#: Matter statuses after which interview turn bodies become purge-eligible
+#: (ADR-002). The bodies table holds raw conversation text; proposals,
+#: traces, and audit events are permanent and untouched by the purge.
+TERMINAL_MATTER_STATUSES = ("PLAN_IMPLEMENTED", "ARCHIVED")
+
+
+def purge_expired_turn_bodies(conn: Any, retention_days: int) -> int:
+    """Delete turn bodies for matters terminal longer than ``retention_days``.
+
+    A matter is purge-eligible when its current status is terminal and the
+    latest ``matter_status_history`` entry for that terminal status is older
+    than the retention window. Matters with no recorded terminal transition
+    are never purged (fail closed).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM interview_turn_bodies b
+            USING matters m
+            WHERE b.matter_id = m.id
+              AND m.status = ANY (%s)
+              AND (
+                    SELECT h.created_at
+                    FROM matter_status_history h
+                    WHERE h.matter_id = m.id AND h.to_status = m.status
+                    ORDER BY h.created_at DESC
+                    LIMIT 1
+                  ) < now() - make_interval(days => %s)
+            """,
+            (list(TERMINAL_MATTER_STATUSES), retention_days),
+        )
+        return cur.rowcount or 0

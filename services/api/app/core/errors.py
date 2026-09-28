@@ -119,3 +119,16 @@ class ConfigurationError(AppError):
     title = "Service not configured"
     status = 501
     detail = "The service is not configured for this operation."
+
+
+class ProviderError(AppError):
+    """An upstream AI provider call failed (HTTP 502).
+
+    The detail sent to clients is generic on purpose: network and
+    provider internals are logged server-side only, never exposed.
+    """
+
+    type = "urn:legacyflow:error:provider_error"
+    title = "AI provider unavailable"
+    status = 502
+    detail = "The AI service is temporarily unavailable. Please try again in a moment."

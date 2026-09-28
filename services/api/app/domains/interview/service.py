@@ -41,13 +41,13 @@ from app.domains.ai.provider import (
     get_llm_provider,
     get_stt_provider,
 )
-from app.domains.ai.schemas import Citation
 from app.domains.escalation import repository as escalation_repo
 from app.domains.feature_flags import service as feature_flags
 from app.domains.intake import question_sets as qs
 from app.domains.intake import repository as intake_repo
 from app.domains.intake import service as intake_service
-from app.domains.interview import prompts, repository as repo
+from app.domains.interview import prompts
+from app.domains.interview import repository as repo
 from app.domains.interview.schemas import (
     ChecklistItemOut,
     CitationOut,
@@ -91,9 +91,7 @@ _INTERVIEW_INCOMPLETE_RULE_ID = "interview_incomplete_item"
 
 def _require_flag(conn: Any, firm_id: UUID) -> None:
     if not feature_flags.is_enabled(conn, FLAG_KEY, firm_id=firm_id):
-        raise AuthorizationError(
-            "The AI interviewer is not enabled for this firm."
-        )
+        raise AuthorizationError("The AI interviewer is not enabled for this firm.")
 
 
 def _summarize(text: str) -> str:
@@ -106,21 +104,22 @@ def _trace_hash(material: str) -> str:
 
 def _answers_map(conn: Any, matter_id: UUID) -> dict[str, Any]:
     return {
-        str(row["question_key"]): row["answer"]
-        for row in intake_repo.list_answers(conn, matter_id)
+        str(row["question_key"]): row["answer"] for row in intake_repo.list_answers(conn, matter_id)
     }
 
 
-def _progress(pack: LoadedPack, answers: dict[str, Any]):
-    _per_set, completeness, missing = qs.compute_progress(pack.question_sets, answers)
-    return completeness, missing
+def _progress(pack: LoadedPack, answers: dict[str, Any]) -> tuple[float, list[str], int, int]:
+    per_set, completeness, missing = qs.compute_progress(pack.question_sets, answers)
+    total_required = sum(p.required_total for p in per_set.values())
+    answered_required = sum(p.required_answered for p in per_set.values())
+    return completeness, missing, total_required, answered_required
 
 
 def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> SessionOut:
     session_id = UUID(str(session["id"]))
     matter_id = UUID(str(session["matter_id"]))
     answers = _answers_map(conn, matter_id)
-    completeness, missing = _progress(pack, answers)
+    completeness, missing, _total_required, _answered_required = _progress(pack, answers)
     open_keys = repo.open_proposal_keys(conn, session_id)
     checklist: list[ChecklistItemOut] = []
     for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
@@ -168,9 +167,7 @@ def _proposal_out(row: dict[str, Any]) -> ProposalOut:
     )
 
 
-def _load_session_for_write(
-    conn: Any, matter_id: UUID, session_id: UUID
-) -> dict[str, Any]:
+def _load_session_for_write(conn: Any, matter_id: UUID, session_id: UUID) -> dict[str, Any]:
     session = repo.get_session(conn, session_id)
     if session is None or UUID(str(session["matter_id"])) != matter_id:
         raise NotFoundError("Interview session not found.")
@@ -311,9 +308,7 @@ def start_session(
     return _session_out(conn, session, pack)
 
 
-def get_session(
-    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
-) -> SessionOut:
+def get_session(conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID) -> SessionOut:
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
     firm_id = UUID(str(scope.matter["firm_id"]))
@@ -345,7 +340,9 @@ def update_session_status(
     if target is SessionStatus.COMPLETED:
         # Nothing silently dropped: remaining required items become open
         # attorney-review escalations (idempotent per rule while open).
-        _completeness, missing = _progress(pack, _answers_map(conn, matter_id))
+        _completeness, missing, _total_required, _answered_required = _progress(
+            pack, _answers_map(conn, matter_id)
+        )
         for key in missing:
             rule_id = f"{_INTERVIEW_INCOMPLETE_RULE_ID}:{key}"
             if not escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
@@ -470,10 +467,16 @@ def post_turn(
         raise ConflictError(f"Interview session is {status.value}; no further turns.")
 
     # Idempotent replay: a retried turn returns the original response.
+    # The idempotency key lives on the user turn; the response is rebuilt
+    # from the assistant turn that followed it (ordered by seq, because
+    # created_at ties inside a single transaction).
     if payload.idempotency_key:
         existing = repo.find_turn_by_idempotency(conn, session_id, payload.idempotency_key)
         if existing is not None:
-            return _replay_turn(conn, existing, session, firm_id, matter_id)
+            reply_turn = repo.find_assistant_reply_turn(conn, session_id, int(existing["seq"]))
+            if reply_turn is None:
+                raise ConflictError("This turn is still being processed. Please retry in a moment.")
+            return _replay_turn(conn, reply_turn, session, firm_id, matter_id)
 
     if repo.count_turns(conn, session_id) >= settings.INTERVIEW_MAX_TURNS_PER_SESSION:
         raise ConflictError(
@@ -502,7 +505,7 @@ def post_turn(
         )
 
     answers = _answers_map(conn, matter_id)
-    completeness, missing = _progress(pack, answers)
+    completeness, missing, total_required, answered_required = _progress(pack, answers)
     docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
     retrieved = [
         RetrievedDocument(
@@ -519,18 +522,16 @@ def post_turn(
         pack_version=version,
         documents=retrieved,
         missing_required_keys=missing,
-        answered_required=int(completeness * len(missing) / 100) if missing else 0,
-        total_required=len(missing),
+        answered_required=answered_required,
+        total_required=total_required,
     )
-    # NOTE: answered/total required counts are informational; the checklist
-    # panel is authoritative (computed from pack question sets).
     history = _history_messages(conn, session_id)
     system_prompt = prompts.build_system_prompt(
         pack_id=pack.manifest.pack_id,
         jurisdiction_code=pack.manifest.jurisdiction_code,
         missing_required_keys=missing,
-        answered_required=0,
-        total_required=len(missing),
+        answered_required=answered_required,
+        total_required=total_required,
     )
 
     provider = get_llm_provider()
@@ -555,10 +556,8 @@ def post_turn(
             continue
         valid_proposals.append(draft)
 
-    trace_hash = _trace_hash(
-        f"{message}|{version}|{','.join(d.content_id for d in retrieved)}"
-    )
-    user_turn = _store_turn(
+    trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
+    _store_turn(
         conn,
         session_id=session_id,
         firm_id=firm_id,
@@ -588,8 +587,8 @@ def post_turn(
         prompt_template=prompts.PROMPT_TEMPLATE_NAME,
         prompt_version=prompts.PROMPT_TEMPLATE_VERSION,
         pack_version=version,
-        tokens_in=None,
-        tokens_out=None,
+        tokens_in=response.usage.get("prompt_tokens"),
+        tokens_out=response.usage.get("completion_tokens"),
         latency_ms=latency_ms,
         retrieved_doc_ids=[d.content_id for d in retrieved],
     )
@@ -629,9 +628,6 @@ def post_turn(
         proposal_count=len(stored_proposals),
         trace_hash=trace_hash,
     )
-    # Silence unused-variable lint for the user turn row (kept for clarity).
-    del user_turn
-
     return TurnOut(
         id=UUID(str(assistant_turn["id"])),
         session_id=session_id,
@@ -682,7 +678,7 @@ def _refused_turn(
         severity="review",
         outcome="attorney_review",
     )
-    user_turn = _store_turn(
+    _store_turn(
         conn,
         session_id=session_id,
         firm_id=firm_id,
@@ -711,8 +707,9 @@ def _refused_turn(
         proposal_count=0,
         trace_hash=trace_hash,
     )
-    del user_turn
-    completeness, missing = _progress(pack, _answers_map(conn, matter_id))
+    completeness, missing, _total_required, _answered_required = _progress(
+        pack, _answers_map(conn, matter_id)
+    )
     return TurnOut(
         id=UUID(str(assistant_turn["id"])),
         session_id=session_id,
@@ -730,15 +727,16 @@ def _refused_turn(
 
 def _replay_turn(
     conn: Any,
-    existing: dict[str, Any],
+    reply_turn: dict[str, Any],
     session: dict[str, Any],
     firm_id: UUID,
     matter_id: UUID,
 ) -> TurnOut:
-    """Rebuild the original response for an idempotent turn retry."""
-    turn_id = UUID(str(existing["id"]))
+    """Rebuild the original assistant response for an idempotent turn retry."""
+    turn_id = UUID(str(reply_turn["id"]))
     body = repo.get_turn_body_ciphertext(conn, turn_id)
-    reply = crypto.decrypt_text(str(body["ciphertext"])) if body else str(existing["summary"])
+    reply = crypto.decrypt_text(str(body["ciphertext"])) if body else str(reply_turn["summary"])
+    was_refused = reply == _REFUSAL_MESSAGE
     proposals = [
         ProposalDraftOut(
             id=UUID(str(row["id"])),
@@ -751,14 +749,16 @@ def _replay_turn(
         for row in repo.list_proposals_by_turn(conn, turn_id)
     ]
     pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
-    completeness, missing = _progress(pack, _answers_map(conn, matter_id))
+    completeness, missing, _total_required, _answered_required = _progress(
+        pack, _answers_map(conn, matter_id)
+    )
     citations = [
         CitationOut(
             source=str(c.get("source", "")),
             section=c.get("section"),
             excerpt=str(c.get("excerpt", "")),
         )
-        for c in (existing["citations"] or [])
+        for c in (reply_turn["citations"] or [])
     ]
     return TurnOut(
         id=turn_id,
@@ -767,8 +767,8 @@ def _replay_turn(
         reply=reply,
         citations=citations,
         proposals=proposals,
-        refused=False,
-        escalated=False,
+        refused=was_refused,
+        escalated=was_refused,
         trace_hash=_trace_hash(f"replay|{turn_id}"),
         completeness_pct=completeness,
         missing_required_keys=missing,
@@ -809,12 +809,14 @@ def decide_proposal(
 
     question_key = str(proposal["question_key"])
     if decision == "rejected":
+        # ADR-002: only snippets the user explicitly confirmed are retained.
         row = repo.decide_proposal(
             conn,
             proposal_id,
             status="rejected",
             corrected_value=None,
             decided_by_user_id=actor_id,
+            scrub_snippet=True,
         )
     else:
         value = proposal["proposed_value"] if decision == "confirmed" else corrected_value
@@ -850,6 +852,26 @@ def decide_proposal(
         },
     )
     return _proposal_out(row)
+
+
+# ---------------------------------------------------------------------------
+# Retention (ADR-002)
+# ---------------------------------------------------------------------------
+
+
+def purge_expired_turn_bodies(conn: Any) -> int:
+    """Delete raw turn bodies past the retention window.
+
+    Matters must have been in a terminal state (``PLAN_IMPLEMENTED`` /
+    ``ARCHIVED``) for longer than ``INTERVIEW_TURN_RETENTION_DAYS``. Proposals,
+    traces, and audit events are permanent and untouched. Intended to run from
+    a scheduled maintenance job; returns the number of bodies deleted.
+    """
+    settings = get_settings()
+    deleted = repo.purge_expired_turn_bodies(conn, settings.INTERVIEW_TURN_RETENTION_DAYS)
+    if deleted:
+        logger.info("Purged %d expired interview turn bodies", deleted)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

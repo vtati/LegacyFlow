@@ -956,7 +956,6 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     listInterviewProposals: (matterId, sessionId) =>
       call<InterviewProposal[]>(
         `/matters/${matterId}/interview/sessions/${sessionId}/proposals`,
-        { method: 'POST', track: false },
       ),
     confirmInterviewProposal: (matterId, proposalId) =>
       call<InterviewProposal>(
