@@ -9,6 +9,7 @@
  */
 
 import { getAuthAdapter } from './auth';
+import { trackSave } from './save-status';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -762,8 +763,17 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
       body?: unknown;
       signal?: AbortSignal;
+      /** Set false for non-mutating POSTs (AI analysis) so they don't report save status. */
+      track?: boolean;
     },
-  ): Promise<T> => apiFetch<T>(path, { ...options, ...init });
+  ): Promise<T> => {
+    const { track, ...fetchInit } = init ?? {};
+    const promise = apiFetch<T>(path, { ...options, ...fetchInit });
+    const method = init?.method ?? 'GET';
+    const isMutation =
+      method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    return isMutation && track !== false ? trackSave(promise) : promise;
+  };
 
   return {
     listMatters: (page = 1, pageSize = 20) =>
@@ -780,7 +790,10 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     getIntakeProgress: (matterId) =>
       call<IntakeProgressResponse>(`/matters/${matterId}/intake/progress`),
     evaluateIntake: (matterId) =>
-      call<EvaluateResponse>(`/matters/${matterId}/intake/evaluate`, { method: 'POST' }),
+      call<EvaluateResponse>(`/matters/${matterId}/intake/evaluate`, {
+        method: 'POST',
+        track: false,
+      }),
     submitMatter: (matterId) =>
       call<MatterDetail>(`/matters/${matterId}/submit`, { method: 'POST' }),
     getHousehold: (matterId) => call<HouseholdResponse>(`/matters/${matterId}/household`),
@@ -813,6 +826,7 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     evaluateAssetAlignment: (assetId) =>
       call<AlignmentEvaluationResponse>(`/assets/${assetId}/evaluate-alignment`, {
         method: 'POST',
+        track: false,
       }),
     /* liabilities */
     listLiabilities: (householdId, page = 1, pageSize = 25) =>
@@ -844,6 +858,7 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     askAi: (matterId, question) =>
       call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {
         method: 'POST',
+        track: false,
         body: { question } satisfies AiAskInput,
       }),
     /* documents (demo, family-visible) */
@@ -949,8 +964,17 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
       body?: unknown;
       signal?: AbortSignal;
+      /** Set false for non-mutating POSTs (AI analysis) so they don't report save status. */
+      track?: boolean;
     },
-  ): Promise<T> => apiFetch<T>(path, { ...options, ...init });
+  ): Promise<T> => {
+    const { track, ...fetchInit } = init ?? {};
+    const promise = apiFetch<T>(path, { ...options, ...fetchInit });
+    const method = init?.method ?? 'GET';
+    const isMutation =
+      method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    return isMutation && track !== false ? trackSave(promise) : promise;
+  };
 
   return {
     listMatters: (filters = {}) => {
@@ -1004,6 +1028,7 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
     askAi: (matterId, question) =>
       call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {
         method: 'POST',
+        track: false,
         body: { question } satisfies AiAskInput,
       }),
     /* documents */
