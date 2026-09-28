@@ -148,6 +148,9 @@ export default function FirmTemplatesPage(): React.JSX.Element {
   const [selected, setSelected] = useState<DocumentTemplate | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -180,6 +183,24 @@ export default function FirmTemplatesPage(): React.JSX.Element {
         setDetailError(err instanceof Error ? err.message : 'Could not load the template.'),
       )
       .finally(() => setDetailLoading(false));
+  };
+
+  const handleDelete = (template: DocumentTemplate) => {
+    setDeleteError(null);
+    setDeletingId(template.id);
+    firmApi
+      .deleteTemplate(template.id)
+      .then(() => {
+        setTemplates((prev) => prev.filter((t) => t.id !== template.id));
+        setConfirmDeleteId(null);
+        if (selected?.id === template.id) setSelected(null);
+      })
+      .catch((err: unknown) =>
+        setDeleteError(
+          err instanceof Error ? err.message : 'Could not delete the template.',
+        ),
+      )
+      .finally(() => setDeletingId(null));
   };
 
   if (loading) return <LoadingState lines={6} label="Loading templates…" />;
@@ -231,6 +252,9 @@ export default function FirmTemplatesPage(): React.JSX.Element {
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Updated
                   </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -255,12 +279,57 @@ export default function FirmTemplatesPage(): React.JSX.Element {
                     <td className="px-4 py-3 text-sm text-lf-text-muted">
                       {formatDateTime(template.updated_at)}
                     </td>
+                    <td className="px-4 py-3 text-sm">
+                      {confirmDeleteId === template.id ? (
+                        <span className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            className="min-h-[44px]"
+                            disabled={deletingId === template.id}
+                            onClick={() => handleDelete(template)}
+                          >
+                            {deletingId === template.id ? 'Deleting…' : 'Confirm delete'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="min-h-[44px]"
+                            disabled={deletingId === template.id}
+                            onClick={() => setConfirmDeleteId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="min-h-[44px]"
+                          onClick={() => {
+                            setDeleteError(null);
+                            setConfirmDeleteId(template.id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </Card>
+      )}
+
+      {deleteError && (
+        <p role="alert" className="text-sm text-lf-error-700">
+          {deleteError}
+        </p>
       )}
 
       <CreateTemplateForm

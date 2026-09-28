@@ -163,6 +163,23 @@ def get_template(conn: Any, template_id: UUID) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def count_packages_for_template(conn: Any, template_id: UUID) -> int:
+    """Return the number of document packages referencing a template."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM document_packages WHERE template_id = %s",
+            (str(template_id),),
+        )
+        row = cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
+def delete_template(conn: Any, template_id: UUID) -> None:
+    """Delete a document template row."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM document_templates WHERE id = %s", (str(template_id),))
+
+
 def latest_template_by_type(conn: Any, firm_id: UUID, template_type: str) -> dict[str, Any] | None:
     """Return the firm's most recently created template of a type."""
     with conn.cursor() as cur:

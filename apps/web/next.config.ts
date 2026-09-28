@@ -12,7 +12,11 @@ const nextConfig: NextConfig = {
     const apiBase = process.env.API_INTERNAL_URL;
     if (!apiBase) return [];
     const base = apiBase.replace(/\/$/, '');
-    return [{ source: '/v1/:path*', destination: `${base}/v1/:path*` }];
+    return [
+      { source: '/v1/:path*', destination: `${base}/v1/:path*` },
+      // System-health page checks the API's /healthz same-origin.
+      { source: '/healthz', destination: `${base}/healthz` },
+    ];
   },
 };
 

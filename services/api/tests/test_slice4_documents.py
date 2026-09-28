@@ -405,6 +405,43 @@ def test_template_is_firm_scoped(db, api_client):
     assert response.json() == []
 
 
+def test_template_delete_firm_admin_only(db, api_client):
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    template = create_template_via_api(api_client, ADMIN_B, WILL_TEMPLATE)
+
+    # staff (non-admin) cannot delete
+    response = api_client.delete(f"/v1/document-templates/{template['id']}", headers=auth(STAFF_A))
+    assert response.status_code == 403
+
+    # other firm's admin gets 404 (existence-oracle), not 403
+    other_admin = str(uuid4())
+    create_user(db, other_admin)
+    other_firm = create_firm(db, "Other Synthetic Firm")
+    add_firm_member(db, other_firm, other_admin, "firm_admin")
+    other_headers = {"Authorization": f"Bearer {token(other_admin)}"}
+    response = api_client.delete(f"/v1/document-templates/{template['id']}", headers=other_headers)
+    assert response.status_code == 404
+
+    # firm_admin can delete; template is gone afterwards
+    response = api_client.delete(f"/v1/document-templates/{template['id']}", headers=auth(ADMIN_B))
+    assert response.status_code == 204
+    response = api_client.get(f"/v1/document-templates/{template['id']}", headers=auth(ADMIN_B))
+    assert response.status_code == 404
+
+
+def test_template_delete_blocked_when_packages_reference_it(db, api_client):
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    template = create_template_via_api(api_client, ADMIN_B, WILL_TEMPLATE)
+    create_package_via_api(api_client, ADMIN_B, matter_id, template["id"])
+
+    response = api_client.delete(f"/v1/document-templates/{template['id']}", headers=auth(ADMIN_B))
+    assert response.status_code == 409
+
+    # template still readable
+    response = api_client.get(f"/v1/document-templates/{template['id']}", headers=auth(ADMIN_B))
+    assert response.status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Packages + demo generation
 # ---------------------------------------------------------------------------

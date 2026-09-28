@@ -31,6 +31,8 @@ from typing import Any
 
 import yaml
 
+from app.core.paths import find_content_packs_dir
+
 # ---------------------------------------------------------------------------
 # Manifest / pack structures
 # ---------------------------------------------------------------------------
@@ -90,9 +92,13 @@ def _packs_root() -> Path:
     override = os.environ.get("CONTENT_PACKS_DIR")
     if override:
         return Path(override)
-    # services/api/app/domains/legal_content/pack_loader.py -> repo root is
-    # five levels up.
-    return Path(__file__).resolve().parents[5] / "content-packs"
+    # Walk up from this file to find content-packs/; never assume a fixed
+    # directory depth (deployed containers may not mirror the repo layout).
+    # Callers treat a missing directory as "no packs on disk".
+    found = find_content_packs_dir(Path(__file__).resolve())
+    if found is not None:
+        return found
+    return Path(__file__).resolve().parent / "__no_content_packs__"
 
 
 def _read_yaml(path: Path) -> Any:

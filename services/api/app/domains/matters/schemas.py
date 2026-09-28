@@ -18,6 +18,14 @@ class MatterCreate(BaseModel):
     plan_type: str = Field(default="will", min_length=1, max_length=50)
 
 
+class MatterHouseholdSummary(BaseModel):
+    """Household summary embedded in matter detail."""
+
+    id: UUID
+    name: str
+    display_name: str
+
+
 class MatterOut(BaseModel):
     """Public matter shape."""
 
@@ -42,6 +50,7 @@ class MatterOut(BaseModel):
     updated_at: datetime
     jurisdiction_code: str | None = None
     household_name: str | None = None
+    household: MatterHouseholdSummary | None = None
 
 
 class MatterTransition(BaseModel):
@@ -58,14 +67,6 @@ class MatterListResponse(BaseModel):
     page: int
     page_size: int
     total: int
-
-
-class MatterHouseholdSummary(BaseModel):
-    """Household summary embedded in matter detail."""
-
-    id: UUID
-    name: str
-    display_name: str
 
 
 class MatterProgressSummary(BaseModel):

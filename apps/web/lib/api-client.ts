@@ -1092,6 +1092,7 @@ export interface FirmApi {
   listTemplates: () => Promise<DocumentTemplate[]>;
   getTemplate: (templateId: string) => Promise<DocumentTemplate>;
   createTemplate: (input: DocumentTemplateCreateInput) => Promise<DocumentTemplate>;
+  deleteTemplate: (templateId: string) => Promise<void>;
   listPackages: (matterId: string) => Promise<DocumentPackage[]>;
   createPackage: (matterId: string, input: DocumentPackageInput) => Promise<DocumentPackage>;
   generateDemo: (packageId: string, format: DemoFormat) => Promise<GeneratedDemo>;
@@ -1189,6 +1190,8 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
     getTemplate: (templateId) => call<DocumentTemplate>(`/document-templates/${templateId}`),
     createTemplate: (input) =>
       call<DocumentTemplate>(`/document-templates`, { method: 'POST', body: input }),
+    deleteTemplate: (templateId) =>
+      call<void>(`/document-templates/${templateId}`, { method: 'DELETE' }),
     listPackages: (matterId) => call<DocumentPackage[]>(`/matters/${matterId}/document-packages`),
     createPackage: (matterId, input) =>
       call<DocumentPackage>(`/matters/${matterId}/document-packages`, {

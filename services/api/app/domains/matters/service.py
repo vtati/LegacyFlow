@@ -87,6 +87,13 @@ def matter_out(row: dict[str, Any]) -> MatterOut:
     pct = data.get("completeness_pct")
     data["completeness_pct"] = int(pct) if pct is not None else 0
     data["title"] = data.get("title") or ""
+    household_name = data.get("household_name")
+    if data.get("household_id") is not None and household_name:
+        data["household"] = MatterHouseholdSummary(
+            id=data["household_id"],
+            name=str(household_name),
+            display_name=str(household_name),
+        )
     return MatterOut.model_validate(data)
 
 
@@ -159,6 +166,7 @@ def create_matter(
         correlation_id=correlation_id,
         metadata={"jurisdiction_code": payload.jurisdiction_code.upper()},
     )
+    matter["household_name"] = household.get("display_name")
     return matter_out(matter)
 
 
@@ -325,6 +333,9 @@ def transition_matter(
         reason_code=payload.reason,
         actor_user_id=actor_id,
     )
+    household = repo.get_household(conn, UUID(str(updated["household_id"])))
+    if household is not None:
+        updated["household_name"] = household.get("display_name")
     record_audit_event(
         conn,
         action="matters.transitioned",

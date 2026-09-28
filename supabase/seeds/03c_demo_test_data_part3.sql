@@ -30,19 +30,25 @@ begin
   -- --- matters (jurisdiction_snapshot pins the on-disk us-va 0.1.0 pack) ---
   insert into public.matters
     (id, firm_id, household_id, primary_jurisdiction_id, jurisdiction_pack_id,
-     plan_type, status, assigned_attorney_id, jurisdiction_snapshot)
+     plan_type, status, title, assigned_attorney_id, jurisdiction_snapshot)
   values
-    (v_matter_1, v_firm, v_hh_a, v_va_jur, v_va_pack, 'will',  'INTAKE_IN_PROGRESS', v_user,
+    (v_matter_1, v_firm, v_hh_a, v_va_jur, v_va_pack, 'will',  'INTAKE_IN_PROGRESS', 'Tati Family Will', v_user,
      '{"pack_id": "us-va", "jurisdiction_code": "US-VA", "semantic_version": "0.1.0", "rule_ids": ["VA-ESC-001", "VA-ESC-002", "VA-ESC-003", "VA-ESC-004", "VA-ESC-005", "VA-ESC-006", "VA-ESC-007"], "question_set_versions": {"household": "1.0.0", "guardians": "1.0.0", "assets": "1.0.0"}}'),
-    (v_matter_2, v_firm, v_hh_b, v_va_jur, v_va_pack, 'trust', 'ATTORNEY_REVIEW',    v_user,
+    (v_matter_2, v_firm, v_hh_b, v_va_jur, v_va_pack, 'trust', 'ATTORNEY_REVIEW',    'Blake Family Trust', v_user,
      '{"pack_id": "us-va", "jurisdiction_code": "US-VA", "semantic_version": "0.1.0", "rule_ids": ["VA-ESC-001", "VA-ESC-002", "VA-ESC-003", "VA-ESC-004", "VA-ESC-005", "VA-ESC-006", "VA-ESC-007"], "question_set_versions": {"household": "1.0.0", "guardians": "1.0.0", "assets": "1.0.0"}}')
-  on conflict (id) do nothing;
+  on conflict (id) do update set title = excluded.title
+    where matters.title = '' or matters.title is null;
 
   insert into public.matter_status_history (matter_id, from_status, to_status, reason_code, actor_user_id)
-  values
-    (v_matter_2, 'DRAFT', 'INTAKE_SUBMITTED', 'demo_seed', v_user),
-    (v_matter_2, 'INTAKE_SUBMITTED', 'ATTORNEY_REVIEW', 'demo_seed', v_user)
-  on conflict do nothing;
+  select v_matter_2, 'DRAFT', 'INTAKE_SUBMITTED', 'demo_seed', v_user
+  where not exists (select 1 from public.matter_status_history
+                    where matter_id = v_matter_2 and from_status = 'DRAFT'
+                      and to_status = 'INTAKE_SUBMITTED');
+  insert into public.matter_status_history (matter_id, from_status, to_status, reason_code, actor_user_id)
+  select v_matter_2, 'INTAKE_SUBMITTED', 'ATTORNEY_REVIEW', 'demo_seed', v_user
+  where not exists (select 1 from public.matter_status_history
+                    where matter_id = v_matter_2 and from_status = 'INTAKE_SUBMITTED'
+                      and to_status = 'ATTORNEY_REVIEW');
 
   -- --- intake answers (matter 1): keys match content-packs/us-va/v0 ---
   insert into public.intake_answers (matter_id, question_key, answer)

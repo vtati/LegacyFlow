@@ -67,6 +67,7 @@ from ...core.errors import (
     NotFoundError,
     ValidationAppError,
 )
+from ...core.paths import find_content_packs_dir
 from ...domains.feature_flags import service as feature_flags_service
 from ...domains.legal_content import pack_loader
 from . import repository as repo
@@ -553,6 +554,35 @@ def get_template(conn: Any, *, actor_sub: str, template_id: UUID) -> sch.Documen
     return _template_out(row)
 
 
+def delete_template(conn: Any, *, actor_sub: str, template_id: UUID) -> None:
+    """Delete a template (firm_admin only), firm-scoped (existence-oracle).
+
+    Refuses with ``ConflictError`` when document packages reference the
+    template, so assembly history is never orphaned.
+    """
+    actor_id = _actor_id(actor_sub)
+    firm_id = authz.get_user_firm_id(conn, actor_id)
+    authz.require_firm_role(conn, actor_id, firm_id, {"firm_admin"})
+    row = repo.get_template(conn, template_id)
+    if row is None or UUID(str(row["firm_id"])) != firm_id:
+        raise NotFoundError("Document template not found.")
+    if repo.count_packages_for_template(conn, template_id) > 0:
+        raise ConflictError(
+            "This template is used by one or more document packages and cannot be deleted."
+        )
+    repo.delete_template(conn, template_id)
+    record_audit_event(
+        conn,
+        action="template.deleted",
+        resource_type="document_templates",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        resource_id=template_id,
+        metadata={"name": str(row.get("name", ""))},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Document-assembly gate (feature flag + pack manifest capability)
 # ---------------------------------------------------------------------------
@@ -877,9 +907,14 @@ class ExecutionProfile:
     funding_playbooks: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _repo_root() -> Path:
-    """Repo root (``content-packs/`` lives here); parents[5] from this file."""
-    return Path(__file__).resolve().parents[5]
+def _repo_root() -> Path | None:
+    """Repo root (``content-packs/`` lives here), or ``None`` when the packs
+    are not on disk (e.g. deployed containers built from ``services/api``).
+
+    Never assumes a fixed directory depth — walks up from this file.
+    """
+    packs_dir = find_content_packs_dir(Path(__file__).resolve())
+    return packs_dir.parent if packs_dir is not None else None
 
 
 def _content_pack_files(pack_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
@@ -888,7 +923,10 @@ def _content_pack_files(pack_id: str) -> tuple[dict[str, Any], list[dict[str, An
     Returns ``None`` when the pack is not on disk so callers can fall back
     to the built-in starter data.
     """
-    pack_root = _repo_root() / "content-packs" / pack_id
+    pack_root = _repo_root()
+    if pack_root is None:
+        return None
+    pack_root = pack_root / "content-packs" / pack_id
     if not pack_root.is_dir():
         return None
     version_dirs = sorted(d for d in pack_root.iterdir() if d.is_dir() and d.name.startswith("v"))

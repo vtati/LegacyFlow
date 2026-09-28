@@ -47,11 +47,13 @@ def _actor_id(actor_sub: str) -> UUID:
 def env_override(key: str) -> bool | None:
     """Return the explicit ``LF_FLAG_<KEY>`` env override, or ``None``.
 
-    Raises ``ValueError`` on an unrecognized value — an explicit override
-    with garbage is a configuration error and must be loud, never silent.
+    A blank value is treated as unset (platforms often inject empty env
+    vars); a non-blank unrecognized value raises ``ValueError`` — an
+    explicit override with garbage is a configuration error and must be
+    loud, never silent.
     """
     raw = os.environ.get(f"LF_FLAG_{key.upper()}")
-    if raw is None:
+    if raw is None or not raw.strip():
         return None
     normalized = raw.strip().lower()
     if normalized in _ENV_TRUE_VALUES:

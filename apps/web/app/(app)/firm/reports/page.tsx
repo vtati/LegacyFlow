@@ -106,8 +106,8 @@ export default function FirmReportsPage(): React.JSX.Element {
     const rows: (string | number)[][] = [
       ['Matter', 'Household', 'Status', 'Jurisdiction', 'Completeness %', 'Updated'],
       ...data.matters.map((m) => [
-        m.title,
-        m.household.name,
+        m.title || '(untitled matter)',
+        m.household?.name ?? '',
         m.status,
         m.jurisdiction_code,
         m.completeness_pct,

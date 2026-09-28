@@ -58,6 +58,13 @@ def get_document_template(user: User, template_id: UUID) -> sch.DocumentTemplate
         return service.get_template(conn, actor_sub=user.sub, template_id=template_id)
 
 
+@router.delete("/document-templates/{template_id}", status_code=204)
+def delete_document_template(user: User, template_id: UUID) -> None:
+    """Delete a template (firm_admin only); 409 when packages reference it."""
+    with db.transaction() as conn:
+        service.delete_template(conn, actor_sub=user.sub, template_id=template_id)
+
+
 # ---------------------------------------------------------------------------
 # Packages
 # ---------------------------------------------------------------------------

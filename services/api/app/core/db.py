@@ -34,8 +34,17 @@ def get_connection() -> Any:
     """Open a new psycopg connection with dict rows.
 
     Caller owns the connection (use as a context manager).
+
+    ``prepare_threshold=None`` disables server-side prepared statements.
+    The app connects through a transaction-pooling proxy (Supabase pooler);
+    psycopg's auto-prepared statements (``_pg3_N``) collide across pooled
+    server connections and raise ``DuplicatePreparedStatement`` once any
+    query repeats ~5 times on one connection (e.g. feature-flag listing).
+    Disabling prepares trades a little plan-caching for correctness.
     """
-    return psycopg.connect(database_url_or_raise(), row_factory=dict_row)
+    return psycopg.connect(
+        database_url_or_raise(), row_factory=dict_row, prepare_threshold=None
+    )
 
 
 @contextmanager

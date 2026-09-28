@@ -22,7 +22,7 @@ begin
   -- --- persons (household A; all names except the account holder synthetic) ---
   insert into public.persons (id, household_id, full_name, date_of_birth, email, kind, notes)
   values
-    (v_p_user,   v_hh_a, 'Venugopal Tati', date '1985-06-15', v_email, 'adult',
+    (v_p_user,   v_hh_a, 'Venugopal Tati', null, v_email, 'adult',
      'Primary client (staging test account).'),
     (v_p_spouse, v_hh_a, 'Maya Tati', date '1987-03-22', null, 'adult',
      'Spouse of primary client. Synthetic demo record.'),
