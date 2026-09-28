@@ -317,7 +317,7 @@ export const SECTION_NAV: Record<AppSection, NavItem[]> = {
 export const SECTION_TITLES: Record<AppSection, string> = {
   family: 'Family workspace',
   firm: 'Firm workspace',
-  admin: 'Platform admin',
+  admin: 'Firm admin',
 };
 
 export function findNavItem(section: AppSection, slug: string): NavItem | undefined {

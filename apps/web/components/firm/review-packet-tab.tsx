@@ -55,7 +55,7 @@ function SnapshotViewer({ snapshot }: { snapshot: Record<string, unknown> }) {
   }
 
   return (
-    <pre className="overflow-x-auto rounded-lf-control bg-lf-canvas-subtle p-4 text-xs leading-relaxed text-lf-text">
+    <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lf-control bg-lf-canvas-subtle p-4 text-xs leading-relaxed text-lf-text">
       {JSON.stringify(snapshot, null, 2)}
     </pre>
   );

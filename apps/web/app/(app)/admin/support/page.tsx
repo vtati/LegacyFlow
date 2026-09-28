@@ -38,7 +38,7 @@ function EscalationRow({ escalation }: { escalation: EscalationWithMatter }) {
           href={`/firm/matters/${escalation.matter_id}`}
           className="rounded-lf-control font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
         >
-          {escalation.matterTitle}
+          {escalation.matterTitle || 'Untitled matter'}
         </Link>
       </td>
       <td className="px-4 py-3">

@@ -146,9 +146,19 @@ function HouseholdSection({ snapshot }: { snapshot: HouseholdSnapshot }) {
           </CardHeader>
           <CardContent className="p-0">
             {assetBreakdown.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-lf-text-muted">
-                Add your home, accounts, vehicles, and other property in Assets.
-              </p>
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm font-medium text-lf-text">No assets recorded yet</p>
+                <p className="mt-1 text-sm text-lf-text-muted">
+                  Add your home, accounts, vehicles, and other property so your plan reflects
+                  what you own.
+                </p>
+                <Link
+                  href="/family/assets"
+                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                >
+                  Add assets
+                </Link>
+              </div>
             ) : (
               <ul className="divide-y divide-lf-border">
                 {assetBreakdown.map((row) => (
@@ -184,9 +194,18 @@ function HouseholdSection({ snapshot }: { snapshot: HouseholdSnapshot }) {
           </CardHeader>
           <CardContent className="p-0">
             {liabilityBreakdown.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-lf-text-muted">
-                Add mortgages, loans, and other debts in Liabilities.
-              </p>
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm font-medium text-lf-text">No liabilities recorded yet</p>
+                <p className="mt-1 text-sm text-lf-text-muted">
+                  Add mortgages, loans, and other debts so your plan reflects what you owe.
+                </p>
+                <Link
+                  href="/family/assets"
+                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                >
+                  Add liabilities
+                </Link>
+              </div>
             ) : (
               <ul className="divide-y divide-lf-border">
                 {liabilityBreakdown.map((row) => (

@@ -97,7 +97,7 @@ function MatterRow({ matter }: { matter: MatterSummary }) {
           href={`/firm/matters/${matter.id}`}
           className="font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 rounded-lf-control"
         >
-          {matter.title}
+          {matter.title || 'Untitled matter'}
         </Link>
         <p className="mt-0.5 text-sm text-lf-text-muted">{matter.household.name}</p>
       </td>

@@ -295,7 +295,7 @@ export default function FirmClientsPage(): React.JSX.Element {
                             href={`/firm/matters/${matter.id}`}
                             className="inline-flex min-h-[44px] items-center text-sm text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 rounded-lf-control"
                           >
-                            {matter.title}
+                            {matter.title || 'Untitled matter'}
                             <span className="ml-2 text-lf-text-muted">
                               · {formatStatus(matter.status)}
                             </span>
