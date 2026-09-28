@@ -49,10 +49,10 @@ begin
    where id = v_matter_2 and (title is null or title = '');
 
   -- --- household_members (household A) ---
-  insert into public.household_members (household_id, user_id, person_id, relationship_role, access_status)
-  select v_hh_a, v_user, v_p_user, 'primary_client', 'active'
-  where not exists (select 1 from public.household_members
-                    where household_id = v_hh_a and person_id = v_p_user);
+  -- Part 1 already created (v_hh_a, v_user) without a person_id; link it.
+  update public.household_members
+     set person_id = v_p_user
+   where household_id = v_hh_a and user_id = v_user and person_id is null;
 
   insert into public.household_members (household_id, user_id, person_id, relationship_role, access_status)
   select v_hh_a, null, v_p_spouse, 'collaborator', 'active'
