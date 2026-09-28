@@ -42,9 +42,7 @@ def get_connection() -> Any:
     query repeats ~5 times on one connection (e.g. feature-flag listing).
     Disabling prepares trades a little plan-caching for correctness.
     """
-    return psycopg.connect(
-        database_url_or_raise(), row_factory=dict_row, prepare_threshold=None
-    )
+    return psycopg.connect(database_url_or_raise(), row_factory=dict_row, prepare_threshold=None)
 
 
 @contextmanager

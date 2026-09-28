@@ -115,13 +115,15 @@ def seed_admin_with_matter(db) -> str:
     )
     _exec(
         db,
-        "INSERT INTO firm_memberships (firm_id, user_id, role, status) VALUES (%s, %s, 'firm_admin', 'active')",
+        "INSERT INTO firm_memberships (firm_id, user_id, role, status)"
+        " VALUES (%s, %s, 'firm_admin', 'active')",
         (firm_id, ADMIN),
     )
     hh_id = str(uuid4())
     _exec(
         db,
-        "INSERT INTO households (id, firm_id, display_name, created_by_user_id) VALUES (%s, %s, %s, %s)",
+        "INSERT INTO households (id, firm_id, display_name, created_by_user_id)"
+        " VALUES (%s, %s, %s, %s)",
         (hh_id, firm_id, "Synthetic Household", ADMIN),
     )
     matter_id = str(uuid4())
@@ -265,6 +267,4 @@ def test_get_connection_disables_prepared_statements(monkeypatch):
         db_module.get_connection()
     except RuntimeError:
         pass
-    assert captured.get("prepare_threshold") is None, (
-        f"prepare_threshold not disabled: {captured}"
-    )
+    assert captured.get("prepare_threshold") is None, f"prepare_threshold not disabled: {captured}"

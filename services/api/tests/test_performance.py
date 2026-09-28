@@ -76,6 +76,9 @@ CLIENT_SUB = "aaaaaaaa-9999-0000-1111-222222222222"  # primary_client
 FIRM_ID = uuid.uuid4()
 HOUSEHOLD_ID = uuid.uuid4()
 MATTER_ID = uuid.uuid4()
+# One matter per load-test worker so concurrent writers exercise the endpoint,
+# not a single row's write lock (production autosave is sequential per user).
+MATTER_IDS = [uuid.uuid4() for _ in range(WORKERS)]
 JURISDICTION_ID = uuid.uuid4()
 PACK_ID = uuid.uuid4()
 
@@ -198,20 +201,21 @@ def _seed(cur: Any) -> None:
     )
     import json as _json
 
-    cur.execute(
-        "insert into matters"
-        " (id, firm_id, household_id, primary_jurisdiction_id,"
-        "  jurisdiction_pack_id, plan_type, status, jurisdiction_snapshot)"
-        " values (%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS', %s::jsonb)",
-        (
-            str(MATTER_ID),
-            str(FIRM_ID),
-            str(HOUSEHOLD_ID),
-            str(JURISDICTION_ID),
-            str(PACK_ID),
-            _json.dumps(VA_SNAPSHOT),
-        ),
-    )
+    for _mid in [MATTER_ID, *MATTER_IDS]:
+        cur.execute(
+            "insert into matters"
+            " (id, firm_id, household_id, primary_jurisdiction_id,"
+            "  jurisdiction_pack_id, plan_type, status, jurisdiction_snapshot)"
+            " values (%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS', %s::jsonb)",
+            (
+                str(_mid),
+                str(FIRM_ID),
+                str(HOUSEHOLD_ID),
+                str(JURISDICTION_ID),
+                str(PACK_ID),
+                _json.dumps(VA_SNAPSHOT),
+            ),
+        )
 
 
 @pytest.fixture()
@@ -259,6 +263,7 @@ def run_load(
     headers: dict[str, str] | None = None,
     json_body: dict[str, Any] | None = None,
     body_factory: Callable[[int, int], dict[str, Any] | None] | None = None,
+    path_factory: Callable[[int, int], str] | None = None,
     expect_status: set[int],
     workers: int = WORKERS,
     per_worker: int = REQUESTS_PER_WORKER,
@@ -267,11 +272,16 @@ def run_load(
 
     Raises on any 5xx or any status outside ``expect_status`` — a perf run
     must measure the happy path, not an error path.
+
+    ``path_factory(worker_id, i)`` lets each worker hit its own resource
+    (e.g. its own matter) so the run measures endpoint latency rather than
+    a single row's lock contention.
     """
     warmup = make_client()
     for _ in range(WARMUP_REQUESTS):
         body = body_factory(0, 0) if body_factory else json_body
-        resp = warmup.request(method, path, headers=headers, json=body)
+        warmup_path = path_factory(0, 0) if path_factory else path
+        resp = warmup.request(method, warmup_path, headers=headers, json=body)
         assert resp.status_code in expect_status, (
             f"{label}: warmup got {resp.status_code}: {resp.text[:200]}"
         )
@@ -284,8 +294,9 @@ def run_load(
         local: list[float] = []
         for i in range(per_worker):
             body = body_factory(worker_id, i) if body_factory else json_body
+            req_path = path_factory(worker_id, i) if path_factory else path
             start = time.perf_counter()
-            resp = client.request(method, path, headers=headers, json=body)
+            resp = client.request(method, req_path, headers=headers, json=body)
             elapsed = time.perf_counter() - start
             assert resp.status_code in expect_status, (
                 f"{label}: worker {worker_id} got {resp.status_code}: {resp.text[:200]}"
@@ -364,6 +375,7 @@ def test_perf_read_matter_detail(perf_env: None) -> None:
         label="GET /v1/matters/{id} (matter detail)",
         method="GET",
         path=f"/v1/matters/{MATTER_ID}",
+        path_factory=lambda worker_id, _i: f"/v1/matters/{MATTER_IDS[worker_id]}",
         headers=_auth(ATTORNEY_SUB),
         expect_status={200},
     )
@@ -387,6 +399,7 @@ def test_perf_write_intake_answers(perf_env: None) -> None:
         label="PUT /v1/matters/{id}/intake/answers (intake autosave)",
         method="PUT",
         path=f"/v1/matters/{MATTER_ID}/intake/answers",
+        path_factory=lambda worker_id, _i: f"/v1/matters/{MATTER_IDS[worker_id]}/intake/answers",
         headers=_auth(CLIENT_SUB),
         body_factory=_answers_body,
         expect_status={200},
