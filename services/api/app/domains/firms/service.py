@@ -1,31 +1,66 @@
-"""Application services for the firms domain.
+"""Application services for the firms domain — current firm + member roster."""
 
-Slice-1 stub: real signatures, no fake logic. Implementations land in
-Slice 2 (auth, firms, memberships, invitations per artifact §15.4 step 3).
-"""
-
+from typing import Any
 from uuid import UUID
 
-from app.domains.firms.schemas import FirmMemberOut, FirmOut
+from app.core import authz
+from app.core.errors import AuthError, NotFoundError
+from app.domains.firms.schemas import FirmMemberDetailOut, FirmOut
 
 
-class FirmService:
-    """Firm settings, branding, enabled jurisdictions, feature flags."""
+def _caller_id(sub: str) -> UUID:
+    try:
+        return UUID(sub)
+    except ValueError as exc:
+        raise AuthError("The token subject is invalid.") from exc
 
-    def get_current_firm(self, user_id: UUID) -> FirmOut:
-        """Return the firm the caller belongs to.
 
-        Slice 2 will resolve this via ``firm_memberships`` (exactly one
-        active firm per user in the MVP) and raise ``NotFoundError`` when the
-        caller has no active membership.
-        """
-        raise NotImplementedError("slice 2")
+def get_current_firm(conn: Any, *, actor_sub: str) -> FirmOut:
+    """Return the firm the caller belongs to (any active member)."""
+    actor_id = _caller_id(actor_sub)
+    firm_id = authz.get_user_firm_id(conn, actor_id)
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM firms WHERE id = %s", (str(firm_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError("Firm not found.")
+    return FirmOut(
+        id=UUID(str(row["id"])),
+        legal_name=row["legal_name"],
+        display_name=row["display_name"],
+        status=row["status"],
+        created_at=row["created_at"],
+    )
 
-    def list_members(self, firm_id: UUID) -> list[FirmMemberOut]:
-        """List members of a firm.
 
-        Slice 2 will scope this by RLS on ``firm_memberships`` and require the
-        caller to hold an active membership in the same firm (staff/attorney
-        role or above for the full roster).
-        """
-        raise NotImplementedError("slice 2")
+def list_members(conn: Any, *, actor_sub: str) -> list[FirmMemberDetailOut]:
+    """List the member roster of the caller's firm (firm staff+ only)."""
+    actor_id = _caller_id(actor_sub)
+    firm_id = authz.get_user_firm_id(conn, actor_id)
+    authz.require_firm_role(conn, actor_id, firm_id, authz.STAFF_ROLES)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT fm.id, fm.firm_id, fm.user_id, fm.role, fm.status, fm.created_at,
+                   p.display_name, p.email
+              FROM firm_memberships fm
+              LEFT JOIN profiles p ON p.id = fm.user_id
+             WHERE fm.firm_id = %s
+             ORDER BY fm.created_at ASC
+            """,
+            (str(firm_id),),
+        )
+        rows = cur.fetchall()
+    return [
+        FirmMemberDetailOut(
+            id=UUID(str(r["id"])),
+            firm_id=UUID(str(r["firm_id"])),
+            user_id=UUID(str(r["user_id"])),
+            role=r["role"],
+            status=r["status"],
+            created_at=r["created_at"],
+            display_name=r["display_name"],
+            email=r["email"],
+        )
+        for r in rows
+    ]

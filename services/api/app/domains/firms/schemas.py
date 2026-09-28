@@ -34,3 +34,10 @@ class FirmMemberOut(BaseModel):
     role: FirmRole
     status: MembershipStatus
     created_at: datetime
+
+
+class FirmMemberDetailOut(FirmMemberOut):
+    """Firm-membership shape with the member's profile details."""
+
+    display_name: str | None = None
+    email: str | None = None
