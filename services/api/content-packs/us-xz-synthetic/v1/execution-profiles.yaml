@@ -1,0 +1,34 @@
+# Synthetic execution profile — 3 witnesses (differs from VA's 2).
+# Test fixture only; not law.
+execution_profiles:
+  - id: XZ-WILL-V1
+    document_type: will
+    jurisdiction: US-XZ
+    status: attorney_pending
+    requirements:
+      written_document: true
+      testator_signature_required: true
+      witnesses:
+        required_count: 3
+        must_be_competent: true
+        simultaneous_presence_required: false
+        witness_signs_in_testator_presence: true
+      notary:
+        legally_required: true
+        recommended_self_proving_affidavit: false
+      electronic_execution_supported_in_this_profile: false
+    source:
+      citation: 'XZ Synthetic Code § 000.000 (test fixture, not law)'
+    checklist_template:
+      - key: written_document_prepared
+        label: 'Prepare the written document (XZ synthetic)'
+        detail: 'The document must be in writing.'
+      - key: testator_signature
+        label: 'Sign the document'
+        detail: 'The person making the plan signs the document.'
+      - key: witness_signatures
+        label: 'Collect THREE witness signatures'
+        detail: "XZ synthetic rule: three competent witnesses sign in the testator's presence."
+      - key: notary_seal
+        label: 'Obtain notary seal (XZ synthetic requirement)'
+        detail: 'XZ synthetic rule: notarization is required in this test profile.'

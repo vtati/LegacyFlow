@@ -1,0 +1,38 @@
+# Synthetic jurisdiction pack for automated tests (FR-JUR-005).
+# US-XZ is a visibly fake jurisdiction ("Xanadu"). Behavior MUST differ from
+# US-VA without code changes: 3 witnesses, different question labels, and a
+# distinct escalation rule id namespace.
+pack:
+  id: us-xz-synthetic
+  country_code: US
+  subdivision_code: XZ
+  display_name: Xanadu (synthetic test jurisdiction)
+  semantic_version: 1.0.0
+  status: internal_testing
+  effective_from: '2026-09-26'
+
+governance:
+  legal_content_owner_type: attorney_or_firm
+  review_status: pending
+  approved_by: null
+
+capabilities:
+  intake: true
+  education: true
+  eligibility_triage: true
+  attorney_review: true
+  document_assembly: false
+  execution_guidance: attorney_pending
+  funding_guidance: true
+
+requirements:
+  minimum_platform_version: '1.0.0'
+  required_question_set_versions:
+    household: '1.0.0'
+
+sources:
+  - source_id: xz-synthetic-statute
+    authority_type: other
+    citation: 'XZ Synthetic Code § 000.000 (test fixture, not law)'
+    source_url: null
+    retrieved_on: '2026-09-26'
