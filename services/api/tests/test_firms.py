@@ -137,9 +137,7 @@ def _setup(db) -> str:
 
 
 def _auth(sub: str, email: str | None = None) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {mint_token(sub=sub, email=email or USERS[sub])}"
-    }
+    return {"Authorization": f"Bearer {mint_token(sub=sub, email=email or USERS[sub])}"}
 
 
 # ---------------------------------------------------------------------------
@@ -162,9 +160,7 @@ def test_get_current_firm_requires_membership(api_client, db) -> None:
         "INSERT INTO auth.users (id, email) VALUES (%s, %s)",
         (outsider, "outsider@example.test"),
     )
-    resp = api_client.get(
-        "/v1/firms/current", headers=_auth(outsider, "outsider@example.test")
-    )
+    resp = api_client.get("/v1/firms/current", headers=_auth(outsider, "outsider@example.test"))
     assert resp.status_code in (401, 403), resp.text
 
 
@@ -211,9 +207,7 @@ def test_list_members_other_firm_isolated(api_client, db) -> None:
         " VALUES (%s, %s, 'firm_admin', 'active')",
         (other_firm, other_admin),
     )
-    resp = api_client.get(
-        "/v1/firms/members", headers=_auth(other_admin, "other@example.test")
-    )
+    resp = api_client.get("/v1/firms/members", headers=_auth(other_admin, "other@example.test"))
     assert resp.status_code == 200, resp.text
     members = resp.json()
     assert len(members) == 1

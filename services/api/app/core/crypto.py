@@ -46,9 +46,7 @@ def decrypt_text(ciphertext: str) -> str:
     try:
         return _fernet().decrypt(ciphertext.encode("ascii")).decode("utf-8")
     except InvalidToken as exc:
-        raise ConfigurationError(
-            "Interview turn body failed integrity verification."
-        ) from exc
+        raise ConfigurationError("Interview turn body failed integrity verification.") from exc
 
 
 def reset_fernet_cache() -> None:

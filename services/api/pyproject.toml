@@ -15,6 +15,13 @@ dependencies = [
     "python-multipart>=0.0.9",
     "python-docx>=1.1",
     "reportlab>=4.0",
+    # Phase 2 document extraction: OCR fallback for scanned/image-only PDFs.
+    # pymupdf renders pages; pytesseract drives the tesseract binary (installed
+    # via apt on Railway — see nixpacks.toml). Both are optional at runtime:
+    # extraction degrades to "no readable text" when they are missing.
+    "pymupdf>=1.24",
+    "pytesseract>=0.3",
+    "Pillow>=10.0",
     # PRD §4.2: error monitoring/observability. Optional at runtime —
     # app.main only initializes Sentry when SENTRY_DSN is set and the
     # import succeeds.

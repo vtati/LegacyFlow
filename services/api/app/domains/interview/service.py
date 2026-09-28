@@ -46,12 +46,15 @@ from app.domains.feature_flags import service as feature_flags
 from app.domains.intake import question_sets as qs
 from app.domains.intake import repository as intake_repo
 from app.domains.intake import service as intake_service
-from app.domains.interview import prompts
+from app.domains.interview import consistency, prompts
 from app.domains.interview import repository as repo
 from app.domains.interview.schemas import (
     ChecklistItemOut,
     CitationOut,
+    ConsistencyFindingOut,
+    ConsistencyReviewOut,
     DictationOut,
+    ExtractionSummaryOut,
     ProposalDraftOut,
     ProposalOut,
     SessionCreate,
@@ -404,6 +407,43 @@ def list_proposals(
     _require_flag(conn, UUID(str(scope.matter["firm_id"])))
     _load_session_for_write(conn, matter_id, session_id)
     return [_proposal_out(row) for row in repo.list_open_proposals(conn, session_id)]
+
+
+def list_extractions(
+    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> list[ExtractionSummaryOut]:
+    actor_id = matters_service.caller_id(actor_sub)
+    scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
+    _require_flag(conn, UUID(str(scope.matter["firm_id"])))
+    _load_session_for_write(conn, matter_id, session_id)
+    return [
+        ExtractionSummaryOut(
+            id=UUID(str(row["id"])),
+            filename=str(row["filename"]),
+            status=str(row["status"]),
+            page_count=int(row["page_count"]),
+            proposals_created=int(row["proposals_created"]),
+            created_at=row["created_at"],
+        )
+        for row in repo.list_extractions(conn, session_id)
+    ]
+
+
+def consistency_review(
+    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> ConsistencyReviewOut:
+    result = consistency.run_consistency_review(
+        conn, actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
+    )
+    return ConsistencyReviewOut(
+        review_id=result.review_id,
+        findings=[
+            ConsistencyFindingOut(question=f.question, fields=f.fields, severity=f.severity)
+            for f in result.findings
+        ],
+        escalations_created=result.escalations_created,
+        facts_considered=result.facts_considered,
+    )
 
 
 def get_turn_detail(

@@ -165,7 +165,7 @@ def test_feature_flags_list(db, api_client):
     seed_admin_with_matter(db)
     r = api_client.get("/v1/admin/feature-flags", headers=_auth())
     assert r.status_code == 200, r.text
-    assert len(r.json()) == 3
+    assert len(r.json()) == 4
 
 
 def test_feature_flags_blank_env_treated_as_unset(db, api_client, monkeypatch):

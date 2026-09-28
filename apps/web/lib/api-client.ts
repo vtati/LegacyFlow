@@ -238,7 +238,52 @@ export interface IntakeProgressResponse {
   overall: SetProgress;
 }
 
-/* AI interviewer (Phase 1) */
+/* AI interviewer: document extraction (Phase 2) */
+
+export interface InterviewExtractionProposal {
+  proposal_id: string;
+  question_key: string;
+  value: unknown;
+  confidence: number;
+  source_page: number | null;
+  source_snippet: string;
+}
+
+export interface InterviewExtraction {
+  extraction_id: string;
+  filename: string;
+  status: 'completed' | 'no_readable_text' | 'failed';
+  proposals: InterviewExtractionProposal[];
+  skipped_existing: string[];
+  discarded: number;
+  truncated: boolean;
+  ocr_used: boolean;
+}
+
+export interface InterviewExtractionSummary {
+  id: string;
+  filename: string;
+  status: string;
+  page_count: number;
+  proposals_created: number;
+  created_at: string;
+}
+
+/* AI interviewer: consistency review (Phase 3) */
+
+export interface ConsistencyFinding {
+  question: string;
+  fields: string[];
+  severity: string;
+}
+
+export interface ConsistencyReview {
+  review_id: string;
+  findings: ConsistencyFinding[];
+  escalations_created: number;
+  facts_considered: number;
+}
+
 
 export interface InterviewCitation {
   source: string;
@@ -830,6 +875,21 @@ export interface FamilyApi {
   ) => Promise<InterviewProposal>;
   rejectInterviewProposal: (matterId: string, proposalId: string) => Promise<InterviewProposal>;
   dictateInterview: (matterId: string, audio: Blob) => Promise<DictationResponse>;
+  /* AI interviewer: document extraction (Phase 2) */
+  extractInterviewDocument: (
+    matterId: string,
+    sessionId: string,
+    file: File,
+  ) => Promise<InterviewExtraction>;
+  listInterviewExtractions: (
+    matterId: string,
+    sessionId: string,
+  ) => Promise<InterviewExtractionSummary[]>;
+  /* AI interviewer: consistency review (Phase 3) */
+  runInterviewConsistencyReview: (
+    matterId: string,
+    sessionId: string,
+  ) => Promise<ConsistencyReview>;
   submitMatter: (matterId: string) => Promise<MatterDetail>;
   getHousehold: (matterId: string) => Promise<HouseholdResponse>;
   createPerson: (matterId: string, input: PersonInput) => Promise<Person>;
@@ -993,6 +1053,39 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       }
       return (await response.json()) as DictationResponse;
     },
+    /* AI interviewer: document extraction (Phase 2) */
+    extractInterviewDocument: async (matterId, sessionId, file) => {
+      const token = await options.getToken?.();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const response = await fetch(
+        `${options.baseUrl ?? ''}/v1/matters/${matterId}/interview/sessions/${sessionId}/extractions`,
+        { method: 'POST', headers, body: form },
+      );
+      if (!response.ok) {
+        let parsed: unknown = null;
+        try {
+          parsed = await response.json();
+        } catch {
+          parsed = null;
+        }
+        const { message, code } = readErrorMessage(response.status, parsed);
+        throw new ApiError(response.status, message, { code, details: parsed });
+      }
+      return (await response.json()) as InterviewExtraction;
+    },
+    listInterviewExtractions: (matterId, sessionId) =>
+      call<InterviewExtractionSummary[]>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/extractions`,
+      ),
+    /* AI interviewer: consistency review (Phase 3) */
+    runInterviewConsistencyReview: (matterId, sessionId) =>
+      call<ConsistencyReview>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/consistency-review`,
+        { method: 'POST' },
+      ),
     submitMatter: (matterId) =>
       call<MatterDetail>(`/matters/${matterId}/submit`, { method: 'POST' }),
     getHousehold: (matterId) => call<HouseholdResponse>(`/matters/${matterId}/household`),

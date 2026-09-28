@@ -5,14 +5,19 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 
 from app.core import db
 from app.core.deps import get_current_user
 from app.core.security import Claims
+from app.domains.interview import extraction as extraction_service
 from app.domains.interview import service
 from app.domains.interview.schemas import (
+    ConsistencyReviewOut,
     DictationOut,
+    ExtractionOut,
+    ExtractionProposalOut,
+    ExtractionSummaryOut,
     ProposalCorrect,
     ProposalOut,
     SessionCreate,
@@ -202,3 +207,83 @@ async def dictate(
     body = await request.body()
     with db.transaction() as conn:
         return service.dictate(conn, actor_sub=claims.sub, matter_id=matter_id, audio=body)
+
+
+@router.post(
+    "/matters/{matter_id}/interview/sessions/{session_id}/extractions",
+    response_model=ExtractionOut,
+)
+async def extract_document(
+    matter_id: UUID,
+    session_id: UUID,
+    claims: Annotated[Claims, Depends(get_current_user)],
+    file: Annotated[UploadFile, File(...)],
+) -> ExtractionOut:
+    """Upload a source document; extract interview facts into proposals.
+
+    Extracted values become ``document_extracted`` proposals awaiting user
+    verification — never auto-accepted.
+    """
+    filename = file.filename or "upload"
+    body = await file.read()
+    with db.transaction() as conn:
+        result = extraction_service.run_extraction(
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            session_id=session_id,
+            filename=filename,
+            file_bytes=body,
+        )
+    return ExtractionOut(
+        extraction_id=result.extraction_id,
+        filename=result.filename,
+        status=result.status,
+        proposals=[
+            ExtractionProposalOut(
+                proposal_id=p.proposal_id,
+                question_key=p.question_key,
+                value=p.value,
+                confidence=p.confidence,
+                source_page=p.source_page,
+                source_snippet=p.source_snippet,
+            )
+            for p in result.proposals
+        ],
+        skipped_existing=result.skipped_existing,
+        discarded=result.discarded,
+        truncated=result.truncated,
+        ocr_used=result.ocr_used,
+    )
+
+
+@router.get(
+    "/matters/{matter_id}/interview/sessions/{session_id}/extractions",
+    response_model=list[ExtractionSummaryOut],
+)
+def list_extractions(
+    matter_id: UUID,
+    session_id: UUID,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> list[ExtractionSummaryOut]:
+    """Past document extraction runs for the session."""
+    with db.transaction() as conn:
+        return service.list_extractions(
+            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
+        )
+
+
+@router.post(
+    "/matters/{matter_id}/interview/sessions/{session_id}/consistency-review",
+    response_model=ConsistencyReviewOut,
+)
+def consistency_review(
+    matter_id: UUID,
+    session_id: UUID,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> ConsistencyReviewOut:
+    """AI consistency check over verified facts; findings become attorney questions."""
+    with db.transaction() as conn:
+        return service.consistency_review(
+            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
+        )

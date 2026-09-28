@@ -158,3 +158,55 @@ class DictationOut(BaseModel):
 
     transcript: str
     model: str
+
+
+# ---------------------------------------------------------------------------
+# Document extraction (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class ExtractionProposalOut(BaseModel):
+    proposal_id: UUID
+    question_key: str
+    value: Any
+    confidence: float
+    source_page: int | None = None
+    source_snippet: str
+
+
+class ExtractionOut(BaseModel):
+    extraction_id: UUID
+    filename: str
+    status: str
+    proposals: list[ExtractionProposalOut]
+    skipped_existing: list[str]
+    discarded: int
+    truncated: bool
+    ocr_used: bool = False
+
+
+class ExtractionSummaryOut(BaseModel):
+    id: UUID
+    filename: str
+    status: str
+    page_count: int
+    proposals_created: int
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Consistency review (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class ConsistencyFindingOut(BaseModel):
+    question: str
+    fields: list[str]
+    severity: str
+
+
+class ConsistencyReviewOut(BaseModel):
+    review_id: UUID
+    findings: list[ConsistencyFindingOut]
+    escalations_created: int
+    facts_considered: int

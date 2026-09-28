@@ -1,0 +1,9 @@
+# Nixpacks build config for the LegacyFlow FastAPI backend (Railway).
+# The Python provider is auto-detected; this file only adds the tesseract
+# OCR binary used by the Phase 2 document-extraction fallback for
+# scanned/image-only PDFs (see app/domains/interview/text_extract.py).
+# Extraction degrades gracefully when the binary is absent, so a build
+# without it still serves traffic.
+
+[phases.setup]
+aptPkgs = ["tesseract-ocr"]

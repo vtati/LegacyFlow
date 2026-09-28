@@ -5,10 +5,12 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  FileUp,
   Mic,
   Pause,
   Pencil,
   Play,
+  Scale,
   Send,
   ShieldCheck,
   Square,
@@ -23,7 +25,11 @@ import { ProgressBar } from '@/components/family/progress-bar';
 import {
   ApiError,
   api,
+  type ConsistencyFinding,
+  type ConsistencyReview,
   type InterviewCitation,
+  type InterviewExtraction,
+  type InterviewExtractionSummary,
   type InterviewProposal,
   type InterviewSession,
 } from '@/lib/api-client';
@@ -63,6 +69,15 @@ function parseEditedValue(raw: string, original: unknown): unknown {
   } catch {
     return raw;
   }
+}
+
+function provenanceLabel(proposal: InterviewProposal): string | null {
+  if (proposal.source === 'document_extracted') {
+    return proposal.source_page != null
+      ? `From your document (page ${proposal.source_page})`
+      : 'From your document';
+  }
+  return null;
 }
 
 /** One verification card: confirm, edit, or reject a proposed field value. */
@@ -107,7 +122,12 @@ function ProposalCard({
           </p>
         )}
         {proposal.source_snippet && (
-          <p className="text-xs italic text-lf-text-muted">You said: “{proposal.source_snippet}”</p>
+          <p className="text-xs italic text-lf-text-muted">
+            {provenanceLabel(proposal) ?? 'You said'}: “{proposal.source_snippet}”
+          </p>
+        )}
+        {proposal.source === 'document_extracted' && !proposal.source_snippet && (
+          <p className="text-xs text-lf-text-muted">{provenanceLabel(proposal)}</p>
         )}
         {error && <p className="text-xs text-lf-danger-600">{error}</p>}
         <ProposalActions
@@ -216,6 +236,12 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const [dictating, setDictating] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [extractions, setExtractions] = useState<InterviewExtractionSummary[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionMsg, setExtractionMsg] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [review, setReview] = useState<ConsistencyReview | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -228,6 +254,17 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       ]);
       setSession(fresh);
       setProposals(open);
+    },
+    [matterId],
+  );
+
+  const refreshExtractions = useCallback(
+    async (sessionId: string) => {
+      try {
+        setExtractions(await api.listInterviewExtractions(matterId, sessionId));
+      } catch {
+        // Extractions are informational; the interview still works without them.
+      }
     },
     [matterId],
   );
@@ -266,6 +303,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       setMessages(hydrated);
       const open = await api.listInterviewProposals(matterId, started.id);
       setProposals(open);
+      await refreshExtractions(started.id);
       setPhase('ready');
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
@@ -388,6 +426,68 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     },
     [session, refreshSession],
   );
+
+  const uploadDocument = useCallback(
+    async (file: File) => {
+      if (session == null || extracting) return;
+      setExtracting(true);
+      setExtractionMsg(null);
+      setError(null);
+      try {
+        const result: InterviewExtraction = await api.extractInterviewDocument(
+          matterId,
+          session.id,
+          file,
+        );
+        if (result.status === 'no_readable_text') {
+          setExtractionMsg(
+            'We could not read any text from that file — not even with scan recognition. Please type the details instead.',
+          );
+        } else if (result.status === 'failed') {
+          setExtractionMsg('We could not extract this file. Please try a PDF or Word document.');
+        } else {
+          const parts: string[] = [];
+          if (result.proposals.length > 0)
+            parts.push(`${result.proposals.length} value${result.proposals.length === 1 ? '' : 's'} proposed`);
+          if (result.skipped_existing.length > 0)
+            parts.push(`${result.skipped_existing.length} already have a value awaiting your review`);
+          setExtractionMsg(
+            `Extracted “${result.filename}”${result.ocr_used ? ' from a scan (please double-check the values)' : ''}. ${parts.length > 0 ? parts.join('; ') + '.' : 'Nothing new to verify.'}`,
+          );
+        }
+        await refreshExtractions(session.id);
+        await refreshSession(session.id);
+      } catch (err) {
+        setExtractionMsg(err instanceof ApiError ? err.message : 'Document upload failed.');
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [session, extracting, matterId, refreshExtractions, refreshSession],
+  );
+
+  const onFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) void uploadDocument(file);
+    },
+    [uploadDocument],
+  );
+
+  const runReview = useCallback(async () => {
+    if (session == null || reviewing) return;
+    setReviewing(true);
+    setError(null);
+    try {
+      const result = await api.runInterviewConsistencyReview(matterId, session.id);
+      setReview(result);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Consistency check failed.');
+    } finally {
+      setReviewing(false);
+    }
+  }, [session, reviewing, matterId]);
 
   if (phase === 'loading') return <LoadingState lines={6} label="Starting your interview…" />;
   if (phase === 'error')
@@ -632,6 +732,100 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
               {proposals.map((p) => (
                 <ProposalCard key={p.id} proposal={p} matterId={matterId} onDecided={onProposalDecided} />
               ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Documents</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-lf-text-muted">
+                Upload a PDF or Word document — the assistant extracts details for you to verify
+                below. Nothing is filed until you confirm it.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="sr-only"
+                onChange={onFileChange}
+                aria-label="Upload a document for extraction"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={extracting || done}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <FileUp className="size-4" aria-hidden="true" />
+                {extracting ? 'Extracting…' : 'Upload document'}
+              </Button>
+              {extractionMsg && (
+                <p className="text-xs text-lf-text-muted" role="status">
+                  {extractionMsg}
+                </p>
+              )}
+              {extractions.length > 0 && (
+                <ul className="space-y-1 text-xs text-lf-text-muted">
+                  {extractions.map((e) => (
+                    <li key={e.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{e.filename}</span>
+                      <span className="shrink-0">
+                        {e.status === 'completed'
+                          ? `${e.proposals_created} proposed`
+                          : e.status === 'no_readable_text'
+                            ? 'no text found'
+                            : 'failed'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Consistency check</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-lf-text-muted">
+                Compares the facts you have verified and raises questions for your attorney — never
+                legal conclusions.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={reviewing || done}
+                onClick={() => void runReview()}
+              >
+                <Scale className="size-4" aria-hidden="true" />
+                {reviewing ? 'Checking…' : review ? 'Re-run check' : 'Run consistency check'}
+              </Button>
+              {review && (
+                <div className="space-y-2" role="status">
+                  {review.findings.length === 0 ? (
+                    <p className="text-xs text-lf-text-muted">
+                      No questions raised — your verified facts look consistent.
+                    </p>
+                  ) : (
+                    review.findings.map((f: ConsistencyFinding, i: number) => (
+                      <div
+                        key={`${f.question}-${i}`}
+                        className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-2.5"
+                      >
+                        <p className="text-xs font-medium text-lf-warning-800">{f.question}</p>
+                        <p className="mt-1 text-xs text-lf-text-muted">
+                          Involves: {f.fields.map(humanizeKey).join(', ')}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

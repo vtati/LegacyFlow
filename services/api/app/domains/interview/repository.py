@@ -470,6 +470,102 @@ def list_proposals_by_turn(conn: Any, turn_id: UUID) -> list[dict[str, Any]]:
         return [dict(row) for row in cur.fetchall()]
 
 
+# ---------------------------------------------------------------------------
+# Extraction runs
+# ---------------------------------------------------------------------------
+
+
+def insert_extraction(
+    conn: Any,
+    *,
+    session_id: UUID,
+    firm_id: UUID,
+    matter_id: UUID,
+    filename: str,
+    file_size: int,
+    page_count: int,
+    status: str,
+    created_by_user_id: UUID,
+) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO interview_extractions
+              (session_id, firm_id, matter_id, filename, file_size,
+               page_count, status, created_by_user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                str(session_id),
+                str(firm_id),
+                str(matter_id),
+                filename,
+                file_size,
+                page_count,
+                status,
+                str(created_by_user_id),
+            ),
+        )
+        return dict(cur.fetchone())
+
+
+def update_extraction_proposals(conn: Any, extraction_id: UUID, proposals_created: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE interview_extractions SET proposals_created = %s WHERE id = %s",
+            (proposals_created, str(extraction_id)),
+        )
+
+
+def list_extractions(conn: Any, session_id: UUID) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM interview_extractions WHERE session_id = %s ORDER BY created_at DESC",
+            (str(session_id),),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def insert_consistency_review(
+    conn: Any,
+    *,
+    session_id: UUID,
+    firm_id: UUID,
+    matter_id: UUID,
+    findings_count: int,
+    escalations_created: int,
+    facts_considered: int,
+    model_id: str,
+    prompt_version: str,
+    created_by_user_id: UUID,
+) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO interview_consistency_reviews
+              (session_id, firm_id, matter_id, findings_count,
+               escalations_created, facts_considered,
+               model_id, prompt_version, created_by_user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                str(session_id),
+                str(firm_id),
+                str(matter_id),
+                findings_count,
+                escalations_created,
+                facts_considered,
+                model_id,
+                prompt_version,
+                str(created_by_user_id),
+            ),
+        )
+        return dict(cur.fetchone())
+        return [dict(row) for row in cur.fetchall()]
+
+
 def get_turn(conn: Any, turn_id: UUID) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM interview_turns WHERE id = %s", (str(turn_id),))

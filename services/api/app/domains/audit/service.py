@@ -37,9 +37,7 @@ def _row_to_out(r: Any) -> AuditEventOut:
     )
 
 
-def list_events(
-    conn: Any, *, actor_sub: str, filters: AuditEventFilters
-) -> AuditEventListOut:
+def list_events(conn: Any, *, actor_sub: str, filters: AuditEventFilters) -> AuditEventListOut:
     """List audit events for the caller's firm (firm_admin only), newest first."""
     actor_id = _caller_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)

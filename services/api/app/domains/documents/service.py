@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -68,7 +69,9 @@ from ...core.errors import (
     ValidationAppError,
 )
 from ...core.paths import find_content_packs_dir
+from ...domains.escalation import repository as escalation_repo
 from ...domains.feature_flags import service as feature_flags_service
+from ...domains.intake import repository as intake_repo
 from ...domains.legal_content import pack_loader
 from . import repository as repo
 from . import schemas as sch
@@ -719,7 +722,13 @@ def list_matter_document_versions(
 
 
 def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
-    """Build placeholder context from the matter's household/matter rows."""
+    """Build placeholder context from the matter's household/matter rows.
+
+    Verified intake answers (confirmed interview replies and confirmed
+    document extractions) are merged in as well, so ``{{question_key}}``
+    placeholders in firm templates are pre-filled from verified facts.
+    Curated keys above always win over answer keys on collision.
+    """
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM households WHERE id = %s", (str(matter["household_id"]),))
         household = cur.fetchone()
@@ -738,7 +747,7 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
         subdivision = str(jurisdiction.get("subdivision_code") or "")
         jurisdiction_code = f"{code}-{subdivision}".rstrip("-")
     today = datetime.now(UTC).strftime("%B %d, %Y")
-    return {
+    context = {
         "household_name": household_name,
         "matter_name": matter_name,
         "matter_title": matter_name,
@@ -746,6 +755,59 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
         "today": today,
         "firm_name": "the firm",
     }
+    # Verified facts: only scalar answers become placeholders; complex values
+    # are skipped rather than stringified into legal documents.
+    for row in intake_repo.list_answers(conn, UUID(str(matter["id"]))):
+        key = str(row["question_key"])
+        if key in context:
+            continue
+        answer = row["answer"]
+        if isinstance(answer, bool):
+            context[key] = "Yes" if answer else "No"
+        elif isinstance(answer, (str, int, float)):
+            context[key] = str(answer)
+    return context
+
+
+#: Matches ``{{placeholder}}`` tokens left unfilled after a merge.
+_UNFILLED_TOKEN = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
+
+
+def unfilled_placeholders(rendered_body: str) -> list[str]:
+    """Placeholder names still present after merging the render context."""
+    return sorted(set(_UNFILLED_TOKEN.findall(rendered_body)))
+
+
+def _flag_unfilled_placeholders(
+    conn: Any, *, matter: dict[str, Any], body: str, template_name: str
+) -> None:
+    """Record unmapped template placeholders as attorney questions.
+
+    A placeholder with no verified fact behind it is never silently blanked:
+    each one becomes an idempotent ``attorney_review`` escalation so it lands
+    in the pre-review package.
+    """
+    missing = unfilled_placeholders(body)
+    if not missing:
+        return
+    matter_id = UUID(str(matter["id"]))
+    for name in missing:
+        rule_id = f"document_unmapped_placeholder:{template_name}:{name}"
+        if escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
+            continue
+        escalation_repo.insert_escalation(
+            conn,
+            matter_id=matter_id,
+            rule_id=rule_id,
+            severity="review",
+            outcome="attorney_review",
+            facts_snapshot={
+                "source": "document_assembly",
+                "kind": "unmapped_placeholder",
+                "placeholder": name,
+                "template": template_name,
+            },
+        )
 
 
 def _create_version(
@@ -841,6 +903,7 @@ def generate_demo(
 
     body = _merge_placeholders(_template_content_body(template), _render_context(conn, matter))
     title = f"{template['name']} — Demo"
+    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
     created = _render_package_versions(
         conn,
         package_id=package_id,
