@@ -37,14 +37,14 @@ begin
      ownership, beneficiary_designation, notes, created_by_user_id)
   values
     (v_asset_house, v_firm, v_hh_a, v_matter_1, 'real_estate', 'Primary residence — Ashburn, VA',
-     65000000, 'joint', '{}',
+     65000000, 'joint', '{"primary": [], "contingent": []}',
      'Single-family home purchased 2019. Synthetic demo record.', v_user),
     (v_asset_check, v_firm, v_hh_a, v_matter_1, 'bank_account', 'Joint checking — First Bank',
-     2500000, 'joint', '{}', 'Everyday checking. Synthetic demo record.', v_user),
+     2500000, 'joint', '{"primary": [], "contingent": []}', 'Everyday checking. Synthetic demo record.', v_user),
     (v_asset_save, v_firm, v_hh_a, v_matter_1, 'bank_account', 'Emergency savings — First Bank',
-     8000000, 'joint', '{}', 'High-yield savings. Synthetic demo record.', v_user),
+     8000000, 'joint', '{"primary": [], "contingent": []}', 'High-yield savings. Synthetic demo record.', v_user),
     (v_asset_401k, v_firm, v_hh_a, v_matter_1, 'retirement', '401(k) — Venugopal',
-     21000000, 'individual', '{"primary": "Maya Tati"}',
+     21000000, 'individual', '{"primary": [{"name": "Maya Tati", "relationship": "spouse"}], "contingent": []}',
      'Employer 401(k). No contingent beneficiary named yet. Synthetic demo record.', v_user)
   on conflict (id) do nothing;
 

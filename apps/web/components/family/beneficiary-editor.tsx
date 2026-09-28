@@ -76,7 +76,11 @@ export function BeneficiaryEditor({
   onSave,
   onClose,
 }: BeneficiaryEditorProps) {
-  const initial = asset.beneficiary_designation ?? { primary: [], contingent: [] };
+  const raw = asset.beneficiary_designation;
+  const initial = {
+    primary: Array.isArray(raw?.primary) ? raw.primary : [],
+    contingent: Array.isArray(raw?.contingent) ? raw.contingent : [],
+  };
   const [primary, setPrimary] = useState<BeneficiaryEntry[]>(initial.primary);
   const [contingent, setContingent] = useState<BeneficiaryEntry[]>(initial.contingent);
   const [name, setName] = useState('');

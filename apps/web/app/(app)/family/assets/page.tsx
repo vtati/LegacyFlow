@@ -43,8 +43,10 @@ function designationSummary(designation: BeneficiaryDesignation | null | undefin
   label: string;
   className: string;
 } {
-  const primary = designation?.primary.length ?? 0;
-  const contingent = designation?.contingent.length ?? 0;
+  // Defensive: the API may return partial/malformed designations (e.g. {} or
+  // string values from legacy data). Only count real arrays.
+  const primary = Array.isArray(designation?.primary) ? designation.primary.length : 0;
+  const contingent = Array.isArray(designation?.contingent) ? designation.contingent.length : 0;
   if (primary === 0 && contingent === 0) {
     return { label: 'No beneficiaries', className: 'bg-lf-accent-100 text-lf-accent-800' };
   }
