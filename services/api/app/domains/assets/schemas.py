@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 AssetType = Literal[
     "bank_account",
@@ -61,6 +61,25 @@ class BeneficiaryDesignation(BaseModel):
 
     primary: list[BeneficiaryEntry] = Field(default_factory=list)
     contingent: list[BeneficiaryEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy(cls, data: Any) -> Any:
+        # Defensive: legacy/malformed jsonb (e.g. {} or {"primary": "Name"})
+        # must not 500 the API. Coerce to the canonical shape.
+        if not isinstance(data, dict):
+            return {"primary": [], "contingent": []}
+        out: dict[str, Any] = {}
+        for key in ("primary", "contingent"):
+            value = data.get(key)
+            if isinstance(value, list):
+                out[key] = value
+            elif isinstance(value, str) and value.strip():
+                # Legacy string form: treat as a single named beneficiary.
+                out[key] = [{"name": value.strip(), "relationship": None}]
+            else:
+                out[key] = []
+        return out
 
 
 class AssetCreate(BaseModel):
