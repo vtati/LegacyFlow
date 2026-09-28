@@ -111,6 +111,12 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
             Continue intake <ArrowRight className="size-4" aria-hidden="true" />
           </Link>
           <Link
+            href={`/family/interview/${matter.id}`}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2 text-sm font-medium text-lf-text shadow-lf-subtle hover:bg-lf-canvas-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+          >
+            AI interview <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
+          <Link
             href="/family/my-plan"
             className="inline-flex min-h-11 items-center rounded-lf-control px-4 py-2 text-sm font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
           >

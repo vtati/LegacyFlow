@@ -54,6 +54,27 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT_PER_MINUTE: int = 120
     # Idempotency-Key record TTL (see app.core.idempotency).
     IDEMPOTENCY_TTL_HOURS: int = 24
+    # AI Interviewer (Phase 1). Provider selection is config-driven so models
+    # are swappable without code changes: AI_LLM_PROVIDER=openai|deterministic_dev,
+    # AI_STT_PROVIDER=whisper|deterministic_dev. Production sets both to the
+    # OpenAI-backed adapters; tests keep the deterministic defaults (no network).
+    AI_LLM_PROVIDER: str = "deterministic_dev"
+    AI_STT_PROVIDER: str = "deterministic_dev"
+    OPENAI_API_KEY: str | None = None
+    OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_WHISPER_MODEL: str = "whisper-1"
+    # Fernet key (base64, 32 bytes) for interview turn-body encryption (ADR-002).
+    # Unset fails closed: the interviewer refuses to start a session rather
+    # than store plaintext. Never expose to browser code.
+    INTERVIEW_TURN_ENCRYPTION_KEY: str | None = None
+    INTERVIEW_TURN_KEY_VERSION: int = 1
+    # Raw turn bodies are purged this many days after the matter reaches a
+    # terminal state; proposals + traces are the permanent audit record.
+    INTERVIEW_TURN_RETENTION_DAYS: int = 90
+    # Cost guard: hard cap on turns per interview session.
+    INTERVIEW_MAX_TURNS_PER_SESSION: int = 200
+    # Dictation guard: max audio upload size (8 MiB ≈ several minutes).
+    DICTATION_MAX_BYTES: int = 8 * 1024 * 1024
 
     @property
     def document_storage_dir(self) -> Path:

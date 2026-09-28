@@ -1,0 +1,641 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Mic,
+  Pause,
+  Pencil,
+  Play,
+  Send,
+  ShieldCheck,
+  Square,
+  X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
+import { ProgressBar } from '@/components/family/progress-bar';
+import {
+  ApiError,
+  api,
+  type InterviewCitation,
+  type InterviewProposal,
+  type InterviewSession,
+} from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  citations?: InterviewCitation[];
+  refused?: boolean;
+}
+
+interface InterviewChatProps {
+  matterId: string;
+}
+
+function humanizeKey(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function parseEditedValue(raw: string, original: unknown): unknown {
+  const trimmed = raw.trim();
+  if (typeof original === 'string' && !(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return raw;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+}
+
+/** One verification card: confirm, edit, or reject a proposed field value. */
+function ProposalCard({
+  proposal,
+  matterId,
+  onDecided,
+}: {
+  proposal: InterviewProposal;
+  matterId: string;
+  onDecided: (proposal: InterviewProposal) => void;
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => formatValue(proposal.proposed_value));
+  const [busy, setBusy] = useState<'confirm' | 'correct' | 'reject' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <Card className="border-lf-primary-200">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold text-lf-text">{humanizeKey(proposal.question_key)}</p>
+          {proposal.confidence != null && (
+            <span className="shrink-0 rounded-full bg-lf-canvas-subtle px-2 py-0.5 text-xs text-lf-text-muted">
+              {Math.round(proposal.confidence * 100)}% confident
+            </span>
+          )}
+        </div>
+        {editing ? (
+          <div className="space-y-2">
+            <Label htmlFor={`edit-${proposal.id}`}>Corrected value</Label>
+            <Input
+              id={`edit-${proposal.id}`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              disabled={busy != null}
+            />
+          </div>
+        ) : (
+          <p className="rounded-lf-control bg-lf-canvas-subtle px-3 py-2 text-sm text-lf-text">
+            {formatValue(proposal.proposed_value)}
+          </p>
+        )}
+        {proposal.source_snippet && (
+          <p className="text-xs italic text-lf-text-muted">You said: “{proposal.source_snippet}”</p>
+        )}
+        {error && <p className="text-xs text-lf-danger-600">{error}</p>}
+        <ProposalActions
+          proposal={proposal}
+          matterId={matterId}
+          editing={editing}
+          draft={draft}
+          busy={busy}
+          setBusy={setBusy}
+          setError={setError}
+          onToggleEdit={() => {
+            setEditing((v) => !v);
+            setDraft(formatValue(proposal.proposed_value));
+          }}
+          onDecided={onDecided}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Action row for a proposal card; separated so hooks stay simple. */
+function ProposalActions({
+  proposal,
+  matterId,
+  editing,
+  draft,
+  busy,
+  setBusy,
+  setError,
+  onToggleEdit,
+  onDecided,
+}: {
+  proposal: InterviewProposal;
+  matterId: string;
+  editing: boolean;
+  draft: string;
+  busy: 'confirm' | 'correct' | 'reject' | null;
+  setBusy: (b: 'confirm' | 'correct' | 'reject' | null) => void;
+  setError: (e: string | null) => void;
+  onToggleEdit: () => void;
+  onDecided: (proposal: InterviewProposal, matterId: string) => void;
+}): React.JSX.Element {
+  const run = async (kind: 'confirm' | 'correct' | 'reject') => {
+    setBusy(kind);
+    setError(null);
+    try {
+      const updated =
+        kind === 'confirm'
+          ? await api.confirmInterviewProposal(matterId, proposal.id)
+          : kind === 'correct'
+            ? await api.correctInterviewProposal(
+                matterId,
+                proposal.id,
+                parseEditedValue(draft, proposal.proposed_value),
+              )
+            : await api.rejectInterviewProposal(matterId, proposal.id);
+      onDecided(updated, matterId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {editing ? (
+        <>
+          <Button size="sm" disabled={busy != null} onClick={() => void run('correct')}>
+            <Check className="size-4" aria-hidden="true" /> Save correction
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit}>
+            Cancel
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button size="sm" disabled={busy != null} onClick={() => void run('confirm')}>
+            <Check className="size-4" aria-hidden="true" />
+            {busy === 'confirm' ? 'Confirming…' : 'Confirm'}
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit}>
+            <Pencil className="size-4" aria-hidden="true" /> Edit
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy != null} onClick={() => void run('reject')}>
+            <X className="size-4" aria-hidden="true" />
+            {busy === 'reject' ? 'Rejecting…' : 'Reject'}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The AI interviewer: chat thread, verification cards, coverage checklist. */
+export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Element {
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error' | 'disabled'>('loading');
+  const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<InterviewSession | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [proposals, setProposals] = useState<InterviewProposal[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [dictating, setDictating] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const threadRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const refreshSession = useCallback(
+    async (sessionId: string) => {
+      const [fresh, open] = await Promise.all([
+        api.getInterviewSession(matterId, sessionId),
+        api.listInterviewProposals(matterId, sessionId),
+      ]);
+      setSession(fresh);
+      setProposals(open);
+    },
+    [matterId],
+  );
+
+  const bootstrap = useCallback(async () => {
+    setPhase('loading');
+    setError(null);
+    try {
+      const sets = await api.getQuestionSets(matterId);
+      const setIds = Object.keys(sets.question_sets ?? {});
+      if (setIds.length === 0) throw new Error('No question sets available.');
+      // One session per question set; start with the first set (household).
+      const started = await api.startInterviewSession(matterId, setIds[0]);
+      setSession(started);
+      const summaries = await api.listInterviewTurns(matterId, started.id);
+      const recent = summaries.slice(-20);
+      const hydrated = await Promise.all(
+        recent.map(async (s) => {
+          try {
+            const detail = await api.getInterviewTurn(matterId, started.id, s.id);
+            return {
+              id: detail.id,
+              role: detail.role as 'user' | 'assistant',
+              text: detail.text,
+              citations: detail.citations,
+            } satisfies ChatMessage;
+          } catch {
+            return {
+              id: s.id,
+              role: s.role as 'user' | 'assistant',
+              text: s.summary,
+            } satisfies ChatMessage;
+          }
+        }),
+      );
+      setMessages(hydrated);
+      const open = await api.listInterviewProposals(matterId, started.id);
+      setProposals(open);
+      setPhase('ready');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setPhase('disabled');
+        setError(err.message);
+      } else {
+        setPhase('error');
+        setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+      }
+    }
+  }, [matterId]);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || sending || session == null) return;
+    if (session.status === 'paused') {
+      setError('Resume the interview before sending messages.');
+      return;
+    }
+    if (session.status === 'completed' || session.status === 'abandoned') return;
+    setSending(true);
+    setError(null);
+    const userMsg: ChatMessage = {
+      id: `local-${Date.now()}`,
+      role: 'user',
+      text,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    try {
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const turn = await api.postInterviewTurn(matterId, session.id, text, idempotencyKey);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: turn.id,
+          role: 'assistant',
+          text: turn.reply,
+          citations: turn.citations,
+          refused: turn.refused,
+        },
+      ]);
+      await refreshSession(session.id);
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+      setInput(text);
+      setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+    } finally {
+      setSending(false);
+    }
+  }, [input, sending, session, matterId, refreshSession]);
+
+  const toggleRecording = useCallback(async () => {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        setRecording(false);
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size === 0) return;
+        setDictating(true);
+        try {
+          const { transcript } = await api.dictateInterview(matterId, blob);
+          // Transcript lands in the composer for review — never auto-sent.
+          setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        } catch (err) {
+          setError(err instanceof ApiError ? err.message : 'Dictation failed.');
+        } finally {
+          setDictating(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setError('Microphone access was denied. You can still type your answers.');
+    }
+  }, [recording, matterId]);
+
+  const updateStatus = useCallback(
+    async (status: 'paused' | 'in_progress' | 'abandoned' | 'completed') => {
+      if (session == null) return;
+      setSessionBusy(true);
+      setError(null);
+      try {
+        const updated = await api.updateInterviewSession(matterId, session.id, status);
+        setSession(updated);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+      } finally {
+        setSessionBusy(false);
+      }
+    },
+    [session, matterId],
+  );
+
+  const onProposalDecided = useCallback(
+    () => {
+      if (session) void refreshSession(session.id);
+    },
+    [session, refreshSession],
+  );
+
+  if (phase === 'loading') return <LoadingState lines={6} label="Starting your interview…" />;
+  if (phase === 'error')
+    return <ErrorState error={error ?? 'Something went wrong.'} onRetry={() => void bootstrap()} />;
+  if (phase === 'disabled' || session == null) {
+    return (
+      <EmptyState
+        title="AI interviewer not available"
+        description={
+          error ?? 'The AI interviewer is not enabled for your firm yet. You can continue with the guided intake form.'
+        }
+      />
+    );
+  }
+
+  const paused = session.status === 'paused';
+  const done = session.status === 'completed' || session.status === 'abandoned';
+  const requiredMissing = session.checklist.filter((c) => c.required && !c.answered);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-lf-text">AI interview</h1>
+          <p className="mt-1 text-sm text-lf-text-muted">
+            Chat with the intake assistant. Review every proposed value before it becomes part of
+            your file — nothing here is legal advice.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
+              paused && 'bg-lf-warning-100 text-lf-warning-800',
+              !paused && !done && 'bg-lf-success-100 text-lf-success-800',
+              done && 'bg-lf-canvas-subtle text-lf-text-muted',
+            )}
+          >
+            {session.status === 'in_progress' ? 'In progress' : session.status}
+          </span>
+          {!done && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={sessionBusy}
+                onClick={() => void updateStatus(paused ? 'in_progress' : 'paused')}
+              >
+                {paused ? <Play className="size-4" aria-hidden="true" /> : <Pause className="size-4" aria-hidden="true" />}
+                {paused ? 'Resume' : 'Pause'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={sessionBusy}
+                onClick={() => void updateStatus('completed')}
+              >
+                <ShieldCheck className="size-4" aria-hidden="true" /> Finish
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lf-control border border-lf-danger-200 bg-lf-danger-50 p-3 text-sm text-lf-danger-700" role="alert">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+          <button
+            type="button"
+            className="ml-auto shrink-0 underline-offset-4 hover:underline"
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {paused && (
+        <div className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-3 text-sm text-lf-warning-800" role="status">
+          This interview is paused. Your progress is saved — resume whenever you’re ready.
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Chat thread */}
+        <Card className="lg:col-span-2">
+          <CardContent className="flex h-[60vh] flex-col p-0">
+            <div ref={threadRef} className="flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
+              {messages.length === 0 && (
+                <p className="text-sm text-lf-text-muted">
+                  Say hello to begin. The assistant will guide you through each item, one question
+                  at a time.
+                </p>
+              )}
+              {messages.map((m) => (
+                <div key={m.id} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+                  <div
+                    className={cn(
+                      'max-w-[85%] rounded-lf-control px-4 py-2.5 text-sm',
+                      m.role === 'user'
+                        ? 'bg-lf-primary-600 text-white'
+                        : 'border border-lf-border bg-lf-canvas-elevated text-lf-text',
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap">{m.text}</p>
+                    {m.citations && m.citations.length > 0 && (
+                      <details className="mt-2 text-xs opacity-80">
+                        <summary className="cursor-pointer">Sources ({m.citations.length})</summary>
+                        <ul className="mt-1 space-y-1">
+                          {m.citations.map((c, i) => (
+                            <li key={i}>
+                              <span className="font-medium">{c.source}</span>
+                              {c.section ? ` · ${c.section}` : ''}: {c.excerpt}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start">
+                  <div className="rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2.5 text-sm text-lf-text-muted">
+                    Thinking…
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-lf-border p-3">
+              <Label htmlFor="interview-composer" className="sr-only">
+                Message the intake assistant
+              </Label>
+              <div className="flex items-end gap-2">
+                <textarea
+                  id="interview-composer"
+                  className="max-h-32 min-h-11 flex-1 resize-y rounded-lf-control border border-lf-border bg-lf-canvas px-3 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                  placeholder={paused ? 'Resume the interview to continue…' : 'Type your answer…'}
+                  value={input}
+                  disabled={sending || done || paused}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  disabled={sending || done || paused || dictating}
+                  onClick={() => void toggleRecording()}
+                  aria-label={recording ? 'Stop dictation' : 'Dictate your answer'}
+                  title="Dictate — the transcript appears here for your review before sending"
+                  className={cn(recording && 'border-lf-danger-400 text-lf-danger-600')}
+                >
+                  {recording ? <Square className="size-4" aria-hidden="true" /> : <Mic className="size-4" aria-hidden="true" />}
+                </Button>
+                <Button type="button" disabled={sending || done || paused || !input.trim()} onClick={() => void send()}>
+                  <Send className="size-4" aria-hidden="true" />
+                  <span className="sr-only">Send</span>
+                </Button>
+              </div>
+              {(recording || dictating) && (
+                <p className="mt-1 text-xs text-lf-text-muted" role="status">
+                  {recording ? 'Recording… tap the microphone again to stop.' : 'Transcribing…'}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sidebar */}
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Progress</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <ProgressBar value={session.completeness_pct} label="Interview completeness" />
+              <p className="text-xs text-lf-text-muted">
+                {requiredMissing.length === 0
+                  ? 'All required items are collected.'
+                  : `${requiredMissing.length} required item${requiredMissing.length === 1 ? '' : 's'} still needed.`}
+              </p>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-sm font-medium text-lf-text"
+                onClick={() => setChecklistOpen((v) => !v)}
+                aria-expanded={checklistOpen}
+              >
+                Coverage checklist
+                <ChevronDown className={cn('size-4 transition-transform', checklistOpen && 'rotate-180')} aria-hidden="true" />
+              </button>
+              {checklistOpen && (
+                <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+                  {session.checklist.map((item) => (
+                    <li key={item.question_key} className="flex items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'inline-block size-2 shrink-0 rounded-full',
+                          item.answered ? 'bg-lf-success-500' : item.has_open_proposal ? 'bg-lf-warning-500' : 'bg-lf-border',
+                        )}
+                      />
+                      <span className={cn(!item.required && 'text-lf-text-muted')}>
+                        {humanizeKey(item.question_key)}
+                      </span>
+                      {item.has_open_proposal && (
+                        <span className="text-xs text-lf-warning-700">(awaiting review)</span>
+                      )}
+                      <span className="sr-only">{item.answered ? 'answered' : 'not answered'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Verify values{' '}
+                {proposals.length > 0 && (
+                  <span className="ml-1 rounded-full bg-lf-primary-100 px-2 py-0.5 text-xs font-medium text-lf-primary-700">
+                    {proposals.length}
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-lf-text-muted">
+                The assistant proposes values from what you said. Confirm each one before it joins
+                your file.
+              </p>
+              {proposals.length === 0 && (
+                <p className="text-sm text-lf-text-muted">No values awaiting review.</p>
+              )}
+              {proposals.map((p) => (
+                <ProposalCard key={p.id} proposal={p} matterId={matterId} onDecided={onProposalDecided} />
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -12,13 +12,17 @@ documents and must ground every claim in them.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.errors import ConfigurationError
 from app.domains.ai.schemas import Citation
+
+logger = logging.getLogger(__name__)
 
 _DETERMINISTIC_DEV = "deterministic_dev"
 _PRODUCTION = "production"
@@ -118,3 +122,343 @@ def get_provider(name: str | None = None) -> AIProvider:
     raise ConfigurationError(
         f"Unknown AI provider {selected!r}. Expected 'deterministic_dev' or 'production'."
     )
+
+
+# ---------------------------------------------------------------------------
+# Interview providers: conversational LLM + speech-to-text (Phase 1)
+#
+# The interviewer needs more than grounded Q&A: multi-turn conversation with
+# structured field proposals (via tool calls) and audio transcription for
+# dictation. Both capabilities sit behind registries so models are swappable
+# by configuration. The grounding contract is unchanged: providers receive
+# already-retrieved approved content and every legal claim must cite it.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """One message in the interview conversation history."""
+
+    role: str  # "user" | "assistant" | "system"
+    content: str
+
+
+@dataclass(frozen=True)
+class FieldProposalDraft:
+    """A model-proposed field value, before validation and user confirmation."""
+
+    question_key: str
+    value: Any
+    confidence: float
+    source_snippet: str
+
+
+@dataclass(frozen=True)
+class InterviewContext:
+    """Everything an interview provider may use for one turn."""
+
+    pack_id: str
+    jurisdiction_code: str
+    pack_version: str
+    documents: list[RetrievedDocument] = field(default_factory=list)
+    missing_required_keys: list[str] = field(default_factory=list)
+    answered_required: int = 0
+    total_required: int = 0
+
+
+@dataclass(frozen=True)
+class InterviewTurnResponse:
+    """Provider output for one interview turn."""
+
+    reply: str
+    citations: list[Citation] = field(default_factory=list)
+    proposals: list[FieldProposalDraft] = field(default_factory=list)
+
+
+class LLMProvider(Protocol):
+    """Multi-turn interview generation with structured field proposals."""
+
+    name: str
+
+    def chat(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        context: InterviewContext,
+    ) -> InterviewTurnResponse:
+        """Generate the next assistant turn, proposing field values as drafts."""
+        ...
+
+
+class STTProvider(Protocol):
+    """Speech-to-text for the dictation input accessory."""
+
+    name: str
+
+    def transcribe(
+        self, audio: bytes, *, filename: str, language: str | None = None
+    ) -> str:
+        """Transcribe ``audio``; return the transcript text."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Deterministic interview providers (dev/test — no network)
+# ---------------------------------------------------------------------------
+
+
+class DeterministicDevInterviewProvider:
+    """Canned interview turns for tests: no LLM, no network, no proposals."""
+
+    name = "deterministic_dev"
+
+    def chat(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        context: InterviewContext,
+    ) -> InterviewTurnResponse:
+        del system_prompt, messages
+        citations = [
+            Citation(source=context.pack_id, section=doc.section, excerpt=_excerpt(doc.body_markdown, 320))
+            for doc in context.documents
+        ]
+        if context.missing_required_keys:
+            nxt = context.missing_required_keys[0]
+            reply = (
+                f"Let's continue with your information. The next item we need is "
+                f"'{nxt}' ({context.answered_required} of {context.total_required} "
+                f"required items complete). What would you like to provide?"
+            )
+        else:
+            reply = (
+                "All required items are collected. Please review each proposed "
+                "value in the verification list, and your attorney will review "
+                "the package next."
+            )
+        return InterviewTurnResponse(reply=reply, citations=citations, proposals=[])
+
+
+class DeterministicDevSTTProvider:
+    """Canned transcription for tests."""
+
+    name = "deterministic_dev"
+
+    def transcribe(
+        self, audio: bytes, *, filename: str, language: str | None = None
+    ) -> str:
+        del audio, filename, language
+        return "[test transcription]"
+
+
+# ---------------------------------------------------------------------------
+# OpenAI adapters (production)
+# ---------------------------------------------------------------------------
+
+_PROPOSE_TOOL_NAME = "propose_field_values"
+
+
+def _propose_tool_spec() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": _PROPOSE_TOOL_NAME,
+            "description": (
+                "Record structured field values extracted from the user's message. "
+                "Call once per turn with every confident value; omit uncertain ones."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "proposals": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question_key": {"type": "string"},
+                                "value": {},
+                                "confidence": {"type": "number"},
+                                "source_snippet": {"type": "string"},
+                            },
+                            "required": ["question_key", "value", "confidence", "source_snippet"],
+                        },
+                    }
+                },
+                "required": ["proposals"],
+            },
+        },
+    }
+
+
+class OpenAIChatProvider:
+    """Interview turns via the OpenAI chat-completions API with tool calls."""
+
+    name = "openai"
+
+    def __init__(self, *, api_key: str, model: str) -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def chat(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        context: InterviewContext,
+    ) -> InterviewTurnResponse:
+        import httpx
+
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "system", "content": system_prompt}]
+            + [{"role": m.role, "content": m.content} for m in messages],
+            "tools": [_propose_tool_spec()],
+            "tool_choice": "auto",
+            "temperature": 0.2,
+        }
+        try:
+            response = httpx.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+                timeout=60.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ConfigurationError(f"OpenAI chat request failed: {exc}") from exc
+        data = response.json()
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        reply = str(message.get("content") or "")
+        proposals: list[FieldProposalDraft] = []
+        for call in message.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            if fn.get("name") != _PROPOSE_TOOL_NAME:
+                continue
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                continue
+            for item in args.get("proposals") or []:
+                try:
+                    confidence = float(item.get("confidence", 0.0))
+                except (TypeError, ValueError):
+                    confidence = 0.0
+                proposals.append(
+                    FieldProposalDraft(
+                        question_key=str(item.get("question_key", "")),
+                        value=item.get("value"),
+                        confidence=min(max(confidence, 0.0), 1.0),
+                        source_snippet=str(item.get("source_snippet", ""))[:500],
+                    )
+                )
+        citations = [
+            Citation(source=context.pack_id, section=doc.section, excerpt=_excerpt(doc.body_markdown, 320))
+            for doc in context.documents
+        ]
+        return InterviewTurnResponse(reply=reply, citations=citations, proposals=proposals)
+
+
+class WhisperSTTProvider:
+    """Dictation transcription via the OpenAI audio API."""
+
+    name = "whisper"
+
+    def __init__(self, *, api_key: str, model: str) -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def transcribe(
+        self, audio: bytes, *, filename: str, language: str | None = None
+    ) -> str:
+        import httpx
+
+        data: dict[str, str] = {"model": self._model}
+        if language:
+            data["language"] = language
+        try:
+            response = httpx.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                data=data,
+                files={"file": (filename, audio, "audio/webm")},
+                timeout=120.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ConfigurationError(f"Whisper transcription failed: {exc}") from exc
+        return str(response.json().get("text", ""))
+
+
+# ---------------------------------------------------------------------------
+# Registries
+# ---------------------------------------------------------------------------
+
+_LLM_FACTORIES: dict[str, Any] = {}
+_STT_FACTORIES: dict[str, Any] = {}
+
+
+def _openai_chat_factory() -> LLMProvider:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.OPENAI_API_KEY:
+        raise ConfigurationError(
+            "AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set."
+        )
+    return OpenAIChatProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_CHAT_MODEL)
+
+
+def _whisper_factory() -> STTProvider:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.OPENAI_API_KEY:
+        raise ConfigurationError(
+            "AI_STT_PROVIDER=whisper requires OPENAI_API_KEY to be set."
+        )
+    return WhisperSTTProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_WHISPER_MODEL)
+
+
+_LLM_FACTORIES["deterministic_dev"] = lambda: DeterministicDevInterviewProvider()
+_LLM_FACTORIES["openai"] = _openai_chat_factory
+_STT_FACTORIES["deterministic_dev"] = lambda: DeterministicDevSTTProvider()
+_STT_FACTORIES["whisper"] = _whisper_factory
+
+
+def get_llm_provider(name: str | None = None) -> LLMProvider:
+    """Select the interview LLM from ``AI_LLM_PROVIDER`` (default: deterministic_dev)."""
+    from app.core.config import get_settings
+
+    selected = (name or get_settings().AI_LLM_PROVIDER).strip().lower()
+    factory = _LLM_FACTORIES.get(selected)
+    if factory is None:
+        raise ConfigurationError(
+            f"Unknown AI_LLM_PROVIDER {selected!r}. "
+            f"Expected one of: {sorted(_LLM_FACTORIES)}."
+        )
+    return factory()
+
+
+def get_stt_provider(name: str | None = None) -> STTProvider:
+    """Select the STT provider from ``AI_STT_PROVIDER`` (default: deterministic_dev)."""
+    from app.core.config import get_settings
+
+    selected = (name or get_settings().AI_STT_PROVIDER).strip().lower()
+    factory = _STT_FACTORIES.get(selected)
+    if factory is None:
+        raise ConfigurationError(
+            f"Unknown AI_STT_PROVIDER {selected!r}. "
+            f"Expected one of: {sorted(_STT_FACTORIES)}."
+        )
+    return factory()
+
+
+def available_llm_providers() -> list[str]:
+    return sorted(_LLM_FACTORIES)
+
+
+def available_stt_providers() -> list[str]:
+    return sorted(_STT_FACTORIES)

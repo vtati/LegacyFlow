@@ -70,6 +70,7 @@ _AUTH_SUBSTRINGS = ("/vault-shares", "/download-token")
 _UPLOAD_AI_PREFIXES = ("/v1/admin/packs/import",)
 _UPLOAD_AI_SUBSTRINGS = (
     "/ai/",
+    "/interview/",
     "/files/",
     "/generate",
     "/document-packages",

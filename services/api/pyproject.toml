@@ -27,6 +27,11 @@ dependencies = [
     # app/domains/privacy/dispatch.py so the API also runs without them.
     "dramatiq>=1.18",
     "redis>=5.0",
+    # ADR-002: Fernet encryption for AI interviewer turn bodies. The data key
+    # comes from INTERVIEW_TURN_ENCRYPTION_KEY; reads/writes fail closed when
+    # unset. Documented reason: interview pause/resume + proposal provenance +
+    # attorney audit require raw conversation content, stored encrypted.
+    "cryptography>=3.4",
 ]
 
 [project.optional-dependencies]

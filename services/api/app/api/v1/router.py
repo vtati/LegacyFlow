@@ -14,6 +14,7 @@ from app.domains.files.router import router as files_router
 from app.domains.firms.router import router as firms_router
 from app.domains.household.router import router as household_router
 from app.domains.intake.router import router as intake_router
+from app.domains.interview.router import router as interview_router
 from app.domains.invitations.router import router as invitations_router
 from app.domains.matters.router import router as matters_router
 from app.domains.nominations.router import router as nominations_router
@@ -28,6 +29,7 @@ router.include_router(invitations_router)
 router.include_router(nominations_router)
 router.include_router(privacy_router)
 router.include_router(intake_router)
+router.include_router(interview_router)
 router.include_router(decisions_router)
 router.include_router(escalation_router)
 router.include_router(feature_flags_router)

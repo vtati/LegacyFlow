@@ -411,7 +411,7 @@ def test_flag_admin_endpoints(db, api_client):
     response = api_client.get("/v1/admin/feature-flags", headers=auth(ADMIN_A))
     assert response.status_code == 200, response.text
     by_key = {flag["key"]: flag for flag in response.json()}
-    assert set(by_key) == {"document_assembly", "ai_assistance", "funding_reminders"}
+    assert set(by_key) == {"document_assembly", "ai_assistance", "funding_reminders", "ai_interviewer"}
     assert by_key["document_assembly"]["is_enabled"] is False
     assert by_key["document_assembly"]["source"] == "default"
     assert by_key["ai_assistance"]["is_enabled"] is True

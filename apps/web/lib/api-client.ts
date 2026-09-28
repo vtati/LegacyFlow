@@ -238,6 +238,97 @@ export interface IntakeProgressResponse {
   overall: SetProgress;
 }
 
+/* AI interviewer (Phase 1) */
+
+export interface InterviewCitation {
+  source: string;
+  section: string | null;
+  excerpt: string;
+}
+
+export interface InterviewProposalDraft {
+  id: string;
+  question_key: string;
+  proposed_value: unknown;
+  source: string;
+  confidence: number | null;
+  source_snippet: string | null;
+}
+
+export interface InterviewChecklistItem {
+  question_key: string;
+  required: boolean;
+  answered: boolean;
+  has_open_proposal: boolean;
+}
+
+export interface InterviewSession {
+  id: string;
+  matter_id: string;
+  question_set_id: string;
+  pack_version: string;
+  status: 'draft' | 'in_progress' | 'paused' | 'completed' | 'abandoned';
+  completeness_pct: number;
+  missing_required_keys: string[];
+  checklist: InterviewChecklistItem[];
+  open_proposal_count: number;
+  turn_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InterviewTurn {
+  id: string;
+  session_id: string;
+  role: string;
+  reply: string;
+  citations: InterviewCitation[];
+  proposals: InterviewProposalDraft[];
+  refused: boolean;
+  escalated: boolean;
+  trace_hash: string;
+  completeness_pct: number;
+  missing_required_keys: string[];
+  replayed: boolean;
+}
+
+export interface InterviewTurnSummary {
+  id: string;
+  role: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface InterviewTurnDetail {
+  id: string;
+  role: string;
+  text: string;
+  citations: InterviewCitation[];
+  created_at: string;
+}
+
+export interface InterviewProposal {
+  id: string;
+  session_id: string;
+  question_key: string;
+  proposed_value: unknown;
+  corrected_value: unknown | null;
+  source: string;
+  confidence: number | null;
+  source_snippet: string | null;
+  source_page: number | null;
+  model_id: string;
+  prompt_version: string;
+  pack_version: string;
+  status: 'proposed' | 'confirmed' | 'corrected' | 'rejected';
+  created_at: string;
+}
+
+export interface DictationResponse {
+  transcript: string;
+  model: string;
+}
+
 export type RuleSeverity = 'blocking' | 'review' | 'info' | string;
 
 export interface TriggeredRule {
@@ -710,6 +801,35 @@ export interface FamilyApi {
   putAnswers: (matterId: string, answers: AnswerMap) => Promise<PutAnswersResponse>;
   getIntakeProgress: (matterId: string) => Promise<IntakeProgressResponse>;
   evaluateIntake: (matterId: string) => Promise<EvaluateResponse>;
+  /* AI interviewer (Phase 1) */
+  startInterviewSession: (matterId: string, questionSetId: string) => Promise<InterviewSession>;
+  getInterviewSession: (matterId: string, sessionId: string) => Promise<InterviewSession>;
+  updateInterviewSession: (
+    matterId: string,
+    sessionId: string,
+    status: 'paused' | 'in_progress' | 'abandoned' | 'completed',
+  ) => Promise<InterviewSession>;
+  postInterviewTurn: (
+    matterId: string,
+    sessionId: string,
+    message: string,
+    idempotencyKey: string,
+  ) => Promise<InterviewTurn>;
+  listInterviewTurns: (matterId: string, sessionId: string) => Promise<InterviewTurnSummary[]>;
+  getInterviewTurn: (
+    matterId: string,
+    sessionId: string,
+    turnId: string,
+  ) => Promise<InterviewTurnDetail>;
+  listInterviewProposals: (matterId: string, sessionId: string) => Promise<InterviewProposal[]>;
+  confirmInterviewProposal: (matterId: string, proposalId: string) => Promise<InterviewProposal>;
+  correctInterviewProposal: (
+    matterId: string,
+    proposalId: string,
+    value: unknown,
+  ) => Promise<InterviewProposal>;
+  rejectInterviewProposal: (matterId: string, proposalId: string) => Promise<InterviewProposal>;
+  dictateInterview: (matterId: string, audio: Blob) => Promise<DictationResponse>;
   submitMatter: (matterId: string) => Promise<MatterDetail>;
   getHousehold: (matterId: string) => Promise<HouseholdResponse>;
   createPerson: (matterId: string, input: PersonInput) => Promise<Person>;
@@ -807,6 +927,73 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         method: 'POST',
         track: false,
       }),
+    /* AI interviewer (Phase 1) */
+    startInterviewSession: (matterId, questionSetId) =>
+      call<InterviewSession>(`/matters/${matterId}/interview/sessions`, {
+        method: 'POST',
+        body: { question_set_id: questionSetId },
+      }),
+    getInterviewSession: (matterId, sessionId) =>
+      call<InterviewSession>(`/matters/${matterId}/interview/sessions/${sessionId}`),
+    updateInterviewSession: (matterId, sessionId, status) =>
+      call<InterviewSession>(`/matters/${matterId}/interview/sessions/${sessionId}`, {
+        method: 'PATCH',
+        body: { status },
+      }),
+    postInterviewTurn: (matterId, sessionId, message, idempotencyKey) =>
+      call<InterviewTurn>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/turns`,
+        { method: 'POST', body: { message, idempotency_key: idempotencyKey }, track: false },
+      ),
+    listInterviewTurns: (matterId, sessionId) =>
+      call<InterviewTurnSummary[]>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/turns`,
+      ),
+    getInterviewTurn: (matterId, sessionId, turnId) =>
+      call<InterviewTurnDetail>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/turns/${turnId}`,
+      ),
+    listInterviewProposals: (matterId, sessionId) =>
+      call<InterviewProposal[]>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/proposals`,
+        { method: 'POST', track: false },
+      ),
+    confirmInterviewProposal: (matterId, proposalId) =>
+      call<InterviewProposal>(
+        `/matters/${matterId}/interview/proposals/${proposalId}/confirm`,
+        { method: 'POST' },
+      ),
+    correctInterviewProposal: (matterId, proposalId, value) =>
+      call<InterviewProposal>(
+        `/matters/${matterId}/interview/proposals/${proposalId}/correct`,
+        { method: 'POST', body: { value } },
+      ),
+    rejectInterviewProposal: (matterId, proposalId) =>
+      call<InterviewProposal>(
+        `/matters/${matterId}/interview/proposals/${proposalId}/reject`,
+        { method: 'POST' },
+      ),
+    dictateInterview: async (matterId, audio) => {
+      const token = await options.getToken?.();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const response = await fetch(`${options.baseUrl ?? ''}/v1/matters/${matterId}/interview/dictate`, {
+        method: 'POST',
+        headers,
+        body: audio,
+      });
+      if (!response.ok) {
+        let parsed: unknown = null;
+        try {
+          parsed = await response.json();
+        } catch {
+          parsed = null;
+        }
+        const { message, code } = readErrorMessage(response.status, parsed);
+        throw new ApiError(response.status, message, { code, details: parsed });
+      }
+      return (await response.json()) as DictationResponse;
+    },
     submitMatter: (matterId) =>
       call<MatterDetail>(`/matters/${matterId}/submit`, { method: 'POST' }),
     getHousehold: (matterId) => call<HouseholdResponse>(`/matters/${matterId}/household`),

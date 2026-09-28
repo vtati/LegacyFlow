@@ -30,6 +30,8 @@ KNOWN_FLAG_DEFAULTS: dict[str, bool] = {
     "document_assembly": False,
     "ai_assistance": True,
     "funding_reminders": True,
+    # AI interviewer (Phase 1): fails closed — a firm_admin must enable it.
+    "ai_interviewer": False,
 }
 
 _ENV_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
