@@ -594,6 +594,13 @@ def post_turn(
                 session_id,
             )
             continue
+        if draft.value is None or (isinstance(draft.value, str) and not draft.value.strip()):
+            logger.warning(
+                "Dropping proposal for %r with empty value (session %s)",
+                draft.question_key,
+                session_id,
+            )
+            continue
         valid_proposals.append(draft)
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
