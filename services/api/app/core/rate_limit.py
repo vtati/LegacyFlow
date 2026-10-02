@@ -70,13 +70,18 @@ _AUTH_SUBSTRINGS = ("/vault-shares", "/download-token")
 _UPLOAD_AI_PREFIXES = ("/v1/admin/packs/import",)
 _UPLOAD_AI_SUBSTRINGS = (
     "/ai/",
-    "/interview/",
     "/files/",
     "/generate",
     "/document-packages",
     "/intake/evaluate",
     "/evidence",
 )
+# Note: "/interview/" was intentionally removed from UPLOAD_AI. The interview
+# bootstrap makes ~14 API calls (turns, proposals, extractions) on every page
+# load, and message sends trigger refreshes — the 30/min upload_ai tier caused
+# spurious 429s during normal use. Interview endpoints now use the DEFAULT
+# tier (120/min); the expensive POSTs (AI turn, document upload) remain
+# protected by per-user auth and UI-level send throttling.
 
 _MAX_BUCKETS = 10_000
 _WINDOW_SECONDS = 60.0
