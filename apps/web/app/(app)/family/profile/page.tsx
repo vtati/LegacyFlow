@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
@@ -103,7 +102,7 @@ export default function FamilyProfilePage(): React.JSX.Element {
   const [showAdd, setShowAdd] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const [relationshipRole, setRelationshipRole] = useState('');
+  const [relationshipRole, setRelationshipRole] = useState('dependent');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -259,12 +258,17 @@ export default function FamilyProfilePage(): React.JSX.Element {
               <CardContent className="space-y-4">
                 <div className="max-w-sm space-y-1.5">
                   <Label htmlFor="add-relationship-role">Relationship to household</Label>
-                  <Input
+                  <select
                     id="add-relationship-role"
                     value={relationshipRole}
                     onChange={(event) => setRelationshipRole(event.target.value)}
-                    placeholder="e.g. spouse, partner, child"
-                  />
+                    className="flex min-h-11 w-full rounded-lf-control border border-lf-border bg-white px-4 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500"
+                  >
+                    <option value="dependent">Dependent (child or other dependent)</option>
+                    <option value="collaborator">Collaborator (spouse or partner)</option>
+                    <option value="primary_client">Primary client</option>
+                    <option value="trusted_contact">Trusted contact</option>
+                  </select>
                 </div>
                 <PersonForm
                   kindOptions={['adult', 'minor']}
