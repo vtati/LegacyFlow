@@ -113,14 +113,16 @@ def create_completion_payout(
 # ---------------------------------------------------------------------------
 
 
-def list_my_payouts(conn: Any, *, actor_sub: str) -> list[PayoutOut]:
+def list_my_payouts(
+    conn: Any, *, actor_sub: str, limit: int = 50, offset: int = 0
+) -> list[PayoutOut]:
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     _require_attorney(conn, actor_id, firm_id)
     return [
         _payout_out(r)
         for r in repo.list_payouts_for_attorney(
-            conn, firm_id=firm_id, attorney_user_id=actor_id
+            conn, firm_id=firm_id, attorney_user_id=actor_id, limit=limit, offset=offset
         )
     ]
 
@@ -171,14 +173,15 @@ def set_my_availability(
 
 
 def list_payouts(
-    conn: Any, *, actor_sub: str, status: str | None = None
+    conn: Any, *, actor_sub: str, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[PayoutOut]:
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     _require_admin(conn, actor_id, firm_id)
     if status is not None and status not in ("pending", "approved", "paid", "disputed"):
         raise ValidationAppError("Unknown payout status filter.")
-    return [_payout_out(r) for r in repo.list_payouts_for_firm(conn, firm_id=firm_id, status=status)]
+    return [_payout_out(r) for r in repo.list_payouts_for_firm(conn, firm_id=firm_id, status=status, limit=limit, offset=offset)]
 
 
 def approve_payout(conn: Any, *, actor_sub: str, payout_id: UUID) -> PayoutOut:
@@ -295,14 +298,15 @@ def request_case(conn: Any, *, actor_sub: str, matter_id: UUID) -> CaseRequestOu
 
 
 def list_case_requests(
-    conn: Any, *, actor_sub: str, status: str | None = None
+    conn: Any, *, actor_sub: str, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[CaseRequestOut]:
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     _require_admin(conn, actor_id, firm_id)
     return [
         _request_out(r)
-        for r in repo.list_case_requests_for_firm(conn, firm_id=firm_id, status=status)
+        for r in repo.list_case_requests_for_firm(conn, firm_id=firm_id, status=status, limit=limit, offset=offset)
     ]
 
 

@@ -44,31 +44,37 @@ def _payout_select() -> str:
 
 
 def list_payouts_for_firm(
-    conn: Any, *, firm_id: UUID, status: str | None = None
+    conn: Any, *, firm_id: UUID, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     with conn.cursor() as cur:
         if status:
             cur.execute(
                 _payout_select()
-                + " WHERE p.firm_id = %s AND p.status = %s ORDER BY p.created_at DESC",
-                (str(firm_id), status),
+                + " WHERE p.firm_id = %s AND p.status = %s ORDER BY p.created_at DESC LIMIT %s OFFSET %s",
+                (str(firm_id), status, limit, offset),
             )
         else:
             cur.execute(
-                _payout_select() + " WHERE p.firm_id = %s ORDER BY p.created_at DESC",
-                (str(firm_id),),
+                _payout_select() + " WHERE p.firm_id = %s ORDER BY p.created_at DESC LIMIT %s OFFSET %s",
+                (str(firm_id), limit, offset),
             )
         return [dict(r) for r in cur.fetchall()]
 
 
 def list_payouts_for_attorney(
-    conn: Any, *, firm_id: UUID, attorney_user_id: UUID
+    conn: Any, *, firm_id: UUID, attorney_user_id: UUID,
+    limit: int = 50, offset: int = 0,
 ) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     with conn.cursor() as cur:
         cur.execute(
             _payout_select()
-            + " WHERE p.firm_id = %s AND p.attorney_user_id = %s ORDER BY p.created_at DESC",
-            (str(firm_id), str(attorney_user_id)),
+            + " WHERE p.firm_id = %s AND p.attorney_user_id = %s ORDER BY p.created_at DESC LIMIT %s OFFSET %s",
+            (str(firm_id), str(attorney_user_id), limit, offset),
         )
         return [dict(r) for r in cur.fetchall()]
 
@@ -178,19 +184,22 @@ def _request_select() -> str:
 
 
 def list_case_requests_for_firm(
-    conn: Any, *, firm_id: UUID, status: str | None = None
+    conn: Any, *, firm_id: UUID, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     with conn.cursor() as cur:
         if status:
             cur.execute(
                 _request_select()
-                + " WHERE r.firm_id = %s AND r.status = %s ORDER BY r.created_at DESC",
-                (str(firm_id), status),
+                + " WHERE r.firm_id = %s AND r.status = %s ORDER BY r.created_at DESC LIMIT %s OFFSET %s",
+                (str(firm_id), status, limit, offset),
             )
         else:
             cur.execute(
-                _request_select() + " WHERE r.firm_id = %s ORDER BY r.created_at DESC",
-                (str(firm_id),),
+                _request_select() + " WHERE r.firm_id = %s ORDER BY r.created_at DESC LIMIT %s OFFSET %s",
+                (str(firm_id), limit, offset),
             )
         return [dict(r) for r in cur.fetchall()]
 

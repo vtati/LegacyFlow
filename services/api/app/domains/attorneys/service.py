@@ -59,13 +59,14 @@ def submit_application(
 
 
 def list_applications(
-    conn: Any, *, actor_sub: str, status: str | None = None
+    conn: Any, *, actor_sub: str, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[AttorneyApplicationOut]:
     """List applications for the caller's firm (firm staff+ only)."""
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     authz.require_firm_role(conn, actor_id, firm_id, authz.STAFF_ROLES)
-    return [_out(r) for r in repo.list_applications(conn, firm_id=firm_id, status=status)]
+    return [_out(r) for r in repo.list_applications(conn, firm_id=firm_id, status=status, limit=limit, offset=offset)]
 
 
 def approve_application(

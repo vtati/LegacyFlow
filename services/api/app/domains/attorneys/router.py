@@ -27,10 +27,12 @@ def submit_application(
 def list_applications(
     claims: Annotated[Claims, Depends(get_current_user)],
     status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[schemas.AttorneyApplicationOut]:
     """List attorney applications for the caller's firm (firm staff+ only)."""
     with db.transaction() as conn:
-        return service.list_applications(conn, actor_sub=claims.sub, status=status)
+        return service.list_applications(conn, actor_sub=claims.sub, status=status, limit=limit, offset=offset)
 
 
 @router.post(

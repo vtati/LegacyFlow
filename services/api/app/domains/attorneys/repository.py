@@ -45,26 +45,32 @@ def insert_application(
 
 
 def list_applications(
-    conn: Any, *, firm_id: UUID, status: str | None = None
+    conn: Any, *, firm_id: UUID, status: str | None = None,
+    limit: int = 50, offset: int = 0,
 ) -> list[dict[str, Any]]:
+    """List applications for a firm, newest first, paginated."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     with conn.cursor() as cur:
         if status:
             cur.execute(
                 """
                 SELECT * FROM attorney_applications
                 WHERE firm_id = %s AND status = %s
-                ORDER BY created_at ASC
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
                 """,
-                (str(firm_id), status),
+                (str(firm_id), status, limit, offset),
             )
         else:
             cur.execute(
                 """
                 SELECT * FROM attorney_applications
                 WHERE firm_id = %s
-                ORDER BY created_at ASC
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
                 """,
-                (str(firm_id),),
+                (str(firm_id), limit, offset),
             )
         return [dict(r) for r in cur.fetchall()]
 

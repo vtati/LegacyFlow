@@ -21,10 +21,12 @@ router = APIRouter(tags=["payouts"])
 @router.get("/attorney/payouts", response_model=list[schemas.PayoutOut])
 def list_my_payouts(
     claims: Annotated[Claims, Depends(get_current_user)],
+    limit: Annotated[int, Query(le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[schemas.PayoutOut]:
     """List the caller's payouts (attorney role)."""
     with db.transaction() as conn:
-        return service.list_my_payouts(conn, actor_sub=claims.sub)
+        return service.list_my_payouts(conn, actor_sub=claims.sub, limit=limit, offset=offset)
 
 
 @router.get("/attorney/payouts/summary", response_model=schemas.PayoutSummary)
@@ -78,10 +80,12 @@ def request_case(
 def list_payouts(
     claims: Annotated[Claims, Depends(get_current_user)],
     status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[schemas.PayoutOut]:
     """List payouts for the caller's firm (firm admin/staff)."""
     with db.transaction() as conn:
-        return service.list_payouts(conn, actor_sub=claims.sub, status=status)
+        return service.list_payouts(conn, actor_sub=claims.sub, status=status, limit=limit, offset=offset)
 
 
 @router.post("/admin/payouts/{payout_id}/approve", response_model=schemas.PayoutOut)
@@ -124,10 +128,12 @@ def dispute_payout(
 def list_case_requests(
     claims: Annotated[Claims, Depends(get_current_user)],
     status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[schemas.CaseRequestOut]:
     """List attorney case requests (firm admin/staff)."""
     with db.transaction() as conn:
-        return service.list_case_requests(conn, actor_sub=claims.sub, status=status)
+        return service.list_case_requests(conn, actor_sub=claims.sub, status=status, limit=limit, offset=offset)
 
 
 @router.post(

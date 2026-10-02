@@ -165,12 +165,39 @@ def create_app() -> FastAPI:
     application.include_router(v1_router, prefix="/v1")
 
     @application.get("/healthz", tags=["ops"])
-    def healthz() -> dict[str, str]:
+    def healthz() -> dict[str, Any]:
+        """Liveness + DB reachability.
+
+        A 200 here means the API can reach Postgres. Railway cannot route
+        IPv6, so a DB check is the only meaningful health signal — a bare
+        "ok" proves nothing (see AGENTS.md lesson 2026-09-27).
+        """
+        from app.core import db as db_module
+
+        db_status = "ok"
+        try:
+            with db_module.transaction() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+        except Exception as exc:  # noqa: BLE001 — health must never raise
+            db_status = f"unreachable: {type(exc).__name__}"
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status": "degraded",
+                    "service": "legacyflow-api",
+                    "version": SERVICE_VERSION,
+                    "env": settings.API_ENV,
+                    "db": db_status,
+                },
+            )
         return {
             "status": "ok",
             "service": "legacyflow-api",
             "version": SERVICE_VERSION,
             "env": settings.API_ENV,
+            "db": db_status,
         }
 
     @application.get("/", tags=["ops"])
