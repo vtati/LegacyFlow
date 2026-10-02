@@ -3,9 +3,11 @@
 from typing import Any
 from uuid import UUID
 
+import psycopg.errors
+
 from app.core import authz
 from app.core.audit import record_audit_event
-from app.core.errors import AuthorizationError, NotFoundError
+from app.core.errors import AuthorizationError, ConflictError, NotFoundError
 from app.domains.attorneys import repository as repo
 from app.domains.attorneys.schemas import (
     AttorneyApplicationCreate,
@@ -33,19 +35,24 @@ def submit_application(
 ) -> AttorneyApplicationOut:
     """Submit an attorney application (any authenticated user)."""
     actor_id = _actor_id(actor_sub)
-    row = repo.insert_application(
-        conn,
-        firm_id=payload.firm_id,
-        user_id=actor_id,
-        full_name=payload.full_name,
-        email=payload.email,
-        phone=payload.phone,
-        bar_number=payload.bar_number,
-        jurisdictions=[j.upper() for j in payload.jurisdictions],
-        years_experience=payload.years_experience,
-        practice_areas=payload.practice_areas,
-        document_urls=payload.document_urls,
-    )
+    try:
+        row = repo.insert_application(
+            conn,
+            firm_id=payload.firm_id,
+            user_id=actor_id,
+            full_name=payload.full_name,
+            email=payload.email,
+            phone=payload.phone,
+            bar_number=payload.bar_number,
+            jurisdictions=[j.upper() for j in payload.jurisdictions],
+            years_experience=payload.years_experience,
+            practice_areas=payload.practice_areas,
+            document_urls=payload.document_urls,
+        )
+    except psycopg.errors.UniqueViolation as exc:
+        raise ConflictError(
+            "You already have a pending attorney application."
+        ) from exc
     record_audit_event(
         conn,
         action="attorney_applications.submitted",
