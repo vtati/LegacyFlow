@@ -73,6 +73,29 @@ def _excerpt(body: str, limit: int) -> str:
     return collapsed[: limit - 1].rstrip() + "\u2026"
 
 
+def _approved_excerpts_block(documents: list[RetrievedDocument]) -> str:
+    """Render the retrieved approved excerpts for the model's system prompt.
+
+    The interview system prompt instructs the model to ground every factual
+    claim in "the approved educational excerpts provided with this turn" —
+    this block is what makes that claim true. Deterministic: one excerpt per
+    retrieved document, in retrieval order. Empty when nothing was retrieved,
+    so turns without matching pack content are byte-identical to before.
+    """
+    if not documents:
+        return ""
+    lines = [
+        "",
+        "APPROVED EDUCATIONAL EXCERPTS — the only sources you may rely on for "
+        "factual claims. Ground every factual claim in these excerpts and cite "
+        "them; never answer from your own general knowledge.",
+    ]
+    for index, doc in enumerate(documents, start=1):
+        section = f" ({doc.section})" if doc.section else ""
+        lines.append(f"[{index}] {doc.title}{section}:\n{_excerpt(doc.body_markdown, 2000)}")
+    return "\n".join(lines)
+
+
 class DeterministicDevProvider:
     """Template-based answers from retrieved docs (no LLM, no network).
 
@@ -312,9 +335,19 @@ class OpenAIChatProvider:
     ) -> InterviewTurnResponse:
         import httpx
 
+        # The retrieved approved excerpts travel with the system prompt so the
+        # model's grounding instruction ("ground every factual claim in the
+        # approved educational excerpts provided with this turn") refers to
+        # content the model can actually see. Citations are still assembled
+        # deterministically from context.documents below.
         payload = {
             "model": self._model,
-            "messages": [{"role": "system", "content": system_prompt}]
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt + _approved_excerpts_block(context.documents),
+                }
+            ]
             + [{"role": m.role, "content": m.content} for m in messages],
             "tools": [_propose_tool_spec()],
             "tool_choice": "auto",

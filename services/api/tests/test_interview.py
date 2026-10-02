@@ -84,7 +84,7 @@ TRUNCATE_TABLES = (
 # without touching the JWT layer. API tests never call auth.uid().
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT current_setting('app.test_uid', true)::uuid $$;
 """
@@ -213,10 +213,12 @@ def _fetchall(db, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
 def create_user(db, sub: str) -> None:
     email = USERS[sub]
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
+    # The on_auth_user_created trigger provisions the profiles row; set the
+    # synthetic display name via update instead of a second insert.
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
-        (sub, email, f"Synthetic {email}"),
+        "UPDATE profiles SET email = %s, display_name = %s WHERE id = %s",
+        (email, f"Synthetic {email}", sub),
     )
 
 
@@ -961,6 +963,116 @@ class TestTurns:
         session_id = start_session(api_client, matter_id).json()["id"]
         resp = post_turn(api_client, matter_id, session_id, "hello", sub=OUTSIDER_SUB)
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# API: turn citations (the Sources expander)
+# ---------------------------------------------------------------------------
+
+WILL_VALIDITY_QUESTION = "What does Virginia law require for a will to be valid?"
+
+
+class TestInterviewCitations:
+    """Regression tests for the 2026-10-02 staging failure: an informational
+    answer came back with an empty citations array, so the web UI never
+    rendered the Sources expander (it requires ``citations.length > 0``)."""
+
+    def test_informational_answer_includes_approved_citations(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = post_turn(api_client, matter_id, session_id, WILL_VALIDITY_QUESTION)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["refused"] is False
+        assert body["citations"], (
+            "informational answer must include approved-source citations "
+            "(UI renders Sources only when citations are non-empty)"
+        )
+        for citation in body["citations"]:
+            assert citation["source"] == "us-va"
+            assert citation["excerpt"].strip(), "citation excerpt must not be empty"
+
+    def test_citations_persist_on_stored_assistant_turn(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = post_turn(api_client, matter_id, session_id, WILL_VALIDITY_QUESTION)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["citations"]
+        row = _fetchone(
+            db,
+            "SELECT citations FROM interview_turns WHERE id = %s",
+            (body["id"],),
+        )
+        assert row is not None
+        stored = row["citations"] or []
+        assert len(stored) == len(body["citations"])
+        assert stored[0]["source"] == "us-va"
+        assert stored[0]["excerpt"] == body["citations"][0]["excerpt"]
+
+    def test_advice_refusal_carries_no_fabricated_citations(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = post_turn(api_client, matter_id, session_id, "Should I disinherit my brother?")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["refused"] is True
+        assert body["citations"] == []
+        row = _fetchone(
+            db,
+            "SELECT citations FROM interview_turns WHERE id = %s AND role = 'assistant'",
+            (body["id"],),
+        )
+        assert row is not None
+        assert (row["citations"] or []) == []
+
+    def test_null_and_empty_proposals_still_discarded(
+        self,
+        api_client: TestClient,
+        db,
+        interview_setup: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        drafts = [
+            ai_provider.FieldProposalDraft(
+                question_key="marital_status",
+                value=None,
+                confidence=0.9,
+                source_snippet="I am single",
+            ),
+            ai_provider.FieldProposalDraft(
+                question_key="marital_status",
+                value="   ",
+                confidence=0.9,
+                source_snippet="I am single",
+            ),
+            ai_provider.FieldProposalDraft(
+                question_key="not_a_pack_key",
+                value="x",
+                confidence=0.9,
+                source_snippet="x",
+            ),
+        ]
+        monkeypatch.setattr(
+            interview_service, "get_llm_provider", lambda: _ProposalStub(drafts)
+        )
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = post_turn(api_client, matter_id, session_id, "I am single")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["proposals"] == []
+        row = _fetchone(
+            db,
+            "SELECT COUNT(*) AS n FROM field_proposals WHERE session_id = %s",
+            (session_id,),
+        )
+        assert row is not None and row["n"] == 0
 
 
 # ---------------------------------------------------------------------------

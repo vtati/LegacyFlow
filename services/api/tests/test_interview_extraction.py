@@ -67,7 +67,7 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT current_setting('app.test_uid', true)::uuid $$;
 """
@@ -155,10 +155,12 @@ def _fetchone(db, sql: str, params: tuple = ()) -> dict[str, Any] | None:
 def create_user(db, sub: str) -> None:
     email = USERS[sub]
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
+    # The on_auth_user_created trigger provisions the profiles row; set the
+    # synthetic display name via update instead of a second insert.
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
-        (sub, email, f"Synthetic {email}"),
+        "UPDATE profiles SET email = %s, display_name = %s WHERE id = %s",
+        (email, f"Synthetic {email}", sub),
     )
 
 
