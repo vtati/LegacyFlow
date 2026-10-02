@@ -89,15 +89,29 @@ def create_household(
     payload: HouseholdCreate,
     correlation_id: UUID | None = None,
 ) -> HouseholdOut:
-    """Create a household for the caller's firm (firm staff+ only)."""
+    """Create a household for the caller's firm.
+
+    Any authenticated user with an active firm membership may create a
+    household (self-service family onboarding). The creator is recorded as
+    the household's ``primary_client``. Firm staff retain full access via
+    their firm role.
+    """
     actor_id = _user_id_or_raise(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
-    authz.require_firm_role(conn, actor_id, firm_id, authz.STAFF_ROLES)
     row = repo.insert_household(
         conn,
         firm_id=firm_id,
         display_name=payload.name,
         created_by_user_id=actor_id,
+    )
+    # The creator becomes the household's primary client.
+    repo.insert_household_member(
+        conn,
+        household_id=UUID(str(row["id"])),
+        user_id=actor_id,
+        relationship_role="primary_client",
+        access_status="active",
+        invited_by=actor_id,
     )
     record_audit_event(
         conn,

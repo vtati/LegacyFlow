@@ -311,3 +311,19 @@ def update_matter_status(
                 (to_status, to_status, pct, str(matter_id)),
             )
         return dict(cur.fetchone())
+
+
+def get_household_role(conn: Any, household_id: UUID, user_id: UUID) -> str | None:
+    """Return the caller's active relationship_role on a household, or None."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT relationship_role FROM household_members
+            WHERE household_id = %s AND user_id = %s AND access_status = 'active'
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (str(household_id), str(user_id)),
+        )
+        row = cur.fetchone()
+    return str(row["relationship_role"]) if row else None

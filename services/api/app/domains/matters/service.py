@@ -104,15 +104,29 @@ def create_matter(
     payload: MatterCreate,
     correlation_id: UUID | None = None,
 ) -> MatterOut:
-    """Create a matter for the caller's firm (firm staff+ only)."""
+    """Create a matter for the caller's firm.
+
+    Firm staff may create matters for any household in their firm.
+    Non-staff callers (families) may create matters only for households
+    where they hold the ``primary_client`` or ``collaborator`` role.
+    """
     actor_id = caller_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
-    authz.require_firm_role(conn, actor_id, firm_id, authz.STAFF_ROLES)
 
     household = repo.get_household_in_firm(conn, payload.household_id, firm_id)
     if household is None:
         # Existence-oracle: cross-firm households read as "not found".
         raise NotFoundError("Household not found.")
+
+    firm_role = authz.get_firm_role(conn, actor_id, firm_id)
+    if firm_role not in authz.STAFF_ROLES:
+        # Non-staff: require primary_client/collaborator on this household.
+        household_role = repo.get_household_role(conn, payload.household_id, actor_id)
+        if household_role not in ("primary_client", "collaborator"):
+            raise AuthorizationError(
+                "This action requires a firm staff role or the "
+                "primary_client/collaborator household role."
+            )
 
     country_code, subdivision_code = _split_jurisdiction_code(payload.jurisdiction_code)
     resolved = repo.resolve_jurisdiction_pack(conn, country_code, subdivision_code)
