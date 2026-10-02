@@ -79,6 +79,28 @@ def list_payouts_for_attorney(
         return [dict(r) for r in cur.fetchall()]
 
 
+def list_payouts_for_attorney_all_firms(
+    conn: Any, *, attorney_user_id: UUID,
+    limit: int = 50, offset: int = 0,
+) -> list[dict[str, Any]]:
+    """List an attorney's payouts across all firms they belong to.
+
+    Used for the attorney's own dashboard: payouts are inherently scoped to
+    the attorney via attorney_user_id, so the firm filter is unnecessary and
+    would hide payouts when the caller's 'current' firm differs from the
+    payout's firm (multi-firm attorneys).
+    """
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    with conn.cursor() as cur:
+        cur.execute(
+            _payout_select()
+            + " WHERE p.attorney_user_id = %s ORDER BY p.created_at DESC LIMIT %s OFFSET %s",
+            (str(attorney_user_id), limit, offset),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_payout(conn: Any, *, payout_id: UUID) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(_payout_select() + " WHERE p.id = %s", (str(payout_id),))
@@ -138,6 +160,34 @@ def payout_summary_for_attorney(
             WHERE firm_id = %s AND attorney_user_id = %s AND status != 'disputed'
             """,
             (str(firm_id), str(attorney_user_id)),
+        )
+        row = cur.fetchone()
+        return {
+            "total_earned_cents": int(row["total"]),
+            "pending_cents": int(row["pending"]),
+            "approved_cents": int(row["approved"]),
+            "paid_cents": int(row["paid"]),
+            "payout_count": int(row["count"]),
+        }
+
+
+def payout_summary_for_attorney_all_firms(
+    conn: Any, *, attorney_user_id: UUID
+) -> dict[str, int]:
+    """Summary across all firms (see list_payouts_for_attorney_all_firms)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COALESCE(SUM(amount_cents), 0) AS total,
+              COALESCE(SUM(amount_cents) FILTER (WHERE status = 'pending'), 0) AS pending,
+              COALESCE(SUM(amount_cents) FILTER (WHERE status = 'approved'), 0) AS approved,
+              COALESCE(SUM(amount_cents) FILTER (WHERE status = 'paid'), 0) AS paid,
+              COUNT(*) AS count
+            FROM payouts
+            WHERE attorney_user_id = %s AND status != 'disputed'
+            """,
+            (str(attorney_user_id),),
         )
         row = cur.fetchone()
         return {

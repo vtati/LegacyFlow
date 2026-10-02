@@ -119,10 +119,13 @@ def list_my_payouts(
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     _require_attorney(conn, actor_id, firm_id)
+    # Query across all firms: the attorney's payouts are scoped by
+    # attorney_user_id, and the caller's "current" firm may differ from the
+    # payout's firm for multi-firm attorneys.
     return [
         _payout_out(r)
-        for r in repo.list_payouts_for_attorney(
-            conn, firm_id=firm_id, attorney_user_id=actor_id, limit=limit, offset=offset
+        for r in repo.list_payouts_for_attorney_all_firms(
+            conn, attorney_user_id=actor_id, limit=limit, offset=offset
         )
     ]
 
@@ -131,8 +134,8 @@ def my_payout_summary(conn: Any, *, actor_sub: str) -> PayoutSummary:
     actor_id = _actor_id(actor_sub)
     firm_id = authz.get_user_firm_id(conn, actor_id)
     _require_attorney(conn, actor_id, firm_id)
-    data = repo.payout_summary_for_attorney(
-        conn, firm_id=firm_id, attorney_user_id=actor_id
+    data = repo.payout_summary_for_attorney_all_firms(
+        conn, attorney_user_id=actor_id
     )
     return PayoutSummary.model_validate(data)
 
