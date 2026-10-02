@@ -5,6 +5,8 @@ import { use, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { AssistantPanel } from '@/components/ai/assistant-panel';
+import { AssignAttorney } from '@/components/firm/assign-attorney';
+import { ReviewDecisionPanel } from '@/components/firm/review-decision-panel';
 import { MatterOverview } from '@/components/firm/matter-overview';
 import { ReviewPacketTab } from '@/components/firm/review-packet-tab';
 import { CommentsTab } from '@/components/firm/comments-tab';
@@ -98,15 +100,46 @@ export default function FirmMatterDetailPage({
                 {matter.household.name} · {matter.matter.jurisdiction_code}
               </p>
             </div>
-            <span
-              className={cn(
-                'shrink-0 rounded-full px-3 py-1 text-xs font-medium',
-                statusBadgeClass(matter.matter.status),
-              )}
-            >
-              {formatStatus(matter.matter.status)}
-            </span>
+            <div className="flex flex-col items-end gap-3">
+              <span
+                className={cn(
+                  'shrink-0 rounded-full px-3 py-1 text-xs font-medium',
+                  statusBadgeClass(matter.matter.status),
+                )}
+              >
+                {formatStatus(matter.matter.status)}
+              </span>
+              <AssignAttorney
+                matterId={matterId}
+                currentAttorneyUserId={matter.matter.assigned_attorney_id}
+                onAssigned={(attorneyUserId) =>
+                  setMatter((prev) =>
+                    prev === null
+                      ? prev
+                      : {
+                          ...prev,
+                          matter: { ...prev.matter, assigned_attorney_id: attorneyUserId },
+                        },
+                  )
+                }
+              />
+            </div>
           </div>
+
+          <ReviewDecisionPanel
+            matterId={matterId}
+            status={matter.matter.status}
+            onStatusChange={(newStatus) =>
+              setMatter((prev) =>
+                prev === null
+                  ? prev
+                  : {
+                      ...prev,
+                      matter: { ...prev.matter, status: newStatus as typeof prev.matter.status },
+                    },
+              )
+            }
+          />
 
           <div
             role="tablist"

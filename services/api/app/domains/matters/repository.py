@@ -327,3 +327,20 @@ def get_household_role(conn: Any, household_id: UUID, user_id: UUID) -> str | No
         )
         row = cur.fetchone()
     return str(row["relationship_role"]) if row else None
+
+
+def set_assigned_attorney(
+    conn: Any, *, matter_id: UUID, attorney_user_id: UUID | None
+) -> dict[str, Any]:
+    """Set (or clear) the assigned attorney on a matter; return the row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE matters
+            SET assigned_attorney_id = %s, updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (str(attorney_user_id) if attorney_user_id else None, str(matter_id)),
+        )
+        return dict(cur.fetchone())

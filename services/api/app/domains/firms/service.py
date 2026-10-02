@@ -64,3 +64,22 @@ def list_members(conn: Any, *, actor_sub: str) -> list[FirmMemberDetailOut]:
         )
         for r in rows
     ]
+
+
+def list_public_firms(conn: Any) -> list[FirmOut]:
+    """List all active firms (public — for attorney applications)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM firms WHERE status = 'active' ORDER BY display_name ASC"
+        )
+        rows = cur.fetchall()
+    return [
+        FirmOut(
+            id=UUID(str(r["id"])),
+            legal_name=r["legal_name"],
+            display_name=r["display_name"],
+            status=r["status"],
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]

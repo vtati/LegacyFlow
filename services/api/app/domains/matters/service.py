@@ -449,3 +449,44 @@ def load_matter_pack(conn: Any, matter_id: UUID) -> tuple[LoadedPack, str, str]:
         return get_pack(code, version), code, version
     except FileNotFoundError as exc:
         raise PackNotFoundError() from exc
+
+
+def assign_matter_attorney(
+    conn: Any,
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    attorney_user_id: UUID | None,
+    correlation_id: UUID | None = None,
+) -> MatterOut:
+    """Assign (or unassign) the attorney for a matter (firm staff+ only).
+
+    When assigning, the target user must hold an active attorney membership
+    in the matter's firm.
+    """
+    actor_id = caller_id(actor_sub)
+    scope = authz.require_matter_firm_role(conn, matter_id, actor_id, authz.STAFF_ROLES)
+    matter_id = UUID(str(scope.matter["id"]))
+    firm_id = UUID(str(scope.matter["firm_id"]))
+
+    if attorney_user_id is not None:
+        role = authz.get_firm_role(conn, attorney_user_id, firm_id)
+        if role != "attorney":
+            raise ValidationAppError(
+                "The assignee must be an active attorney in this firm."
+            )
+
+    row = repo.set_assigned_attorney(
+        conn, matter_id=matter_id, attorney_user_id=attorney_user_id
+    )
+    record_audit_event(
+        conn,
+        action="matters.attorney_assigned",
+        resource_type="matter",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        resource_id=matter_id,
+        correlation_id=correlation_id,
+    )
+    return matter_out(row)

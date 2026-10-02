@@ -147,6 +147,7 @@ export interface MatterSummary {
   household: HouseholdRef;
   created_at: string;
   updated_at: string;
+  assigned_attorney_id: string | null;
 }
 
 export interface MattersListResponse {
@@ -1420,6 +1421,46 @@ export interface FirmApi {
   revokeInvitation: (invitationId: string) => Promise<Invitation>;
   /* escalations */
   listEscalations: (matterId: string) => Promise<Escalation[]>;
+  /* matter assignment + transitions */
+  assignMatterAttorney: (
+    matterId: string,
+    attorneyUserId: string | null,
+  ) => Promise<MatterDetail>;
+  transitionMatter: (matterId: string, toStatus: string, reason?: string | null) => Promise<MatterDetail>;
+}
+
+/* --------------------------------------------------- attorney applications */
+
+export interface AttorneyApplication {
+  id: string;
+  firm_id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  bar_number: string;
+  jurisdictions: string[];
+  years_experience: number | null;
+  practice_areas: string | null;
+  document_urls: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttorneyApplicationCreate {
+  firm_id: string;
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  bar_number: string;
+  jurisdictions: string[];
+  years_experience?: number | null;
+  practice_areas?: string | null;
+  document_urls?: Record<string, unknown>;
 }
 
 /** Typed client for the LegacyFlow firm (attorney) API. */
@@ -1531,7 +1572,68 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       call<Invitation>(`/firms/invitations/${invitationId}/revoke`, { method: 'POST' }),
     /* escalations */
     listEscalations: (matterId) => call<Escalation[]>(`/matters/${matterId}/escalations`),
+    assignMatterAttorney: (matterId, attorneyUserId) =>
+      call<MatterDetail>(`/matters/${matterId}/assign`, {
+        method: 'PATCH',
+        body: { attorney_user_id: attorneyUserId },
+      }),
+    transitionMatter: (matterId, toStatus, reason) =>
+      call<MatterDetail>(`/matters/${matterId}/transition`, {
+        method: 'POST',
+        body: { to_status: toStatus, reason: reason ?? null },
+      }),
   };
+}
+
+/* --------------------------------------------------- attorney applications */
+
+/** Typed client for attorney application endpoints. */
+export function createAttorneyApi(options: ApiClientOptions = {}): {
+  submitApplication: (input: AttorneyApplicationCreate) => Promise<AttorneyApplication>;
+  listApplications: (status?: string) => Promise<AttorneyApplication[]>;
+  approveApplication: (applicationId: string) => Promise<AttorneyApplication>;
+  rejectApplication: (applicationId: string, reason: string) => Promise<AttorneyApplication>;
+} {
+  const call = <T>(
+    path: string,
+    init?: {
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      body?: unknown;
+      signal?: AbortSignal;
+    },
+  ): Promise<T> => apiFetch<T>(path, { ...options, ...init });
+
+  return {
+    submitApplication: (input) =>
+      call<AttorneyApplication>('/attorney-applications', { method: 'POST', body: input }),
+    listApplications: (status) => {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      const qs = params.toString();
+      return call<AttorneyApplication[]>(`/attorney-applications${qs ? `?${qs}` : ''}`);
+    },
+    approveApplication: (applicationId) =>
+      call<AttorneyApplication>(`/attorney-applications/${applicationId}/approve`, {
+        method: 'POST',
+      }),
+    rejectApplication: (applicationId, reason) =>
+      call<AttorneyApplication>(`/attorney-applications/${applicationId}/reject`, {
+        method: 'POST',
+        body: { reason },
+      }),
+  };
+}
+
+export const attorneyApi = createAttorneyApi({
+  getToken: () => getAuthAdapter().getAccessToken(),
+});
+
+/** List active firms (for attorney application firm picker). */
+export async function listPublicFirms(options: ApiClientOptions = {}): Promise<FirmProfile[]> {
+  return apiFetch<FirmProfile[]>('/firms', {
+    ...options,
+    getToken: options.getToken ?? (() => getAuthAdapter().getAccessToken()),
+  });
 }
 
 /**

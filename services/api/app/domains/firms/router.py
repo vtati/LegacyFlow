@@ -21,6 +21,15 @@ def get_current_firm(
         return service.get_current_firm(conn, actor_sub=claims.sub)
 
 
+@router.get("/firms", response_model=list[schemas.FirmOut])
+def list_firms(
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> list[schemas.FirmOut]:
+    """List active firms (any authenticated user — for attorney applications)."""
+    with db.transaction() as conn:
+        return service.list_public_firms(conn)
+
+
 @router.get("/firms/members", response_model=list[schemas.FirmMemberDetailOut])
 def list_members(
     claims: Annotated[Claims, Depends(get_current_user)],

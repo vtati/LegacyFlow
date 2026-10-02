@@ -18,6 +18,7 @@ from app.core.security import Claims
 from app.domains.matters import service
 from app.domains.matters import submit as submit_service
 from app.domains.matters.schemas import (
+    MatterAssign,
     MatterCreate,
     MatterDetailResponse,
     MatterListResponse,
@@ -99,6 +100,25 @@ def transition_matter(
             actor_sub=claims.sub,
             matter_id=matter_id,
             payload=payload,
+            correlation_id=correlation_id,
+        )
+
+
+@router.patch("/matters/{matter_id}/assign", response_model=MatterOut)
+def assign_matter_attorney(
+    matter_id: UUID,
+    payload: MatterAssign,
+    claims: Annotated[Claims, Depends(get_current_user)],
+    request: Request,
+) -> MatterOut:
+    """Assign (or unassign) the attorney for a matter (firm staff+ only)."""
+    correlation_id = correlation_id_from_request_id(getattr(request.state, "request_id", None))
+    with db.transaction() as conn:
+        return service.assign_matter_attorney(
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            attorney_user_id=payload.attorney_user_id,
             correlation_id=correlation_id,
         )
 

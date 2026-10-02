@@ -60,6 +60,12 @@ class MatterTransition(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+class MatterAssign(BaseModel):
+    """Assign (or unassign) the attorney responsible for a matter."""
+
+    attorney_user_id: UUID | None = None
+
+
 class MatterListResponse(BaseModel):
     """Paginated matter list."""
 
