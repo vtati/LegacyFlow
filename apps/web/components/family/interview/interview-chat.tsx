@@ -96,7 +96,7 @@ function ProposalCard({
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <Card className="border-lf-border bg-white shadow-none">
+    <Card className="lf-proposal border-lf-border bg-white shadow-none">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-lf-text">{humanizeKey(proposal.question_key)}</p>
@@ -589,7 +589,10 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
               {messages.map((m) => (
                 <div
                   key={m.id}
-                  className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start gap-3')}
+                  className={cn(
+                    'lf-animate-slide-in flex',
+                    m.role === 'user' ? 'justify-end' : 'justify-start gap-3',
+                  )}
                 >
                   {m.role === 'assistant' && (
                     <span
@@ -654,8 +657,8 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                       <span
                         key={i}
                         aria-hidden="true"
-                        className="size-2 animate-pulse rounded-full bg-lf-text-muted motion-reduce:animate-none"
-                        style={{ animationDelay: `${i * 200}ms` }}
+                        className="lf-typing-dot"
+                        style={{ animationDelay: `${i * 150}ms` }}
                       />
                     ))}
                   </div>
@@ -666,7 +669,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
               <Label htmlFor="interview-composer" className="sr-only">
                 Message the intake assistant
               </Label>
-              <div className="flex items-end gap-1 rounded-2xl border border-lf-border bg-white p-2 shadow-[0_8px_24px_rgb(28_25_23/0.08)] focus-within:ring-2 focus-within:ring-lf-accent-600">
+              <div className="lf-composer flex items-end gap-1 rounded-2xl border border-lf-border bg-white p-2 shadow-[0_8px_24px_rgb(15_23_42/0.08)]">
                 <Button
                   type="button"
                   variant="ghost"

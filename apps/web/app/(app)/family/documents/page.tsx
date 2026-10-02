@@ -7,10 +7,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { WatermarkNotice } from '@/components/documents/watermark-notice';
-import { api, type DemoDocument } from '@/lib/api-client';
+import { api, type DraftDocument } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 
-/** Family documents — view and download watermarked demo documents. */
+/** Family documents — view and download watermarked draft documents. */
 export default function FamilyDocumentsPage(): React.JSX.Element {
   const {
     matters,
@@ -19,7 +19,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
     reload: reloadMatters,
   } = useMatters();
   const [matterId, setMatterId] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<DemoDocument[]>([]);
+  const [documents, setDocuments] = useState<DraftDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
     setLoading(true);
     setError(null);
     api
-      .listDemoDocuments(id)
+      .listDraftDocuments(id)
       .then(setDocuments)
       .catch((err: unknown) => setError(err))
       .finally(() => setLoading(false));
@@ -45,12 +45,12 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
     if (matterId) loadDocuments(matterId);
   }, [matterId, loadDocuments]);
 
-  const handleDownload = async (document: DemoDocument) => {
+  const handleDownload = async (document: DraftDocument) => {
     setDownloadingId(document.id);
     setDownloadError(null);
     try {
       // Fetch with auth (apiFetchBlob handles the token), then trigger a browser download.
-      const { blob, filename } = await api.downloadDemoDocument(document.download_url);
+      const { blob, filename } = await api.downloadDraftDocument(document.download_url);
       const url = window.URL.createObjectURL(blob);
       const anchor = window.document.createElement('a');
       anchor.href = url;
@@ -75,11 +75,11 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
       <div>
         <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Documents</h1>
         <p className="mt-2 text-sm text-lf-text-muted">
-          Demo versions of your plan documents, prepared by your firm for review.
+          Draft versions of your plan documents, prepared by your firm for review.
         </p>
       </div>
 
-      <WatermarkNotice detail="These are watermarked demos for review only — not legal documents. Nothing here is final until your attorney approves it." />
+      <WatermarkNotice detail="These are watermarked drafts for review only — not legal documents. Nothing here is final until your attorney approves it." />
 
       {mattersLoading && <LoadingState lines={3} label="Loading your matters…" />}
       {mattersError != null && !mattersLoading ? (
@@ -102,7 +102,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
       ) : null}
 
       {matterId && !loading && !error && (
-        <section aria-label="Demo documents" className="space-y-3">
+        <section aria-label="Draft documents" className="space-y-3">
           {downloadError && (
             <p role="alert" className="text-sm text-lf-error-700">
               {downloadError}
@@ -110,8 +110,8 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
           )}
           {documents.length === 0 ? (
             <EmptyState
-              title="No demo documents yet"
-              description="Your firm will share watermarked demo documents here once your plan takes shape."
+              title="No documents yet"
+              description="Your firm will share watermarked draft documents here once your plan takes shape."
             />
           ) : (
             <Card>
@@ -127,7 +127,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
                           {document.file_name}
                         </p>
                         <p className="text-xs text-lf-text-subtle">
-                          Demo · v{document.version} · {formatDateTime(document.created_at)}
+                          Draft · v{document.version} · {formatDateTime(document.created_at)}
                         </p>
                       </div>
                       <Button
@@ -138,7 +138,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
                         onClick={() => handleDownload(document)}
                       >
                         <Download className="size-4" aria-hidden="true" />
-                        {downloadingId === document.id ? 'Preparing…' : 'Download demo'}
+                        {downloadingId === document.id ? 'Preparing…' : 'Download draft'}
                       </Button>
                     </li>
                   ))}

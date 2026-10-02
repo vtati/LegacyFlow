@@ -117,7 +117,7 @@ export function LoginForm(): React.JSX.Element {
             <FlaskConical className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>
               <strong>Local dev mock auth — no real Supabase configured.</strong> Sign-in creates a
-              synthetic demo user stored in a local cookie. Set NEXT_PUBLIC_SUPABASE_URL and
+              sample user stored in a local cookie. Set NEXT_PUBLIC_SUPABASE_URL and
               NEXT_PUBLIC_SUPABASE_ANON_KEY for real auth.
             </span>
           </p>
@@ -266,7 +266,7 @@ export function LoginForm(): React.JSX.Element {
               {mock ? (
                 <>
                   Magic link sent <strong>(mock)</strong> — in local dev, use “Continue with Google”
-                  to sign in as the synthetic demo user instead.
+                  to sign in as the sample user instead.
                 </>
               ) : (
                 'We sent you a sign-in link. It expires in 15 minutes.'
@@ -318,7 +318,7 @@ export function LoginForm(): React.JSX.Element {
         )}
 
         <p className="text-center text-xs text-lf-text-subtle">
-          By signing in you agree to the Terms and Privacy Policy. Demo scaffold — attorney-pending.
+          By signing in you agree to the Terms and Privacy Policy. Attorney review pending.
         </p>
       </CardContent>
     </Card>

@@ -44,8 +44,8 @@ function readCookie(): AuthSession | null {
 function syntheticUser(provider: AuthUser['provider']): AuthUser {
   return {
     id: `mock-user-${Math.random().toString(36).slice(2, 10)}`,
-    email: 'demo.user@example.invalid',
-    displayName: 'Demo User (mock)',
+    email: 'sample.user@example.invalid',
+    displayName: 'Sample User',
     provider,
   };
 }

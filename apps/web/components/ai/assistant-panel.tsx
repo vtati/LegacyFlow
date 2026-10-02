@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 export const AI_DISCLAIMER = 'Educational information only, not legal advice.';
 
 export const AI_REFUSAL_PROMPT =
-  'That question needs your attorney’s judgment, not a demo assistant’s.';
+  'That question needs your attorney’s judgment, not an intake assistant’s.';
 
 interface ChatMessage {
   id: string;

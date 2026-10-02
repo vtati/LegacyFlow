@@ -10,14 +10,14 @@ import {
   ApiError,
   apiFetchBlob,
   firmApi,
-  type DemoFormat,
+  type DraftFormat,
   type DocumentPackage,
   type DocumentTemplate,
 } from '@/lib/api-client';
 import { formatDateTime, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const FORMATS: DemoFormat[] = ['pdf', 'docx'];
+const FORMATS: DraftFormat[] = ['pdf', 'docx'];
 
 interface PackageCardProps {
   matterId: string;
@@ -26,7 +26,7 @@ interface PackageCardProps {
 }
 
 function PackageCard({ pkg, templates }: PackageCardProps) {
-  const [format, setFormat] = useState<DemoFormat>('pdf');
+  const [format, setFormat] = useState<DraftFormat>('pdf');
   const [generating, setGenerating] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,11 +47,11 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
     URL.revokeObjectURL(url);
   };
 
-  const handleGenerateDemo = () => {
+  const handleGenerateDraft = () => {
     setGenerating(true);
     setNotice(null);
     firmApi
-      .generateDemo(pkg.id, format)
+      .generateDraft(pkg.id, format)
       .then(async ({ versions }) => {
         const version = versions.find((v) => v.file_format === format);
         if (!version) {
@@ -61,13 +61,13 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
         const path = version.download_url.replace(/^\/v1/, '');
         const { blob, filename } = await apiFetchBlob(path, { method: 'GET' });
         downloadBlob(blob, filename);
-        setNotice(`Demo downloaded: ${filename} (${WATERMARK_NOTICE}).`);
+        setNotice(`Draft downloaded: ${filename} (${WATERMARK_NOTICE}).`);
       })
       .catch((err: unknown) =>
         setNotice(
           err instanceof Error
-            ? `Could not generate the demo: ${err.message}`
-            : 'Could not generate the demo.',
+            ? `Could not generate the draft: ${err.message}`
+            : 'Could not generate the draft.',
         ),
       )
       .finally(() => setGenerating(false));
@@ -116,12 +116,12 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <label htmlFor={`format-${pkg.id}`} className="text-sm font-medium text-lf-text">
-            Demo format
+            Draft format
           </label>
           <select
             id={`format-${pkg.id}`}
             value={format}
-            onChange={(event) => setFormat(event.target.value as DemoFormat)}
+            onChange={(event) => setFormat(event.target.value as DraftFormat)}
             className="h-10 rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text shadow-lf-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
           >
             {FORMATS.map((f) => (
@@ -135,10 +135,10 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
             variant="outline"
             size="sm"
             disabled={generating}
-            onClick={handleGenerateDemo}
+            onClick={handleGenerateDraft}
           >
             <Download className="size-4" aria-hidden="true" />
-            {generating ? 'Generating…' : 'Generate demo'}
+            {generating ? 'Generating…' : 'Generate draft'}
           </Button>
           <Button
             type="button"
@@ -168,7 +168,7 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
   );
 }
 
-/** Firm documents tab — templates, package creation, watermarked demo generation. */
+/** Firm documents tab — templates, package creation, watermarked draft generation. */
 export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Element {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [packages, setPackages] = useState<DocumentPackage[]>([]);
@@ -296,7 +296,7 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
         {packages.length === 0 ? (
           <EmptyState
             title="No packages yet"
-            description="Create a package above to generate watermarked demo documents for review."
+            description="Create a package above to generate watermarked draft documents for review."
           />
         ) : (
           packages.map((pkg) => (

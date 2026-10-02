@@ -96,7 +96,7 @@ export async function apiFetch<T>(
   return (await response.json()) as T;
 }
 
-/** Download a binary response (generated demo documents). Throws ApiError on failure. */
+/** Download a binary response (generated draft documents). Throws ApiError on failure. */
 export async function apiFetchBlob(
   path: string,
   options: ApiClientOptions & { signal?: AbortSignal; method?: 'GET' | 'POST' } = {},
@@ -717,14 +717,14 @@ export interface DocumentPackage {
   created_at: string;
 }
 
-export type DemoFormat = 'pdf' | 'docx';
+export type DraftFormat = 'pdf' | 'docx';
 
-export interface GeneratedDemo {
+export interface GeneratedDraft {
   package: DocumentPackage;
-  versions: DemoDocument[];
+  versions: DraftDocument[];
 }
 
-export interface DemoDocument {
+export interface DraftDocument {
   id: string;
   package_id: string;
   version: number;
@@ -933,9 +933,9 @@ export interface FamilyApi {
   getDownloadToken: (matterId: string, fileId: string) => Promise<DownloadTokenResponse>;
   /* ai assistant */
   askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
-  /* documents (demo, family-visible) */
-  listDemoDocuments: (matterId: string) => Promise<DemoDocument[]>;
-  downloadDemoDocument: (downloadUrl: string) => Promise<{ blob: Blob; filename: string }>;
+  /* documents (drafts, family-visible) */
+  listDraftDocuments: (matterId: string) => Promise<DraftDocument[]>;
+  downloadDraftDocument: (downloadUrl: string) => Promise<{ blob: Blob; filename: string }>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
   attest: (checklistId: string, input: AttestInput) => Promise<SigningAttestation>;
@@ -1153,9 +1153,9 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         track: false,
         body: { question } satisfies AiAskInput,
       }),
-    /* documents (demo, family-visible) */
-    listDemoDocuments: (matterId) => call<DemoDocument[]>(`/matters/${matterId}/document-versions`),
-    downloadDemoDocument: (downloadUrl: string) => {
+    /* documents (drafts, family-visible) */
+    listDraftDocuments: (matterId) => call<DraftDocument[]>(`/matters/${matterId}/document-versions`),
+    downloadDraftDocument: (downloadUrl: string) => {
       // Backend returns "/v1/document-versions/{id}/download"; strip the /v1 prefix
       // since apiFetchBlob adds it.
       const path = downloadUrl.replace(/^\/v1/, '');
@@ -1374,7 +1374,7 @@ export interface FirmApi {
   deleteTemplate: (templateId: string) => Promise<void>;
   listPackages: (matterId: string) => Promise<DocumentPackage[]>;
   createPackage: (matterId: string, input: DocumentPackageInput) => Promise<DocumentPackage>;
-  generateDemo: (packageId: string, format: DemoFormat) => Promise<GeneratedDemo>;
+  generateDraft: (packageId: string, format: DraftFormat) => Promise<GeneratedDraft>;
   releaseProduction: (packageId: string) => Promise<void>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
@@ -1477,8 +1477,8 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
         method: 'POST',
         body: input,
       }),
-    generateDemo: (packageId, format) =>
-      call<GeneratedDemo>(`/packages/${packageId}/generate-demo`, {
+    generateDraft: (packageId, format) =>
+      call<GeneratedDraft>(`/packages/${packageId}/generate-demo`, {
         method: 'POST',
         body: { format },
       }),

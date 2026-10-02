@@ -29,7 +29,7 @@ const FAQS: Faq[] = [
   {
     question: 'Why are documents watermarked before release?',
     answer: [
-      'The documents you see on the Documents page are demo drafts for review only — they are not legal documents. Every draft carries a watermark so it cannot be mistaken for a final, executed version.',
+      'The documents you see on the Documents page are drafts for review only — they are not legal documents. Every draft carries a watermark so it cannot be mistaken for a final, executed version.',
       'Once your attorney has reviewed and approved your plan, the firm releases the production documents. Only released, executed documents have legal effect; the watermarked drafts are there so you can check that names, roles, and details are correct before anything becomes final.',
     ],
   },

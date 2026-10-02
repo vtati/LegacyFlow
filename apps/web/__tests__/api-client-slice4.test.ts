@@ -148,7 +148,7 @@ describe('Family API — documents (Slice 4)', () => {
 
   it('lists demo documents and gets a download token', async () => {
     respondWith([{ id: 'doc-1', file_name: 'will-demo.pdf', is_demo: true }]);
-    const docs = await family.listDemoDocuments('matter-1');
+    const docs = await family.listDraftDocuments('matter-1');
     expect(docs).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       url: '/v1/matters/matter-1/document-versions',
@@ -275,7 +275,7 @@ describe('Firm API (Slice 4)', () => {
     });
 
     respondWith({ package: { id: 'pkg-1' }, versions: [] });
-    const demo = await firm.generateDemo('pkg-1', 'pdf');
+    const demo = await firm.generateDraft('pkg-1', 'pdf');
     expect(demo.versions).toEqual([]);
     expect(requests[2]).toMatchObject({
       url: '/v1/packages/pkg-1/generate-demo',

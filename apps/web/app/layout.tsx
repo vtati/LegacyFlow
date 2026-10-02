@@ -1,23 +1,13 @@
 import type { Metadata } from 'next';
-import { Fraunces, Inter } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import '@legacyflow/design-tokens/tokens.css';
 import './globals.css';
 import { PRODUCT_NAME } from '@/lib/constants';
 
 const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '600'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-inter',
-  display: 'swap',
-});
-
-const fraunces = Fraunces({
-  subsets: ['latin'],
-  // Variable font: 400/500/600 are covered by the wght range; the opsz axis
-  // enables true optical sizing. (next/font only honors `axes` on variable fonts,
-  // so discrete weights are not used here.)
-  axes: ['opsz'],
-  variable: '--font-fraunces',
   display: 'swap',
 });
 
@@ -27,12 +17,12 @@ export const metadata: Metadata = {
     template: `%s — ${PRODUCT_NAME}`,
   },
   description:
-    'LegacyFlow helps families organize their estate plan with attorney guidance. Demo scaffold — attorney-pending.',
+    'LegacyFlow helps families organize their estate plan with attorney guidance. Attorney review pending.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
+    <html lang="en" className={inter.variable}>
       <body>
         <a
           href="#main-content"

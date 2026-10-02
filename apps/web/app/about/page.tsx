@@ -8,7 +8,7 @@ import { PRODUCT_NAME } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'About',
-  description: 'What LegacyFlow is — and the limits of this demo scaffold.',
+  description: 'What LegacyFlow is — and its limits.',
 };
 
 /** Safety statements surfaced from §2.3 of the product artifacts. */
@@ -38,7 +38,7 @@ export default function AboutPage(): React.JSX.Element {
 
       <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
         <h1 className="font-lf-serif text-4xl font-semibold tracking-tight text-lf-text">
-          About this demo
+          About LegacyFlow
         </h1>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-lf-text-muted">
           {PRODUCT_NAME} is an estate-planning platform built around attorney review. What you see
@@ -53,7 +53,7 @@ export default function AboutPage(): React.JSX.Element {
                 <ShieldAlert className="size-5" aria-hidden="true" />
               </span>
               <CardTitle className="font-lf-serif text-xl font-semibold">
-                What this demo is — and isn’t
+                What this platform is — and isn’t
               </CardTitle>
             </div>
           </CardHeader>
@@ -67,8 +67,8 @@ export default function AboutPage(): React.JSX.Element {
               className="rounded-lf-control bg-lf-canvas-subtle px-4 py-3 text-sm text-lf-text-muted"
               role="note"
             >
-              <strong className="text-lf-text">Bottom line:</strong> nothing in this demo is legal
-              advice, and no document shown here is legally valid. All sample content is synthetic
+              <strong className="text-lf-text">Bottom line:</strong> nothing here is legal
+              advice, and no document shown here is legally valid until an attorney approves it. All sample content is synthetic
               and clearly labeled.
             </p>
           </CardContent>
