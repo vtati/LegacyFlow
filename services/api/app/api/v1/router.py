@@ -19,6 +19,7 @@ from app.domains.interview.router import router as interview_router
 from app.domains.invitations.router import router as invitations_router
 from app.domains.matters.router import router as matters_router
 from app.domains.nominations.router import router as nominations_router
+from app.domains.payouts.router import router as payouts_router
 from app.domains.privacy.router import router as privacy_router
 from app.domains.review.router import router as review_router
 
@@ -28,6 +29,7 @@ router.include_router(matters_router)
 router.include_router(household_router)
 router.include_router(invitations_router)
 router.include_router(nominations_router)
+router.include_router(payouts_router)
 router.include_router(privacy_router)
 router.include_router(intake_router)
 router.include_router(interview_router)

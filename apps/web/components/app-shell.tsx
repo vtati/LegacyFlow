@@ -19,6 +19,7 @@ interface AppShellProps {
 function sectionFromPath(pathname: string): AppSection {
   if (pathname.startsWith('/firm')) return 'firm';
   if (pathname.startsWith('/admin')) return 'admin';
+  if (pathname.startsWith('/attorney')) return 'attorney';
   return 'family';
 }
 

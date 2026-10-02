@@ -41,6 +41,7 @@ from app.domains.matters.state_machine import (
     gate_required_for,
     validate_transition,
 )
+from app.domains.payouts import service as payouts_service
 from app.domains.review import repository as review_repo
 
 
@@ -363,6 +364,18 @@ def transition_matter(
         before_summary={"status": from_status},
         after_summary={"status": to_status},
     )
+    # Completion payout: when a matter is implemented, the assigned attorney
+    # earns their fee. Idempotent per matter; skipped when unassigned.
+    if to_status == MatterStatus.PLAN_IMPLEMENTED.value:
+        assigned_attorney_id = updated.get("assigned_attorney_id")
+        if assigned_attorney_id:
+            payouts_service.create_completion_payout(
+                conn,
+                firm_id=firm_id,
+                matter_id=matter_id,
+                attorney_user_id=UUID(str(assigned_attorney_id)),
+                plan_type=updated.get("plan_type"),
+            )
     return matter_out(updated)
 
 

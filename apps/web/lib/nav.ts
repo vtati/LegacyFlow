@@ -42,7 +42,7 @@ export interface NavItem {
   blurb: string;
 }
 
-export type AppSection = 'family' | 'firm' | 'admin';
+export type AppSection = 'family' | 'firm' | 'admin' | 'attorney';
 
 /** Family navigation (§5.5). */
 export const FAMILY_NAV: NavItem[] = [
@@ -246,6 +246,13 @@ export const FIRM_NAV: NavItem[] = [
     icon: Settings,
     blurb: 'Roles, members, and firm configuration.',
   },
+  {
+    slug: 'payouts',
+    label: 'Payouts',
+    href: '/firm/payouts',
+    icon: Wallet,
+    blurb: 'Attorney payouts and case requests.',
+  },
 ];
 
 /** Platform admin navigation (§5.5). */
@@ -308,16 +315,36 @@ export const ADMIN_NAV: NavItem[] = [
   },
 ];
 
+/** Attorney navigation — casework, earnings, and availability. */
+export const ATTORNEY_NAV: NavItem[] = [
+  {
+    slug: 'dashboard',
+    label: 'Dashboard',
+    href: '/attorney/dashboard',
+    icon: LayoutDashboard,
+    blurb: 'Your assigned cases and earnings.',
+  },
+  {
+    slug: 'opportunities',
+    label: 'Opportunities',
+    href: '/attorney/opportunities',
+    icon: Inbox,
+    blurb: 'Unassigned cases you can request.',
+  },
+];
+
 export const SECTION_NAV: Record<AppSection, NavItem[]> = {
   family: FAMILY_NAV,
   firm: FIRM_NAV,
   admin: ADMIN_NAV,
+  attorney: ATTORNEY_NAV,
 };
 
 export const SECTION_TITLES: Record<AppSection, string> = {
   family: 'Family workspace',
   firm: 'Firm workspace',
   admin: 'Firm admin',
+  attorney: 'Attorney workspace',
 };
 
 export function findNavItem(section: AppSection, slug: string): NavItem | undefined {

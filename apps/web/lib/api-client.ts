@@ -1372,6 +1372,7 @@ export interface FirmMatterFilters {
   q?: string;
   status?: string;
   jurisdictionCode?: string;
+  assignedTo?: string;
   page?: number;
   pageSize?: number;
 }
@@ -1491,6 +1492,7 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       if (filters.jurisdictionCode?.trim()) {
         params.set('jurisdiction_code', filters.jurisdictionCode.trim());
       }
+      if (filters.assignedTo?.trim()) params.set('assigned_to', filters.assignedTo.trim());
       params.set('page', String(filters.page ?? 1));
       params.set('page_size', String(filters.pageSize ?? 20));
       return call<MattersListResponse>(`/matters?${params.toString()}`);
@@ -1644,6 +1646,140 @@ export async function listPublicFirms(options: ApiClientOptions = {}): Promise<F
 export const firmApi: FirmApi = createFirmApi({
   getToken: () => getAuthAdapter().getAccessToken(),
 });
+
+/* --------------------------------------------------- attorney payouts */
+
+export interface Payout {
+  id: string;
+  firm_id: string;
+  attorney_user_id: string;
+  attorney_name: string | null;
+  matter_id: string;
+  matter_title: string | null;
+  amount_cents: number;
+  tier: 'standard' | 'complex';
+  status: 'pending' | 'approved' | 'paid' | 'disputed';
+  stripe_payout_id: string | null;
+  dispute_reason: string | null;
+  created_at: string;
+  approved_at: string | null;
+  approved_by_user_id: string | null;
+  paid_at: string | null;
+}
+
+export interface PayoutSummary {
+  total_earned_cents: number;
+  pending_cents: number;
+  approved_cents: number;
+  paid_cents: number;
+  payout_count: number;
+}
+
+export interface CaseRequest {
+  id: string;
+  firm_id: string;
+  attorney_user_id: string;
+  attorney_name: string | null;
+  matter_id: string;
+  matter_title: string | null;
+  jurisdiction_code: string | null;
+  plan_type: string | null;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
+  decided_at: string | null;
+}
+
+/** Typed client for the attorney payout + case-request API. */
+export function createPayoutApi(options: ApiClientOptions = {}): {
+  listMyPayouts: () => Promise<Payout[]>;
+  myPayoutSummary: () => Promise<PayoutSummary>;
+  getAvailability: () => Promise<{ accepting_cases: boolean }>;
+  setAvailability: (accepting: boolean) => Promise<{ accepting_cases: boolean }>;
+  requestCase: (matterId: string) => Promise<CaseRequest>;
+  listPayouts: (status?: string) => Promise<Payout[]>;
+  approvePayout: (payoutId: string) => Promise<Payout>;
+  payPayout: (payoutId: string, reference?: string | null) => Promise<Payout>;
+  disputePayout: (payoutId: string, reason: string) => Promise<Payout>;
+  listCaseRequests: (status?: string) => Promise<CaseRequest[]>;
+  decideCaseRequest: (requestId: string, decision: 'accepted' | 'declined') => Promise<CaseRequest>;
+} {
+  const call = <T>(
+    path: string,
+    init?: {
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      body?: unknown;
+      signal?: AbortSignal;
+    },
+  ): Promise<T> => {
+    const { ...fetchInit } = init ?? {};
+    const promise = apiFetch<T>(path, { ...options, ...fetchInit });
+    const method = init?.method ?? 'GET';
+    const isMutation =
+      method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    return isMutation ? trackSave(promise) : promise;
+  };
+
+  return {
+    listMyPayouts: () => call<Payout[]>('/attorney/payouts'),
+    myPayoutSummary: () => call<PayoutSummary>('/attorney/payouts/summary'),
+    getAvailability: () => call<{ accepting_cases: boolean }>('/attorney/availability'),
+    setAvailability: (accepting) =>
+      call<{ accepting_cases: boolean }>('/attorney/availability', {
+        method: 'PUT',
+        body: { accepting_cases: accepting },
+      }),
+    requestCase: (matterId) =>
+      call<CaseRequest>(`/attorney/case-requests?matter_id=${matterId}`, { method: 'POST' }),
+    listPayouts: (status) => {
+      const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+      return call<Payout[]>(`/admin/payouts${qs}`);
+    },
+    approvePayout: (payoutId) =>
+      call<Payout>(`/admin/payouts/${payoutId}/approve`, { method: 'POST' }),
+    payPayout: (payoutId, reference) =>
+      call<Payout>(`/admin/payouts/${payoutId}/pay`, {
+        method: 'POST',
+        body: { reference: reference ?? null },
+      }),
+    disputePayout: (payoutId, reason) =>
+      call<Payout>(`/admin/payouts/${payoutId}/dispute`, {
+        method: 'POST',
+        body: { reason },
+      }),
+    listCaseRequests: (status) => {
+      const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+      return call<CaseRequest[]>(`/admin/case-requests${qs}`);
+    },
+    decideCaseRequest: (requestId, decision) =>
+      call<CaseRequest>(`/admin/case-requests/${requestId}/decide`, {
+        method: 'POST',
+        body: { decision },
+      }),
+  };
+}
+
+export const payoutApi = createPayoutApi({
+  getToken: () => getAuthAdapter().getAccessToken(),
+});
+
+/** Current authenticated user's profile (id, email, display name). */
+export interface UserProfile {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  created_at: string;
+}
+
+export async function getCurrentProfile(
+  options: ApiClientOptions = {},
+): Promise<UserProfile> {
+  return apiFetch<UserProfile>('/me', {
+    ...options,
+    getToken: options.getToken ?? (() => getAuthAdapter().getAccessToken()),
+  });
+}
 
 /* -------------------------------------------------------------- admin api */
 
