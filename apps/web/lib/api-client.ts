@@ -417,6 +417,33 @@ export interface HouseholdResponse {
   relationships: unknown;
 }
 
+export interface HouseholdCreateInput {
+  name: string;
+}
+
+export interface HouseholdOut {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface MatterCreateInput {
+  household_id: string;
+  jurisdiction_code: string;
+  title?: string;
+  plan_type: string;
+}
+
+export interface MatterOut {
+  id: string;
+  household_id: string;
+  jurisdiction_code: string;
+  title: string | null;
+  plan_type: string;
+  status: MatterStatus;
+  created_at: string;
+}
+
 export type NominationType =
   'guardian' | 'trustee' | 'executor' | 'financial_agent' | 'healthcare_agent';
 
@@ -841,6 +868,8 @@ export interface VaultAccessSummary {
 export interface FamilyApi {
   listMatters: (page?: number, pageSize?: number) => Promise<MattersListResponse>;
   getMatter: (matterId: string) => Promise<MatterDetail>;
+  createHousehold: (input: HouseholdCreateInput) => Promise<HouseholdOut>;
+  createMatter: (input: MatterCreateInput) => Promise<MatterOut>;
   getQuestionSets: (matterId: string) => Promise<QuestionSetsResponse>;
   getAnswers: (matterId: string) => Promise<AnswersResponse>;
   putAnswers: (matterId: string, answers: AnswerMap) => Promise<PutAnswersResponse>;
@@ -972,6 +1001,10 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     listMatters: (page = 1, pageSize = 20) =>
       call<MattersListResponse>(`/matters?page=${page}&page_size=${pageSize}`),
     getMatter: (matterId) => call<MatterDetail>(`/matters/${matterId}`),
+    createHousehold: (input) =>
+      call<HouseholdOut>(`/households`, { method: 'POST', body: input }),
+    createMatter: (input) =>
+      call<MatterOut>(`/matters`, { method: 'POST', body: input }),
     getQuestionSets: (matterId) =>
       call<QuestionSetsResponse>(`/matters/${matterId}/intake/question-sets`),
     getAnswers: (matterId) => call<AnswersResponse>(`/matters/${matterId}/intake/answers`),

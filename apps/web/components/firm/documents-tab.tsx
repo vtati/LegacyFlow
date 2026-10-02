@@ -216,9 +216,13 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
         setSelected([]);
         setNotes('');
       })
-      .catch((err: unknown) =>
-        setFormError(err instanceof Error ? err.message : 'Could not create the package.'),
-      )
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 409) {
+          setFormError('Document assembly is not yet enabled for this jurisdiction.');
+        } else {
+          setFormError(err instanceof Error ? err.message : 'Could not create the package.');
+        }
+      })
       .finally(() => setCreating(false));
   };
 
