@@ -171,8 +171,8 @@ export default function FamilySigningPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Signing</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Signing</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           What has to happen when you sign, straight from your jurisdiction pack. Your attorney
           walks you through the real signing — this checklist just keeps you prepared.
         </p>

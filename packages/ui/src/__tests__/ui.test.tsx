@@ -9,7 +9,7 @@ describe('Button', () => {
     render(<Button>Continue</Button>);
     const btn = screen.getByRole('button', { name: 'Continue' });
     expect(btn).toBeDefined();
-    expect(btn.className).toContain('bg-lf-primary-800');
+    expect(btn.className).toContain('bg-lf-primary-900');
   });
 
   it('applies the accent variant and small size', () => {
@@ -19,7 +19,7 @@ describe('Button', () => {
       </Button>,
     );
     const btn = screen.getByRole('button', { name: 'Save' });
-    expect(btn.className).toContain('bg-lf-accent-700');
+    expect(btn.className).toContain('bg-lf-accent-600');
     expect(btn.className).toContain('h-8');
   });
 

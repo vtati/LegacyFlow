@@ -21,7 +21,7 @@ export function SaveIndicator(): React.JSX.Element | null {
     <p
       role="status"
       className={cn(
-        'hidden items-center gap-1.5 text-xs md:flex',
+        'hidden items-center gap-1.5 rounded-full border border-lf-border bg-lf-canvas-elevated px-2.5 py-1 text-xs md:flex',
         snapshot.status === 'error' ? 'text-lf-error-700' : 'text-lf-text-subtle',
       )}
     >

@@ -9,6 +9,14 @@ import { fetchAllMatters, normalizeStatus } from '@/lib/firm-matters';
 import { formatDate, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 /** Matters that may need attorney eyes. Server statuses are UPPER_SNAKE_CASE. */
 const QUEUE_STATUSES = new Set([
   'DRAFT',
@@ -76,10 +84,10 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
   if (error != null) return <ErrorState error={error} onRetry={load} />;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Review queue</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Review queue</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Every matter that can use attorney attention, with its pending gates, open
           clarifications, and latest review packet.
         </p>
@@ -92,10 +100,10 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
         />
       ) : (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[720px]">
               <caption className="sr-only">Matters awaiting review</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Client / household
@@ -114,10 +122,10 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {rows.map((row) => (
-                  <tr key={row.matter.id} className="border-t border-lf-border">
-                    <td className="px-4 py-3">
+                  <tr key={row.matter.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                    <td data-th="Client / household" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
                       <Link
                         href={`/firm/matters/${row.matter.id}`}
                         className="font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 rounded-lf-control"
@@ -131,7 +139,7 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
                       <span
                         className={cn(
                           'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -141,9 +149,9 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
                         {formatStatus(row.matter.status)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text">{row.pendingGates}</td>
-                    <td className="px-4 py-3 text-sm text-lf-text">{row.openClarifications}</td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Pending gates" className={`px-4 py-3 text-sm text-lf-text ${MOBILE_TABLE_CELL}`}>{row.pendingGates}</td>
+                    <td data-th="Open clarifications" className={`px-4 py-3 text-sm text-lf-text ${MOBILE_TABLE_CELL}`}>{row.openClarifications}</td>
+                    <td data-th="Latest packet" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {row.latestPacketVersion == null
                         ? 'No packet yet'
                         : `v${row.latestPacketVersion} · ${formatDate(row.latestPacketDate)}`}

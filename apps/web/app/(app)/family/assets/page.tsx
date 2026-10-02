@@ -80,7 +80,7 @@ function AssetCard({
   const status = designationSummary(asset.beneficiary_designation);
   return (
     <Card>
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-lf-text">{asset.label}</p>
@@ -308,8 +308,8 @@ export default function FamilyAssetsPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Assets</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Assets</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Everything your plan covers — what it&apos;s worth, who receives it, and any issues your
           attorney should see. Nothing here is final until your attorney approves it.
         </p>

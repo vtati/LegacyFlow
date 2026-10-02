@@ -184,7 +184,7 @@ function NominationList({
         return (
           <li key={nomination.id}>
             <Card>
-              <CardContent className="flex items-start justify-between gap-3 p-5">
+              <CardContent className="flex items-start justify-between gap-3 p-6">
                 <div>
                   <p className="font-semibold text-lf-text">
                     <span
@@ -331,8 +331,8 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Guardians</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Guardians</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Name the people you trust to care for your children and to handle key roles. Your attorney
           will review every choice — nothing here is final until they approve it.
         </p>

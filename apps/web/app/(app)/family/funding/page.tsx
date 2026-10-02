@@ -58,7 +58,7 @@ function TaskCard({
 
   return (
     <Card>
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-lf-text">{task.title}</p>
@@ -248,8 +248,8 @@ export default function FamilyFundingPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Funding</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Funding</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Funding moves your assets into the plan — retitling accounts, updating beneficiaries. Work
           through the tasks and attach evidence as you finish each one.
         </p>

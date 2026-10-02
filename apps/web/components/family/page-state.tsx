@@ -85,10 +85,10 @@ export function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-        <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-primary-50 text-lf-primary-800">
+        <span className="flex size-11 items-center justify-center rounded-full bg-lf-accent-100 text-lf-accent-700">
           <Inbox className="size-5" aria-hidden="true" />
         </span>
-        <p className="text-base font-semibold text-lf-text">{title}</p>
+        <p className="font-lf-serif text-lg font-medium text-lf-text">{title}</p>
         <p className="max-w-md text-sm text-lf-text-muted">{description}</p>
         {action}
       </CardContent>

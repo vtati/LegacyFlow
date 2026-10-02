@@ -140,10 +140,10 @@ export default function FirmSigningPage(): React.JSX.Element {
   const completed = withChecklist.filter((r) => r.checklist?.completed_at != null).length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Signing</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Signing</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Client-reported execution across every matter: signer status per checklist requirement.
         </p>
       </div>
@@ -157,8 +157,8 @@ export default function FirmSigningPage(): React.JSX.Element {
           { label: 'Checklists completed', count: completed },
         ].map((card) => (
           <Card key={card.label}>
-            <CardContent className="p-5">
-              <p className="text-3xl font-bold text-lf-text">{card.count}</p>
+            <CardContent className="p-6">
+              <p className="text-3xl font-bold tabular-nums text-lf-text">{card.count}</p>
               <p className="mt-1 text-sm text-lf-text-muted">{card.label}</p>
             </CardContent>
           </Card>

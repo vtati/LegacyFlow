@@ -179,10 +179,10 @@ export default function FamilyProfilePage(): React.JSX.Element {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Household profile</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Household profile</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           The people in your household. Keep this accurate — your attorney builds the plan around
           it.
         </p>

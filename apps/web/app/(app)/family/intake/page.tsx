@@ -13,10 +13,10 @@ export default function FamilyIntakeIndexPage(): React.JSX.Element {
   const { matters, loading, error, reload } = useMatters();
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Intake</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Intake</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           These questions help your attorney prepare your plan. Answers save automatically, and
           nothing here is legal advice.
         </p>

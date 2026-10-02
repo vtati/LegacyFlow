@@ -74,7 +74,7 @@ function greetingForHour(hour: number): string {
 function MatterCard({ matter }: { matter: MatterSummary }) {
   return (
     <Card>
-      <CardContent className="space-y-4 p-5">
+      <CardContent className="space-y-5 p-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <Link
@@ -137,10 +137,10 @@ export default function FamilyHomePage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">
           {greeting}, {householdName}
         </h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <p className="mt-2 text-[15px] leading-relaxed text-lf-text-muted">
           Your estate plan at a glance — pick up where you left off, or see what needs your
           attention.
         </p>
@@ -173,7 +173,7 @@ export default function FamilyHomePage(): React.JSX.Element {
           <h2 className="text-lg font-semibold text-lf-text">Quick actions</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {QUICK_ACTIONS.map((action) => (
-              <Card key={action.href}>
+              <Card key={action.href} className="transition-colors hover:border-lf-border-strong">
                 <CardHeader className="pb-2">
                   <div className="flex items-center gap-3">
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-lf-control bg-lf-primary-50 text-lf-primary-800">

@@ -18,6 +18,14 @@ import { formatDate, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
+/**
  * Valid next lifecycle states per current status, mirroring the API's
  * PACK_TRANSITIONS: draft → internal_testing → attorney_review → approved,
  * and internal_testing / attorney_review / approved → retired. Retired packs
@@ -115,16 +123,16 @@ function PackRow({
 }) {
   const targets = nextStates(pack.status);
   return (
-    <tr className="border-t border-lf-border">
-      <td className="px-4 py-3">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+      <td data-th="Pack" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <p className="font-medium text-lf-text">{pack.display_name}</p>
         <p className="mt-0.5 font-mono text-xs text-lf-text-muted">{pack.pack_id}</p>
       </td>
-      <td className="px-4 py-3 font-mono text-xs text-lf-text-muted">
+      <td data-th="Jurisdiction" className={`px-4 py-3 font-mono text-xs text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
         {pack.jurisdiction_code}
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">v{pack.version}</td>
-      <td className="px-4 py-3">
+      <td data-th="Version" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>v{pack.version}</td>
+      <td data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <span
           className={cn(
             'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -134,10 +142,10 @@ function PackRow({
           {formatStatus(pack.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">
+      <td data-th="Effective" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
         {pack.effective_from ? formatDate(pack.effective_from) : '—'}
       </td>
-      <td className="px-4 py-3">
+      <td data-th="Lifecycle" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         {targets.length === 0 ? (
           <span className="text-sm text-lf-text-subtle">No moves</span>
         ) : (
@@ -367,10 +375,10 @@ export default function AdminContentPacksPage(): React.JSX.Element {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Content Packs</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Content Packs</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Draft, review, approve, and retire the content packs your firm relies on.
         </p>
       </div>
@@ -393,10 +401,10 @@ export default function AdminContentPacksPage(): React.JSX.Element {
 
       {!loading && !error && sorted.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[760px]">
               <caption className="sr-only">Content packs and lifecycle actions</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Pack
@@ -418,7 +426,7 @@ export default function AdminContentPacksPage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {sorted.map((pack) => (
                   <PackRow
                     key={`${pack.pack_id}:${pack.version}`}

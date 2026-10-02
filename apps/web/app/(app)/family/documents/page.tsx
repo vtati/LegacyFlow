@@ -73,8 +73,8 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Documents</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Documents</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Demo versions of your plan documents, prepared by your firm for review.
         </p>
       </div>

@@ -11,6 +11,15 @@ import { ApiError, firmApi, type Invitation, type MatterSummary } from '@/lib/ap
 import { fetchAllMatters } from '@/lib/firm-matters';
 import { formatDateTime, formatStatus } from '@/lib/format';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+const MOBILE_TABLE_ACTION_CELL = 'max-md:block max-md:border-0 max-md:px-0 max-md:pt-3';
+
 const INVITATION_ROLES = [
   { value: 'client_primary', label: 'Client (primary)' },
   { value: 'client_collaborator', label: 'Client (collaborator)' },
@@ -119,7 +128,7 @@ function InvitationsSection(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <Card>
         <CardHeader>
           <CardTitle>Invite someone</CardTitle>
@@ -174,10 +183,10 @@ function InvitationsSection(): React.JSX.Element {
         />
       ) : (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[640px]">
               <caption className="sr-only">Firm invitations</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Email
@@ -196,20 +205,20 @@ function InvitationsSection(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {invitations.map((invitation) => (
-                  <tr key={invitation.id} className="border-t border-lf-border">
-                    <td className="px-4 py-3 font-medium text-lf-text">{invitation.email}</td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                  <tr key={invitation.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                    <td data-th="Email" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>{invitation.email}</td>
+                    <td data-th="Role" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(invitation.role)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Status" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(invitation.status)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Expires" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatDateTime(invitation.expires_at)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={`px-4 py-3 ${MOBILE_TABLE_ACTION_CELL}`}>
                       {invitation.status === 'pending' ? (
                         <Button
                           type="button"
@@ -259,10 +268,10 @@ export default function FirmClientsPage(): React.JSX.Element {
   if (error != null) return <ErrorState error={error} onRetry={load} />;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Clients</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Clients</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Client households at the firm, derived from their matters, plus invitations.
         </p>
       </div>
@@ -276,7 +285,7 @@ export default function FirmClientsPage(): React.JSX.Element {
         </CardHeader>
         <CardContent className="p-0">
           {households.length === 0 ? (
-            <div className="p-5">
+            <div className="p-6">
               <EmptyState
                 title="No households yet"
                 description="Households appear here once the firm starts a matter for them."

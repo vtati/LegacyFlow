@@ -8,6 +8,14 @@ import { firmApi, type MatterSummary } from '@/lib/api-client';
 import { fetchAllMatters, normalizeStatus } from '@/lib/firm-matters';
 import { formatStatus } from '@/lib/format';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 interface ReportData {
   matters: MatterSummary[];
   openClarifications: number;
@@ -130,11 +138,11 @@ export default function FirmReportsPage(): React.JSX.Element {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-lf-text">Reports</h1>
-          <p className="mt-1 text-sm text-lf-text-muted">
+          <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Reports</h1>
+          <p className="mt-2 text-sm text-lf-text-muted">
             Operational metrics computed from the firm&rsquo;s matters.
           </p>
         </div>
@@ -158,8 +166,8 @@ export default function FirmReportsPage(): React.JSX.Element {
               { label: 'Pending gates', value: data.pendingGates },
             ].map((card) => (
               <Card key={card.label}>
-                <CardContent className="p-5">
-                  <p className="text-3xl font-bold text-lf-text">{card.value}</p>
+                <CardContent className="p-6">
+                  <p className="text-3xl font-bold tabular-nums text-lf-text">{card.value}</p>
                   <p className="mt-1 text-sm text-lf-text-muted">{card.label}</p>
                 </CardContent>
               </Card>
@@ -204,10 +212,10 @@ export default function FirmReportsPage(): React.JSX.Element {
               <CardDescription>Where the firm&rsquo;s matters sit.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[320px] text-left text-sm">
+              <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+                <table className="w-full text-left text-sm tabular-nums md:min-w-[320px]">
                   <caption className="sr-only">Matters by jurisdiction</caption>
-                  <thead>
+                  <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                     <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                       <th scope="col" className="px-4 py-3 font-semibold">
                         Jurisdiction
@@ -217,11 +225,11 @@ export default function FirmReportsPage(): React.JSX.Element {
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                     {stats.jurisdictions.map(([code, count]) => (
-                      <tr key={code} className="border-t border-lf-border">
-                        <td className="px-4 py-3 font-medium text-lf-text">{code}</td>
-                        <td className="px-4 py-3 text-sm text-lf-text-muted">{count}</td>
+                      <tr key={code} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                        <td data-th="Jurisdiction" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>{code}</td>
+                        <td data-th="Matters" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{count}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -250,10 +250,10 @@ export default function AdminSystemHealthPage(): React.JSX.Element {
   }, [check]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">System Health</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">System Health</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Live service status for the API your firm depends on.
         </p>
       </div>

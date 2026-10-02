@@ -26,11 +26,11 @@ export function SectionNav({ section }: SectionNavProps): React.JSX.Element {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-3 rounded-lf-control px-3 py-2 text-sm font-medium transition-colors',
+                  'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',
                   active
-                    ? 'bg-lf-primary-800 text-lf-primary-foreground'
-                    : 'text-lf-text-muted hover:bg-lf-primary-50 hover:text-lf-primary-900',
+                    ? 'bg-lf-accent-100 text-lf-text before:absolute before:left-1.5 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-lf-accent-600 before:content-[""]'
+                    : 'text-lf-text-muted hover:bg-lf-canvas-subtle hover:text-lf-text',
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden="true" />

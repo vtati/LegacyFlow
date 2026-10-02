@@ -54,7 +54,7 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
         onClick={() => setOpen(true)}
         aria-label="Open navigation menu"
         aria-expanded={open}
-        className="flex size-10 items-center justify-center rounded-lf-control text-lf-text-muted transition-colors hover:bg-lf-primary-50 hover:text-lf-primary-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+        className="flex size-10 items-center justify-center rounded-lg text-lf-text-muted transition-colors hover:bg-lf-canvas-subtle hover:text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
       >
         <Menu className="size-5" aria-hidden="true" />
       </button>
@@ -72,9 +72,9 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
             onClick={close}
             className="absolute inset-0 cursor-default bg-lf-text/40"
           />
-          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-lf-canvas-elevated shadow-xl">
+          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-lf-canvas-elevated shadow-lf-subtle">
             <div className="flex items-center justify-between border-b border-lf-border px-4 py-3">
-              <span className="text-base font-bold tracking-tight text-lf-primary-950">
+              <span className="font-lf-serif text-base font-semibold tracking-tight text-lf-primary-950">
                 {PRODUCT_NAME}
               </span>
               <button
@@ -82,7 +82,7 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
                 type="button"
                 onClick={close}
                 aria-label="Close navigation menu"
-                className="flex size-10 items-center justify-center rounded-lf-control text-lf-text-muted transition-colors hover:bg-lf-primary-50 hover:text-lf-primary-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                className="flex size-10 items-center justify-center rounded-lg text-lf-text-muted transition-colors hover:bg-lf-canvas-subtle hover:text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
               >
                 <X className="size-5" aria-hidden="true" />
               </button>

@@ -4,21 +4,18 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lf-control text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lf-control text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default:
-          'bg-lf-primary-800 text-lf-primary-foreground shadow-lf-subtle hover:bg-lf-primary-700',
-        secondary: 'bg-lf-primary-100 text-lf-primary-900 hover:bg-lf-primary-200',
-        accent:
-          'bg-lf-accent-700 text-lf-accent-foreground shadow-lf-subtle hover:bg-lf-accent-600',
-        destructive:
-          'bg-lf-error-600 text-lf-error-foreground shadow-lf-subtle hover:bg-lf-error-700',
+        default: 'bg-lf-primary-900 text-lf-primary-foreground hover:bg-lf-primary-800',
+        secondary: 'bg-lf-accent-600/10 text-lf-primary-900 hover:bg-lf-accent-600/20',
+        accent: 'bg-lf-accent-600 text-lf-primary-foreground hover:bg-lf-accent-700',
+        destructive: 'bg-lf-error-600 text-lf-primary-foreground hover:bg-lf-error-700',
         outline:
-          'border border-lf-border bg-lf-canvas-elevated text-lf-text shadow-lf-subtle hover:bg-lf-canvas-subtle',
-        ghost: 'text-lf-text hover:bg-lf-primary-50 hover:text-lf-primary-800',
-        link: 'text-lf-primary-700 underline-offset-4 hover:underline',
+          'border border-lf-border bg-white text-lf-text hover:border-lf-border-strong hover:bg-lf-canvas',
+        ghost: 'text-lf-text hover:bg-lf-accent-600/10',
+        link: 'text-lf-accent-700 underline-offset-4 hover:underline',
       },
       size: {
         default: 'h-10 px-4 py-2',

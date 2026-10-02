@@ -18,6 +18,15 @@ import {
 import { formatDateTime, formatStatus } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+const MOBILE_TABLE_ACTION_CELL = 'max-md:block max-md:border-0 max-md:px-0 max-md:pt-3';
+
 const INVITATION_ROLES = [
   { value: 'client_primary', label: 'Client (primary)' },
   { value: 'client_collaborator', label: 'Client (collaborator)' },
@@ -66,14 +75,14 @@ function MemberRoster({ members }: { members: FirmMember[] }) {
       </CardHeader>
       <CardContent className="p-0">
         {members.length === 0 ? (
-          <div className="p-5">
+          <div className="p-6">
             <EmptyState title="No members" description="The firm roster is empty." />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Firm members</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Name
@@ -89,17 +98,17 @@ function MemberRoster({ members }: { members: FirmMember[] }) {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {members.map((member) => (
-                  <tr key={member.id} className="border-t border-lf-border">
-                    <td className="px-4 py-3 font-medium text-lf-text">
+                  <tr key={member.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                    <td data-th="Name" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>
                       {member.display_name ?? '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">{member.email ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Email" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{member.email ?? '—'}</td>
+                    <td data-th="Role" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(member.role)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Status" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(member.status)}
                     </td>
                   </tr>
@@ -217,10 +226,10 @@ function InvitationsManager() {
 
       {invitations.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Firm invitations</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Email
@@ -236,17 +245,17 @@ function InvitationsManager() {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {invitations.map((invitation) => (
-                  <tr key={invitation.id} className="border-t border-lf-border">
-                    <td className="px-4 py-3 font-medium text-lf-text">{invitation.email}</td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                  <tr key={invitation.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                    <td data-th="Email" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>{invitation.email}</td>
+                    <td data-th="Role" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(invitation.role)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td data-th="Status" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(invitation.status)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={`px-4 py-3 ${MOBILE_TABLE_ACTION_CELL}`}>
                       {invitation.status === 'pending' ? (
                         <Button
                           type="button"
@@ -401,10 +410,10 @@ export default function FirmTeamSettingsPage(): React.JSX.Element {
   if (!firm) return <LoadingState lines={4} label="Loading team settings…" />;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Team & settings</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Team & settings</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Firm profile, team roster, invitations, and feature flags.
         </p>
       </div>

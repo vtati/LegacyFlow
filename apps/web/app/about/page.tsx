@@ -23,9 +23,11 @@ const SAFETY_POINTS = [
 export default function AboutPage(): React.JSX.Element {
   return (
     <div className="flex min-h-screen flex-col bg-lf-canvas">
-      <header className="border-b border-lf-border bg-lf-canvas-elevated">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4">
-          <p className="text-lg font-bold tracking-tight text-lf-primary-950">{PRODUCT_NAME}</p>
+      <header className="border-b border-lf-border bg-lf-canvas">
+        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <p className="font-lf-serif text-xl font-semibold tracking-tight text-lf-text">
+            {PRODUCT_NAME}
+          </p>
           <Button variant="ghost" asChild>
             <Link href="/">
               <ArrowLeft aria-hidden="true" /> Back home
@@ -34,23 +36,25 @@ export default function AboutPage(): React.JSX.Element {
         </div>
       </header>
 
-      <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 py-12">
-        <h1 className="font-lf-serif text-3xl font-bold tracking-tight text-lf-primary-950">
+      <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <h1 className="font-lf-serif text-4xl font-semibold tracking-tight text-lf-text">
           About this demo
         </h1>
-        <p className="mt-3 max-w-2xl text-lf-text-muted">
+        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-lf-text-muted">
           {PRODUCT_NAME} is an estate-planning platform built around attorney review. What you see
           here is an early scaffold: screens, navigation, and flows are real, but the legal content
           behind them is not.
         </p>
 
-        <Card className="mt-8">
+        <Card className="mt-10 bg-white">
           <CardHeader>
             <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lf-control bg-lf-accent-100 text-lf-accent-800">
+              <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-accent-600/10 text-lf-accent-700">
                 <ShieldAlert className="size-5" aria-hidden="true" />
               </span>
-              <CardTitle>What this demo is — and isn’t</CardTitle>
+              <CardTitle className="font-lf-serif text-xl font-semibold">
+                What this demo is — and isn’t
+              </CardTitle>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

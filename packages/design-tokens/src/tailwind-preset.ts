@@ -66,6 +66,18 @@ export const legacyflowPreset: Partial<Config> = {
           950: 'var(--lf-error-950)',
           foreground: 'var(--lf-error-foreground)',
         },
+        'lf-warning': {
+          50: 'var(--lf-warning-50)',
+          100: 'var(--lf-warning-100)',
+          200: 'var(--lf-warning-200)',
+          300: 'var(--lf-warning-300)',
+          400: 'var(--lf-warning-400)',
+          500: 'var(--lf-warning-500)',
+          600: 'var(--lf-warning-600)',
+          700: 'var(--lf-warning-700)',
+          foreground: 'var(--lf-warning-foreground)',
+        },
+        'lf-gold': 'var(--lf-gold)',
         'lf-canvas': {
           DEFAULT: 'var(--lf-canvas)',
           subtle: 'var(--lf-canvas-subtle)',

@@ -69,7 +69,7 @@ function SummaryCard({
   };
   return (
     <Card>
-      <CardContent className="flex items-center gap-4 p-5">
+      <CardContent className="flex items-center gap-4 p-6">
         <span
           className={cn(
             'flex size-11 shrink-0 items-center justify-center rounded-lf-control',
@@ -284,8 +284,8 @@ export default function FamilyAssetsAccountsPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Assets &amp; Accounts</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Assets &amp; Accounts</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           What you own and what you owe, side by side. These figures are estimates from your
           entries — nothing here is final until your attorney approves it.
         </p>

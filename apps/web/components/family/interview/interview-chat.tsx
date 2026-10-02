@@ -96,7 +96,7 @@ function ProposalCard({
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <Card className="border-lf-primary-200">
+    <Card className="border-lf-border bg-white shadow-none">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-lf-text">{humanizeKey(proposal.question_key)}</p>
@@ -117,9 +117,12 @@ function ProposalCard({
             />
           </div>
         ) : (
-          <p className="rounded-lf-control bg-lf-canvas-subtle px-3 py-2 text-sm text-lf-text">
-            {formatValue(proposal.proposed_value)}
-          </p>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-lf-text-muted">Proposed</p>
+            <p className="rounded-lf-control border border-lf-border bg-lf-primary-50 px-3 py-2 text-sm text-lf-text">
+              {formatValue(proposal.proposed_value)}
+            </p>
+          </div>
         )}
         {proposal.source_snippet && (
           <p className="text-xs italic text-lf-text-muted">
@@ -129,7 +132,7 @@ function ProposalCard({
         {proposal.source === 'document_extracted' && !proposal.source_snippet && (
           <p className="text-xs text-lf-text-muted">{provenanceLabel(proposal)}</p>
         )}
-        {error && <p className="text-xs text-lf-danger-600">{error}</p>}
+        {error && <p className="text-xs text-lf-error-600">{error}</p>}
         <ProposalActions
           proposal={proposal}
           matterId={matterId}
@@ -194,26 +197,26 @@ function ProposalActions({
   };
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {editing ? (
         <>
-          <Button size="sm" disabled={busy != null} onClick={() => void run('correct')}>
+          <Button size="sm" disabled={busy != null} onClick={() => void run('correct')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 sm:h-8">
             <Check className="size-4" aria-hidden="true" /> Save correction
           </Button>
-          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit}>
+          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit} className="h-11 sm:h-8">
             Cancel
           </Button>
         </>
       ) : (
         <>
-          <Button size="sm" disabled={busy != null} onClick={() => void run('confirm')}>
+          <Button size="sm" disabled={busy != null} onClick={() => void run('confirm')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 sm:h-8">
             <Check className="size-4" aria-hidden="true" />
             {busy === 'confirm' ? 'Confirming…' : 'Confirm'}
           </Button>
-          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit}>
+          <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit} className="h-11 sm:h-8">
             <Pencil className="size-4" aria-hidden="true" /> Edit
           </Button>
-          <Button size="sm" variant="outline" disabled={busy != null} onClick={() => void run('reject')}>
+          <Button size="sm" variant="ghost" disabled={busy != null} onClick={() => void run('reject')} className="h-11 text-lf-error-700 hover:bg-lf-error-50 hover:text-lf-error-800 sm:h-8">
             <X className="size-4" aria-hidden="true" />
             {busy === 'reject' ? 'Rejecting…' : 'Reject'}
           </Button>
@@ -508,10 +511,10 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const requiredMissing = session.checklist.filter((c) => c.required && !c.answered);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-6xl space-y-4 px-4 lg:px-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-lf-text">AI interview</h1>
+          <h1 className="font-lf-serif text-2xl font-semibold tracking-tight text-lf-text">AI interview</h1>
           <p className="mt-1 text-sm text-lf-text-muted">
             Chat with the intake assistant. Review every proposed value before it becomes part of
             your file — nothing here is legal advice.
@@ -521,7 +524,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
           <span
             className={cn(
               'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
-              paused && 'bg-lf-warning-100 text-lf-warning-800',
+              paused && 'bg-lf-warning-100 text-lf-warning-700',
               !paused && !done && 'bg-lf-success-100 text-lf-success-800',
               done && 'bg-lf-canvas-subtle text-lf-text-muted',
             )}
@@ -553,7 +556,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lf-control border border-lf-danger-200 bg-lf-danger-50 p-3 text-sm text-lf-danger-700" role="alert">
+        <div className="flex items-start gap-2 rounded-lf-control border border-lf-error-200 bg-lf-error-50 p-3 text-sm text-lf-error-700" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>{error}</span>
           <button
@@ -567,16 +570,16 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       )}
 
       {paused && (
-        <div className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-3 text-sm text-lf-warning-800" role="status">
+        <div className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-3 text-sm text-lf-warning-700" role="status">
           This interview is paused. Your progress is saved — resume whenever you’re ready.
         </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Chat thread */}
-        <Card className="lg:col-span-2">
-          <CardContent className="flex h-[60vh] flex-col p-0">
-            <div ref={threadRef} className="flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
+        <Card className="border-lf-border bg-lf-canvas shadow-none lg:col-span-2">
+          <CardContent className="flex h-[calc(100dvh-13rem)] flex-col p-0 lg:h-[60vh]">
+            <div ref={threadRef} className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6" aria-live="polite">
               {messages.length === 0 && (
                 <p className="text-sm text-lf-text-muted">
                   Say hello to begin. The assistant will guide you through each item, one question
@@ -584,48 +587,116 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                 </p>
               )}
               {messages.map((m) => (
-                <div key={m.id} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+                <div
+                  key={m.id}
+                  className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start gap-3')}
+                >
+                  {m.role === 'assistant' && (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-lf-primary-900 text-xs font-semibold text-white"
+                    >
+                      AI
+                    </span>
+                  )}
                   <div
                     className={cn(
-                      'max-w-[85%] rounded-lf-control px-4 py-2.5 text-sm',
                       m.role === 'user'
-                        ? 'bg-lf-primary-600 text-white'
-                        : 'border border-lf-border bg-lf-canvas-elevated text-lf-text',
+                        ? 'max-w-full rounded-2xl rounded-br-sm bg-lf-primary-50 px-4 py-2.5 text-sm text-lf-text sm:max-w-[85%]'
+                        : 'max-w-full sm:max-w-[68ch]',
                     )}
                   >
-                    <p className="whitespace-pre-wrap">{m.text}</p>
+                    <p
+                      className={cn(
+                        'whitespace-pre-wrap',
+                        m.role === 'assistant' && 'text-[15px] leading-relaxed text-lf-text',
+                      )}
+                    >
+                      {m.text}
+                    </p>
                     {m.citations && m.citations.length > 0 && (
-                      <details className="mt-2 text-xs opacity-80">
-                        <summary className="cursor-pointer">Sources ({m.citations.length})</summary>
-                        <ul className="mt-1 space-y-1">
+                      <details className="mt-3 text-xs">
+                        <summary className="cursor-pointer font-lf-serif text-sm text-lf-text-muted">
+                          Sources ({m.citations.length})
+                        </summary>
+                        <ol className="mt-2 space-y-2 border-t border-lf-border pt-2">
                           {m.citations.map((c, i) => (
-                            <li key={i}>
-                              <span className="font-medium">{c.source}</span>
-                              {c.section ? ` · ${c.section}` : ''}: {c.excerpt}
+                            <li key={i} className="flex gap-2">
+                              <span
+                                aria-hidden="true"
+                                className="shrink-0 font-medium text-lf-text-muted"
+                              >
+                                {i + 1}.
+                              </span>
+                              <span>
+                                <span className="font-medium text-lf-text">{c.source}</span>
+                                {c.section ? ` · ${c.section}` : ''}: {c.excerpt}
+                              </span>
                             </li>
                           ))}
-                        </ul>
+                        </ol>
                       </details>
                     )}
                   </div>
                 </div>
               ))}
               {sending && (
-                <div className="flex justify-start">
-                  <div className="rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2.5 text-sm text-lf-text-muted">
-                    Thinking…
+                <div className="flex justify-start gap-3" aria-live="polite">
+                  <span
+                    aria-hidden="true"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-lf-primary-900 text-xs font-semibold text-white"
+                  >
+                    AI
+                  </span>
+                  <div className="flex items-center gap-1.5 py-3" role="status">
+                    <span className="sr-only">The assistant is thinking…</span>
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        aria-hidden="true"
+                        className="size-2 animate-pulse rounded-full bg-lf-text-muted motion-reduce:animate-none"
+                        style={{ animationDelay: `${i * 200}ms` }}
+                      />
+                    ))}
                   </div>
                 </div>
               )}
             </div>
-            <div className="border-t border-lf-border p-3">
+            <div className="sticky bottom-0 border-t border-lf-border bg-lf-canvas px-4 pb-4 pt-3">
               <Label htmlFor="interview-composer" className="sr-only">
                 Message the intake assistant
               </Label>
-              <div className="flex items-end gap-2">
+              <div className="flex items-end gap-1 rounded-2xl border border-lf-border bg-white p-2 shadow-[0_8px_24px_rgb(28_25_23/0.08)] focus-within:ring-2 focus-within:ring-lf-accent-600">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={sending || done || paused || dictating}
+                  onClick={() => void toggleRecording()}
+                  aria-label={recording ? 'Stop dictation' : 'Dictate your answer'}
+                  title="Dictate — the transcript appears here for your review before sending"
+                  className={cn(
+                    'size-11 shrink-0 text-lf-text-muted hover:text-lf-text',
+                    recording && 'border-lf-error-400 text-lf-error-600',
+                  )}
+                >
+                  {recording ? <Square className="size-4" aria-hidden="true" /> : <Mic className="size-4" aria-hidden="true" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={sending || done || paused || extracting}
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Attach a document"
+                  title="Attach a PDF or Word document — the assistant extracts details for you to verify"
+                  className="size-11 shrink-0 text-lf-text-muted hover:text-lf-text"
+                >
+                  <FileUp className="size-4" aria-hidden="true" />
+                </Button>
                 <textarea
                   id="interview-composer"
-                  className="max-h-32 min-h-11 flex-1 resize-y rounded-lf-control border border-lf-border bg-lf-canvas px-3 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                  className="max-h-32 min-h-11 flex-1 resize-y border-0 bg-transparent px-2 py-2 text-sm text-lf-text placeholder:text-lf-text-muted focus-visible:outline-none"
                   placeholder={paused ? 'Resume the interview to continue…' : 'Type your answer…'}
                   value={input}
                   disabled={sending || done || paused}
@@ -639,17 +710,10 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                 />
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  disabled={sending || done || paused || dictating}
-                  onClick={() => void toggleRecording()}
-                  aria-label={recording ? 'Stop dictation' : 'Dictate your answer'}
-                  title="Dictate — the transcript appears here for your review before sending"
-                  className={cn(recording && 'border-lf-danger-400 text-lf-danger-600')}
+                  disabled={sending || done || paused || !input.trim()}
+                  onClick={() => void send()}
+                  className="size-11 shrink-0 bg-lf-primary-900 text-white hover:bg-lf-primary-800"
                 >
-                  {recording ? <Square className="size-4" aria-hidden="true" /> : <Mic className="size-4" aria-hidden="true" />}
-                </Button>
-                <Button type="button" disabled={sending || done || paused || !input.trim()} onClick={() => void send()}>
                   <Send className="size-4" aria-hidden="true" />
                   <span className="sr-only">Send</span>
                 </Button>
@@ -815,9 +879,23 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                     review.findings.map((f: ConsistencyFinding, i: number) => (
                       <div
                         key={`${f.question}-${i}`}
-                        className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-2.5"
+                        className={cn(
+                          'rounded-lf-card border p-3',
+                          /high|critical|urgent/i.test(f.severity)
+                            ? 'border-lf-warning-200 bg-lf-warning-50'
+                            : 'border-lf-success-200 bg-lf-success-50',
+                        )}
                       >
-                        <p className="text-xs font-medium text-lf-warning-800">{f.question}</p>
+                        <p
+                          className={cn(
+                            'text-xs font-medium',
+                            /high|critical|urgent/i.test(f.severity)
+                              ? 'text-lf-warning-700'
+                              : 'text-lf-success-800',
+                          )}
+                        >
+                          {f.question}
+                        </p>
                         <p className="mt-1 text-xs text-lf-text-muted">
                           Involves: {f.fields.map(humanizeKey).join(', ')}
                         </p>

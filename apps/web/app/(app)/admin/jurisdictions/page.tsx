@@ -49,10 +49,10 @@ export default function AdminJurisdictionsPage(): React.JSX.Element {
   }, [packs]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Jurisdictions</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Jurisdictions</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Jurisdictions covered by the content packs available to your firm, with each
           pack&apos;s version and lifecycle status.
         </p>
@@ -79,7 +79,7 @@ export default function AdminJurisdictionsPage(): React.JSX.Element {
           {groups.map((group) => (
             <li key={group.jurisdiction_code}>
               <Card>
-                <CardContent className="space-y-3 p-5">
+                <CardContent className="space-y-3 p-6">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="font-mono text-base font-semibold text-lf-text">
                       {group.jurisdiction_code}

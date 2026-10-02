@@ -73,7 +73,7 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
             </p>
             {user.email && <p className="truncate text-xs text-lf-text-muted">{user.email}</p>}
             {user.provider === 'mock' && (
-              <p className="mt-1 inline-block rounded-full bg-lf-accent-100 px-2 py-0.5 text-xs font-medium text-lf-accent-800">
+              <p className="mt-1 inline-block rounded-full bg-lf-canvas-subtle px-2 py-0.5 text-xs font-medium text-lf-text-muted">
                 Mock session — synthetic user
               </p>
             )}

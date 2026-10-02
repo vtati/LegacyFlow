@@ -11,6 +11,14 @@ import { firmApi, type Escalation } from '@/lib/api-client';
 import { formatDateTime, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 const MATTERS_PAGE_SIZE = 100;
 
 /** Actual escalation statuses (backend ESCALATION_STATUSES). */
@@ -29,11 +37,11 @@ interface EscalationWithMatter extends Escalation {
 
 function EscalationRow({ escalation }: { escalation: EscalationWithMatter }) {
   return (
-    <tr className="border-t border-lf-border">
-      <td className="whitespace-nowrap px-4 py-3 text-sm text-lf-text-muted">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+      <td  data-th="Raised" className={`whitespace-nowrap px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
         {formatDateTime(escalation.created_at)}
       </td>
-      <td className="px-4 py-3">
+      <td  data-th="Matter" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <Link
           href={`/firm/matters/${escalation.matter_id}`}
           className="rounded-lf-control font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
@@ -41,12 +49,12 @@ function EscalationRow({ escalation }: { escalation: EscalationWithMatter }) {
           {escalation.matterTitle || 'Untitled matter'}
         </Link>
       </td>
-      <td className="px-4 py-3">
+      <td  data-th="Rule" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <code className="rounded-lf-control bg-lf-canvas-subtle px-2 py-1 text-xs text-lf-text">
           {escalation.rule_id}
         </code>
       </td>
-      <td className="px-4 py-3">
+      <td  data-th="Severity" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <span
           className={cn(
             'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -56,7 +64,7 @@ function EscalationRow({ escalation }: { escalation: EscalationWithMatter }) {
           {formatStatus(escalation.severity)}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td  data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <span
           className={cn(
             'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -66,7 +74,7 @@ function EscalationRow({ escalation }: { escalation: EscalationWithMatter }) {
           {formatStatus(escalation.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{escalation.outcome}</td>
+      <td  data-th="Outcome" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{escalation.outcome}</td>
     </tr>
   );
 }
@@ -124,10 +132,10 @@ export default function AdminSupportPage(): React.JSX.Element {
   const openCount = escalations.filter((e) => e.status === 'open').length;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Support</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Support</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Household support requests from your firm — every escalation rule that fired on a
           client matter.
         </p>
@@ -179,10 +187,10 @@ export default function AdminSupportPage(): React.JSX.Element {
 
       {!loading && !error && filtered.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[860px]">
               <caption className="sr-only">Support requests (escalations)</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Raised
@@ -204,7 +212,7 @@ export default function AdminSupportPage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {filtered.map((escalation) => (
                   <EscalationRow key={escalation.id} escalation={escalation} />
                 ))}

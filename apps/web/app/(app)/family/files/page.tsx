@@ -75,8 +75,8 @@ export default function FamilyFilesPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Files</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Files</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Documents for your plan — upload what your attorney asks for, and download anything you
           need. Every upload is scanned before it becomes available.
         </p>

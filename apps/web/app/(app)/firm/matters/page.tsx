@@ -11,6 +11,14 @@ import { firmApi, type MatterSummary, type MattersListResponse } from '@/lib/api
 import { formatDate, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 const PAGE_SIZE = 20;
 
 const STATUS_OPTIONS = [
@@ -91,8 +99,8 @@ function FilterBar({
 
 function MatterRow({ matter }: { matter: MatterSummary }) {
   return (
-    <tr className="border-t border-lf-border">
-      <td className="px-4 py-3">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+      <td data-th="Client / household" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <Link
           href={`/firm/matters/${matter.id}`}
           className="font-medium text-lf-primary-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 rounded-lf-control"
@@ -101,8 +109,8 @@ function MatterRow({ matter }: { matter: MatterSummary }) {
         </Link>
         <p className="mt-0.5 text-sm text-lf-text-muted">{matter.household.name}</p>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{matter.jurisdiction_code}</td>
-      <td className="px-4 py-3">
+      <td data-th="Jurisdiction" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{matter.jurisdiction_code}</td>
+      <td data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <span
           className={cn(
             'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -112,7 +120,7 @@ function MatterRow({ matter }: { matter: MatterSummary }) {
           {formatStatus(matter.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{formatDate(matter.updated_at)}</td>
+      <td data-th="Updated" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{formatDate(matter.updated_at)}</td>
     </tr>
   );
 }
@@ -163,10 +171,10 @@ export default function FirmMattersPage(): React.JSX.Element {
   const hasFilters = debouncedQ.trim() !== '' || status !== '' || jurisdiction.trim() !== '';
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Matters</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Matters</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Every client matter at the firm. Search, filter, and open a matter to review it.
         </p>
       </div>
@@ -197,10 +205,10 @@ export default function FirmMattersPage(): React.JSX.Element {
 
       {!loading && !error && response && response.items.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[640px]">
               <caption className="sr-only">Client matters</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Client / household
@@ -216,7 +224,7 @@ export default function FirmMattersPage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {response.items.map((matter) => (
                   <MatterRow key={matter.id} matter={matter} />
                 ))}

@@ -78,10 +78,10 @@ export default function FirmFundingPage(): React.JSX.Element {
   const failedCount = rows.filter((r) => r.failed).length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Funding</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Funding</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Funding tasks across every matter — filter by status and open the matter for evidence
           and escalations.
         </p>
@@ -95,8 +95,8 @@ export default function FirmFundingPage(): React.JSX.Element {
           { label: 'Complete', count: counts.complete },
         ].map((card) => (
           <Card key={card.label}>
-            <CardContent className="p-5">
-              <p className="text-3xl font-bold text-lf-text">{card.count}</p>
+            <CardContent className="p-6">
+              <p className="text-3xl font-bold tabular-nums text-lf-text">{card.count}</p>
               <p className="mt-1 text-sm text-lf-text-muted">{card.label}</p>
             </CardContent>
           </Card>

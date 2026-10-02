@@ -8,6 +8,14 @@ import { adminApi, type FirmMember, type FirmProfile } from '@/lib/api-client';
 import { formatDate, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 const ROLE_ORDER = ['firm_admin', 'attorney', 'staff', 'auditor'] as const;
 
 function FirmProfileCard({ firm }: { firm: FirmProfile }) {
@@ -59,13 +67,13 @@ function FirmProfileCard({ firm }: { firm: FirmProfile }) {
 
 function MemberRow({ member }: { member: FirmMember }) {
   return (
-    <tr className="border-t border-lf-border">
-      <td className="px-4 py-3">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+      <td data-th="Name / email" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <p className="font-medium text-lf-text">{member.display_name ?? '—'}</p>
         <p className="mt-0.5 text-sm text-lf-text-muted">{member.email ?? '—'}</p>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{formatStatus(member.role)}</td>
-      <td className="px-4 py-3">
+      <td data-th="Role" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{formatStatus(member.role)}</td>
+      <td data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <span
           className={cn(
             'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
@@ -75,7 +83,7 @@ function MemberRow({ member }: { member: FirmMember }) {
           {formatStatus(member.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{formatDate(member.created_at)}</td>
+      <td data-th="Joined" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{formatDate(member.created_at)}</td>
     </tr>
   );
 }
@@ -114,10 +122,10 @@ export default function AdminFirmsPage(): React.JSX.Element {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Firms</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Firms</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Your firm&apos;s profile and who has access to it.
         </p>
       </div>
@@ -150,10 +158,10 @@ export default function AdminFirmsPage(): React.JSX.Element {
               />
             ) : (
               <Card>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-left text-sm">
+                <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+                  <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
                     <caption className="sr-only">Firm member roster</caption>
-                    <thead>
+                    <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                       <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                         <th scope="col" className="px-4 py-3 font-semibold">
                           Name / email
@@ -169,7 +177,7 @@ export default function AdminFirmsPage(): React.JSX.Element {
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                       {members.map((member) => (
                         <MemberRow key={member.id} member={member} />
                       ))}

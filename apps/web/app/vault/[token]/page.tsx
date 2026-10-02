@@ -2,7 +2,13 @@
 
 import { use, useEffect, useState } from 'react';
 import { EyeOff, FileText, ShieldCheck } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitleEditorial,
+} from '@/components/ui/card';
 import { api, type VaultAccessSummary } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
 
@@ -37,7 +43,7 @@ export default function VaultAccessPage({ params }: VaultAccessPageProps): React
   return (
     <main
       id="main-content"
-      className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-12"
+      className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center bg-lf-canvas px-4 py-12 sm:px-6"
     >
       {loading && (
         <div role="status" aria-label="Loading shared summary" className="space-y-3">
@@ -51,11 +57,11 @@ export default function VaultAccessPage({ params }: VaultAccessPageProps): React
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lf-control bg-lf-accent-100 text-lf-accent-800">
+              <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-accent-600/10 text-lf-accent-700">
                 <EyeOff className="size-5" aria-hidden="true" />
               </span>
               <div>
-                <CardTitle>This link doesn’t work anymore</CardTitle>
+                <CardTitleEditorial className="text-xl font-semibold">This link doesn’t work anymore</CardTitleEditorial>
                 <CardDescription>
                   It may have expired, been revoked, or been typed incorrectly.
                 </CardDescription>
@@ -72,15 +78,15 @@ export default function VaultAccessPage({ params }: VaultAccessPageProps): React
       )}
 
       {!loading && !invalid && summary !== null && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-lf-control bg-lf-primary-50 text-lf-primary-800">
+                <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-primary-50 text-lf-primary-800">
                   <ShieldCheck className="size-5" aria-hidden="true" />
                 </span>
                 <div>
-                  <CardTitle>{summary.matter_title}</CardTitle>
+                  <CardTitleEditorial className="text-xl font-semibold">{summary.matter_title}</CardTitleEditorial>
                   <CardDescription>
                     Shared as “{summary.share_label}” · {summary.jurisdiction_code}
                   </CardDescription>

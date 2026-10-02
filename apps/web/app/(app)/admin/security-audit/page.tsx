@@ -10,6 +10,14 @@ import { AdminErrorState, FirmScopeNote } from '@/components/admin/admin-page-st
 import { adminApi, type AuditEventListResponse } from '@/lib/api-client';
 import { formatDateTime, formatStatus } from '@/lib/format';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 const PAGE_SIZE = 25;
 
 interface AuditFilters {
@@ -80,10 +88,10 @@ export default function AdminSecurityAuditPage(): React.JSX.Element {
     applied.actorType.trim() !== '';
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Security &amp; Audit</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Security &amp; Audit</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Your firm&apos;s audit trail — who did what, on which resource, and when.
         </p>
       </div>
@@ -171,10 +179,10 @@ export default function AdminSecurityAuditPage(): React.JSX.Element {
 
       {!loading && !error && response && response.items.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[760px]">
               <caption className="sr-only">Audit events</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Time
@@ -196,31 +204,31 @@ export default function AdminSecurityAuditPage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {response.items.map((event) => (
-                  <tr key={event.id} className="border-t border-lf-border">
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-lf-text-muted">
+                  <tr key={event.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                    <td  data-th="Time" className={`whitespace-nowrap px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatDateTime(event.created_at)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td  data-th="Actor" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(event.actor_type)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td  data-th="Action" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
                       <code className="rounded-lf-control bg-lf-canvas-subtle px-2 py-1 text-xs text-lf-text">
                         {event.action}
                       </code>
                     </td>
-                    <td className="px-4 py-3 text-sm text-lf-text-muted">
+                    <td  data-th="Resource" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(event.resource_type)}
                     </td>
                     <td
-                      className="px-4 py-3 font-mono text-xs text-lf-text-muted"
+                       data-th="Matter" className={`px-4 py-3 font-mono text-xs text-lf-text-muted ${MOBILE_TABLE_CELL}`}
                       title={event.matter_id ?? ''}
                     >
                       {truncateId(event.matter_id)}
                     </td>
                     <td
-                      className="px-4 py-3 font-mono text-xs text-lf-text-muted"
+                       data-th="Correlation" className={`px-4 py-3 font-mono text-xs text-lf-text-muted ${MOBILE_TABLE_CELL}`}
                       title={event.correlation_id ?? ''}
                     >
                       {truncateId(event.correlation_id)}

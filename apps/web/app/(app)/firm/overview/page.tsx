@@ -135,10 +135,10 @@ export default function FirmOverviewPage(): React.JSX.Element {
   const cards = statusCards(matters);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Firm overview</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Firm overview</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Pipeline health, matters that need attention, and recent activity.
         </p>
       </div>
@@ -146,8 +146,8 @@ export default function FirmOverviewPage(): React.JSX.Element {
       <section aria-label="Matter counts by status" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => (
           <Card key={card.label}>
-            <CardContent className="p-5">
-              <p className="text-3xl font-bold text-lf-text">{card.count}</p>
+            <CardContent className="p-6">
+              <p className="text-3xl font-bold tabular-nums text-lf-text">{card.count}</p>
               <p className="mt-1 text-sm text-lf-text-muted">{card.label}</p>
             </CardContent>
           </Card>
@@ -161,11 +161,11 @@ export default function FirmOverviewPage(): React.JSX.Element {
         </CardHeader>
         <CardContent className="p-0">
           {loadingAttention ? (
-            <div className="p-5">
+            <div className="p-6">
               <LoadingState lines={3} label="Checking escalations…" />
             </div>
           ) : attention.length === 0 ? (
-            <div className="p-5">
+            <div className="p-6">
               <EmptyState
                 title="Nothing needs attention"
                 description="No matters are waiting on attorney review or carrying open escalations."
@@ -184,7 +184,7 @@ export default function FirmOverviewPage(): React.JSX.Element {
         </CardHeader>
         <CardContent className="p-0">
           {recent.length === 0 ? (
-            <div className="p-5">
+            <div className="p-6">
               <EmptyState
                 title="No matters yet"
                 description="Matters appear here once the firm starts a plan for a household."

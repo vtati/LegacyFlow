@@ -5,8 +5,8 @@ import { PRODUCT_NAME, SAFETY_LABEL } from '@/lib/constants';
 export function Footer(): React.JSX.Element {
   return (
     <footer className="border-t border-lf-border bg-lf-canvas-subtle">
-      <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-medium text-lf-text">{PRODUCT_NAME}</p>
+      <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-lf-serif text-sm font-semibold text-lf-text">{PRODUCT_NAME}</p>
         <p
           className="flex items-start gap-2 text-xs text-lf-text-muted"
           role="note"

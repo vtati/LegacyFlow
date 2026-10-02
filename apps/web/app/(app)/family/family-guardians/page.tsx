@@ -152,10 +152,10 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
   const selectedMatter = matters.find((matter) => matter.id === matterId);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Family &amp; Guardians</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Family &amp; Guardians</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Everyone in your household alongside the people you have nominated to the key roles.
           Nothing here is final until your attorney approves it.
         </p>

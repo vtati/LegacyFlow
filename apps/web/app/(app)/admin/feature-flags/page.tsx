@@ -7,6 +7,14 @@ import { AdminErrorState, FirmScopeNote } from '@/components/admin/admin-page-st
 import { adminApi, ApiError, type EffectiveFeatureFlag } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
+/**
+ * Responsive table cells (presentation only): below the md breakpoint each
+ * table row becomes a stacked label/value card. Labels come from the cell's
+ * data-th attribute. Same table, same data, no behavior change.
+ */
+const MOBILE_TABLE_CELL =
+  'max-md:block max-md:border-0 max-md:px-0 max-md:py-1.5 max-md:before:mb-1 max-md:before:block max-md:before:text-[11px] max-md:before:font-semibold max-md:before:uppercase max-md:before:tracking-wider max-md:before:text-lf-text-subtle max-md:before:content-[attr(data-th)]';
+
 function ToggleSwitch({
   checked,
   saving,
@@ -60,14 +68,14 @@ function FlagRow({
   onToggle: () => void;
 }) {
   return (
-    <tr className="border-t border-lf-border">
-      <td className="px-4 py-3">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+      <td data-th="Flag" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <code className="rounded-lf-control bg-lf-canvas-subtle px-2 py-1 text-xs text-lf-text">
           {flag.key}
         </code>
       </td>
-      <td className="px-4 py-3 text-sm text-lf-text-muted">{flag.source}</td>
-      <td className="px-4 py-3">
+      <td data-th="Source" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{flag.source}</td>
+      <td data-th="State" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <div className="flex items-center gap-3">
           <ToggleSwitch
             checked={flag.is_enabled}
@@ -149,10 +157,10 @@ export default function AdminFeatureFlagsPage(): React.JSX.Element {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Feature Flags</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Feature Flags</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Rollout controls for your firm — enabling or disabling a capability here affects
           your firm&apos;s users only.
         </p>
@@ -176,10 +184,10 @@ export default function AdminFeatureFlagsPage(): React.JSX.Element {
 
       {!loading && !error && flags.length > 0 && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
+          <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
+            <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Feature flags</caption>
-              <thead>
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Flag
@@ -192,7 +200,7 @@ export default function AdminFeatureFlagsPage(): React.JSX.Element {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {flags.map((flag) => (
                   <FlagRow
                     key={flag.key}

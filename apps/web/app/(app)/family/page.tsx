@@ -72,10 +72,10 @@ export default function FamilyDashboardPage(): React.JSX.Element {
   const [assistantMatterId, setAssistantMatterId] = useState<string | null>(null);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-lf-text">Dashboard</h1>
-        <p className="mt-1 text-sm text-lf-text-muted">
+        <h1 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text">Dashboard</h1>
+        <p className="mt-2 text-sm text-lf-text-muted">
           Your plans in progress. Your attorney will review everything before anything is finalized.
         </p>
       </div>

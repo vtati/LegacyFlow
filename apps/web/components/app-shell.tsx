@@ -35,7 +35,7 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
             <MobileNav section={section} />
             <Link
               href="/family/home"
-              className="rounded-lf-control text-lg font-bold tracking-tight text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+              className="rounded-lf-control font-lf-serif text-lg font-semibold tracking-tight text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             >
               {PRODUCT_NAME}
             </Link>
