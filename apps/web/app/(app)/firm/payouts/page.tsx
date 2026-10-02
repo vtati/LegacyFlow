@@ -16,10 +16,10 @@ import { formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 function payoutStatusClass(status: string): string {
-  if (status === 'paid') return 'bg-emerald-50 text-emerald-700';
-  if (status === 'approved') return 'bg-indigo-50 text-indigo-700';
-  if (status === 'disputed') return 'bg-red-50 text-red-700';
-  return 'bg-amber-50 text-amber-700';
+  if (status === 'paid') return 'bg-lf-success-100 text-lf-success-700';
+  if (status === 'approved') return 'bg-lf-accent-100 text-lf-accent-700';
+  if (status === 'disputed') return 'bg-lf-error-100 text-lf-error-700';
+  return 'bg-lf-warning-100 text-lf-warning-700';
 }
 
 function PayoutCard({
@@ -143,7 +143,7 @@ function PayoutCard({
           </div>
         )}
         {payout.status === 'disputed' && payout.dispute_reason && (
-          <p className="rounded-lf-card bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-lf-card bg-lf-error-50 px-3 py-2 text-sm text-lf-error-700">
             Disputed: {payout.dispute_reason}
           </p>
         )}
@@ -214,7 +214,7 @@ export default function FirmPayoutsPage() {
       </div>
 
       {error && (
-        <p role="alert" className="rounded-lf-card bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p role="alert" className="rounded-lf-card bg-lf-error-50 px-4 py-3 text-sm text-lf-error-700">
           {error}
         </p>
       )}

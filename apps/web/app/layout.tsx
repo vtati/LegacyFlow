@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Fraunces, Inter } from 'next/font/google';
 import '@legacyflow/design-tokens/tokens.css';
 import './globals.css';
 import { PRODUCT_NAME } from '@/lib/constants';
@@ -8,6 +8,13 @@ const inter = Inter({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-inter',
+  display: 'swap',
+});
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-fraunces',
   display: 'swap',
 });
 
@@ -22,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
       <body>
         <a
           href="#main-content"

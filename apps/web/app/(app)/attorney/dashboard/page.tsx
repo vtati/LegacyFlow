@@ -217,10 +217,10 @@ export default function AttorneyDashboardPage() {
                     <span
                       className={cn(
                         'rounded-full px-2.5 py-1 text-xs font-medium',
-                        p.status === 'paid' && 'bg-emerald-50 text-emerald-700',
-                        p.status === 'approved' && 'bg-indigo-50 text-indigo-700',
-                        p.status === 'pending' && 'bg-amber-50 text-amber-700',
-                        p.status === 'disputed' && 'bg-red-50 text-red-700',
+                        p.status === 'paid' && 'bg-lf-success-100 text-lf-success-700',
+                        p.status === 'approved' && 'bg-lf-accent-100 text-lf-accent-700',
+                        p.status === 'pending' && 'bg-lf-warning-100 text-lf-warning-700',
+                        p.status === 'disputed' && 'bg-lf-error-100 text-lf-error-700',
                       )}
                     >
                       {p.status}

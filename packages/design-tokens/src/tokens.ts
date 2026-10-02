@@ -1,8 +1,9 @@
 /**
  * LegacyFlow design tokens — TypeScript source of truth.
  *
- * Modern Fintech palette: clean slate canvas, indigo primary, violet accent,
- * emerald success, standard red error, amber warning. Inter only — no serif.
+ * Heritage Editorial palette: warm ivory canvas, warm-charcoal ink primary,
+ * terracotta accent, sage success, warm red error, warm amber warning.
+ * Fraunces (display serif) + Inter (UI sans).
  * The same values are published as CSS variables in `tokens.css` and mapped to
  * Tailwind utilities in `tailwind-preset.ts`.
  */
@@ -35,33 +36,33 @@ export interface WarningScale {
 
 export interface Tokens {
   colors: {
-    /** Primary brand: indigo ramp. */
+    /** Primary brand: warm charcoal ramp — 900 is ink, CTAs are near-black with ivory text. */
     primary: ColorScale & { foreground: string };
-    /** Success/support: emerald family. */
+    /** Success/support: sage family. */
     success: ColorScale & { foreground: string };
-    /** Action accent: violet family (pairs with indigo for gradients). */
+    /** Action accent: terracotta family — the ONE signature accent. */
     accent: ColorScale & { foreground: string };
-    /** Error: red — never the only communication channel. */
+    /** Error: warm red — never the only communication channel. */
     error: ColorScale & { foreground: string };
-    /** Warning: amber family (50–700). */
+    /** Warning: warm amber family (50–700). */
     warning: WarningScale & { foreground: string };
-    /** Canvas: slate surfaces. */
+    /** Canvas: warm ivory surfaces. */
     canvas: { DEFAULT: string; subtle: string; elevated: string };
-    /** Text: slate ink. */
+    /** Text: warm ink. */
     text: { DEFAULT: string; muted: string; subtle: string; inverse: string };
-    /** Borders: slate hairlines. */
+    /** Borders: warm hairlines. */
     border: { DEFAULT: string; strong: string };
-    /** Gold: deprecated — maps to indigo-300 for backward compat. */
+    /** Gold: reserved for landing-page flourishes + "plan complete" moments only. */
     gold: string;
   };
-  /** 12–16px cards; 8–10px controls. */
+  /** 14px cards; 8–10px controls. */
   radius: {
     none: string;
     sm: string;
     /** Controls (10px). */
     control: string;
     md: string;
-    /** Cards (16px). */
+    /** Cards (14px). */
     card: string;
     lg: string;
     full: string;
@@ -69,7 +70,7 @@ export interface Tokens {
   font: {
     /** Inter via next/font (§5.2); system fallbacks keep rendering deterministic. */
     sans: string[];
-    /** Deprecated — maps to Inter. No serif in the Fintech theme. */
+    /** Fraunces display serif via next/font — headlines, page titles, empty states. */
     serif: string[];
     mono: string[];
     size: {
@@ -83,66 +84,66 @@ export interface Tokens {
     };
     weight: { regular: number; medium: number; semibold: number; bold: number };
   };
-  /** Soft layered shadows for the fintech floating-card look. */
+  /** Thin warm borders do the work; one soft warm shadow for overlays. */
   shadow: { none: string; subtle: string; card: string };
 }
 
 export const tokens: Tokens = {
   colors: {
     primary: {
-      50: '#EEF2FF',
-      100: '#E0E7FF',
-      200: '#C7D2FE',
-      300: '#A5B4FC',
-      400: '#818CF8',
-      500: '#6366F1',
-      600: '#4F46E5',
-      700: '#4338CA',
-      800: '#3730A3',
-      900: '#312E81',
-      950: '#1E1B4B',
-      foreground: '#FFFFFF',
+      50: '#F5F2EA',
+      100: '#EAE4D3',
+      200: '#D9D1BE',
+      300: '#B8AC93',
+      400: '#8A7D65',
+      500: '#6B5F4B',
+      600: '#4A4234',
+      700: '#353026',
+      800: '#26221B',
+      900: '#1C1917',
+      950: '#12100D',
+      foreground: '#FAF7F1',
     },
     success: {
-      50: '#ECFDF5',
-      100: '#D1FAE5',
-      200: '#A7F3D0',
-      300: '#6EE7B7',
-      400: '#34D399',
-      500: '#10B981',
-      600: '#059669',
-      700: '#047857',
-      800: '#065F46',
-      900: '#064E3B',
-      950: '#022C22',
+      50: '#F0F5F2',
+      100: '#E4EFE9',
+      200: '#C9DDD3',
+      300: '#A3C2B4',
+      400: '#7AA392',
+      500: '#5E8A78',
+      600: '#4D7C6B',
+      700: '#3D6659',
+      800: '#33544A',
+      900: '#2A443C',
+      950: '#162825',
       foreground: '#FFFFFF',
     },
     accent: {
-      50: '#F5F3FF',
-      100: '#EDE9FE',
-      200: '#DDD6FE',
-      300: '#C4B5FD',
-      400: '#A78BFA',
-      500: '#8B5CF6',
-      600: '#7C3AED',
-      700: '#6D28D9',
-      800: '#5B21B6',
-      900: '#4C1D95',
-      950: '#2E1065',
+      50: '#FBF1EA',
+      100: '#F7E3D7',
+      200: '#F0CDB8',
+      300: '#E5A985',
+      400: '#D47F56',
+      500: '#C15F3C',
+      600: '#A94F31',
+      700: '#8A3E26',
+      800: '#6E3220',
+      900: '#57281B',
+      950: '#3A1A12',
       foreground: '#FFFFFF',
     },
     error: {
-      50: '#FEF2F2',
-      100: '#FEE2E2',
-      200: '#FECACA',
-      300: '#FCA5A5',
-      400: '#F87171',
-      500: '#EF4444',
-      600: '#DC2626',
-      700: '#B91C1C',
-      800: '#991B1B',
-      900: '#7F1D1D',
-      950: '#450A0A',
+      50: '#FBEAE4',
+      100: '#F8D9CC',
+      200: '#F0B49E',
+      300: '#E58A6B',
+      400: '#D9613F',
+      500: '#C9501F',
+      600: '#A93E12',
+      700: '#8A3210',
+      800: '#6E2A12',
+      900: '#571F0F',
+      950: '#3A140A',
       foreground: '#FFFFFF',
     },
     warning: {
@@ -157,34 +158,34 @@ export const tokens: Tokens = {
       foreground: '#FFFFFF',
     },
     canvas: {
-      DEFAULT: '#F8FAFC',
-      subtle: '#F1F5F9',
+      DEFAULT: '#FAF7F1',
+      subtle: '#F3EEE3',
       elevated: '#FFFFFF',
     },
     text: {
-      DEFAULT: '#0F172A',
-      muted: '#64748B',
-      subtle: '#94A3B8',
-      inverse: '#FFFFFF',
+      DEFAULT: '#1C1917',
+      muted: '#57534E',
+      subtle: '#78716C',
+      inverse: '#FAF7F1',
     },
     border: {
-      DEFAULT: '#E2E8F0',
-      strong: '#CBD5E1',
+      DEFAULT: '#E8E2D5',
+      strong: '#D9D1BE',
     },
-    gold: '#A5B4FC',
+    gold: '#A98A3D',
   },
   radius: {
     none: '0px',
     sm: '6px',
     control: '10px',
     md: '12px',
-    card: '16px',
+    card: '14px',
     lg: '20px',
     full: '9999px',
   },
   font: {
     sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-    serif: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+    serif: ['var(--font-fraunces)', 'Georgia', 'serif'],
     mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
     size: {
       xs: '0.75rem',
@@ -199,8 +200,8 @@ export const tokens: Tokens = {
   },
   shadow: {
     none: 'none',
-    subtle: '0 1px 2px 0 rgb(15 23 42 / 0.06)',
-    card: '0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.08)',
+    subtle: '0 1px 2px 0 rgb(28 25 23 / 0.06)',
+    card: '0 8px 24px rgb(28 25 23 / 0.08)',
   },
 };
 

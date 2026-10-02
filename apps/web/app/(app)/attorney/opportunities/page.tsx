@@ -69,7 +69,7 @@ export default function AttorneyOpportunitiesPage() {
       </div>
 
       {error && (
-        <p role="alert" className="rounded-lf-card bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p role="alert" className="rounded-lf-card bg-lf-error-50 px-4 py-3 text-sm text-lf-error-700">
           {error}
         </p>
       )}

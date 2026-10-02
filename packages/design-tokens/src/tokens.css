@@ -2,68 +2,69 @@
  * LegacyFlow design tokens as CSS custom properties (`--lf-*`).
  * Values mirror `src/tokens.ts`; this file is imported by apps (e.g. `app/globals.css`).
  *
- * Modern Fintech palette: slate canvas, indigo primary, violet accent,
- * emerald success, red error, amber warning. Inter only.
+ * Heritage Editorial palette: warm ivory canvas, warm-charcoal ink primary,
+ * terracotta accent, sage success, warm red error, warm amber warning.
+ * Fraunces (display serif) + Inter (UI sans).
  */
 
 :root {
-  /* Primary — indigo */
-  --lf-primary-50: #eef2ff;
-  --lf-primary-100: #e0e7ff;
-  --lf-primary-200: #c7d2fe;
-  --lf-primary-300: #a5b4fc;
-  --lf-primary-400: #818cf8;
-  --lf-primary-500: #6366f1;
-  --lf-primary-600: #4f46e5;
-  --lf-primary-700: #4338ca;
-  --lf-primary-800: #3730a3;
-  --lf-primary-900: #312e81;
-  --lf-primary-950: #1e1b4b;
-  --lf-primary-foreground: #ffffff;
+  /* Primary — warm charcoal (900 = ink; CTAs are near-black with ivory text) */
+  --lf-primary-50: #f5f2ea;
+  --lf-primary-100: #eae4d3;
+  --lf-primary-200: #d9d1be;
+  --lf-primary-300: #b8ac93;
+  --lf-primary-400: #8a7d65;
+  --lf-primary-500: #6b5f4b;
+  --lf-primary-600: #4a4234;
+  --lf-primary-700: #353026;
+  --lf-primary-800: #26221b;
+  --lf-primary-900: #1c1917;
+  --lf-primary-950: #12100d;
+  --lf-primary-foreground: #faf7f1;
 
-  /* Success — emerald */
-  --lf-success-50: #ecfdf5;
-  --lf-success-100: #d1fae5;
-  --lf-success-200: #a7f3d0;
-  --lf-success-300: #6ee7b7;
-  --lf-success-400: #34d399;
-  --lf-success-500: #10b981;
-  --lf-success-600: #059669;
-  --lf-success-700: #047857;
-  --lf-success-800: #065f46;
-  --lf-success-900: #064e3b;
-  --lf-success-950: #022c22;
+  /* Success — sage */
+  --lf-success-50: #f0f5f2;
+  --lf-success-100: #e4efe9;
+  --lf-success-200: #c9ddd3;
+  --lf-success-300: #a3c2b4;
+  --lf-success-400: #7aa392;
+  --lf-success-500: #5e8a78;
+  --lf-success-600: #4d7c6b;
+  --lf-success-700: #3d6659;
+  --lf-success-800: #33544a;
+  --lf-success-900: #2a443c;
+  --lf-success-950: #162825;
   --lf-success-foreground: #ffffff;
 
-  /* Accent — violet */
-  --lf-accent-50: #f5f3ff;
-  --lf-accent-100: #ede9fe;
-  --lf-accent-200: #ddd6fe;
-  --lf-accent-300: #c4b5fd;
-  --lf-accent-400: #a78bfa;
-  --lf-accent-500: #8b5cf6;
-  --lf-accent-600: #7c3aed;
-  --lf-accent-700: #6d28d9;
-  --lf-accent-800: #5b21b6;
-  --lf-accent-900: #4c1d95;
-  --lf-accent-950: #2e1065;
+  /* Accent — terracotta (the ONE signature accent) */
+  --lf-accent-50: #fbf1ea;
+  --lf-accent-100: #f7e3d7;
+  --lf-accent-200: #f0cdb8;
+  --lf-accent-300: #e5a985;
+  --lf-accent-400: #d47f56;
+  --lf-accent-500: #c15f3c;
+  --lf-accent-600: #a94f31;
+  --lf-accent-700: #8a3e26;
+  --lf-accent-800: #6e3220;
+  --lf-accent-900: #57281b;
+  --lf-accent-950: #3a1a12;
   --lf-accent-foreground: #ffffff;
 
-  /* Error — red */
-  --lf-error-50: #fef2f2;
-  --lf-error-100: #fee2e2;
-  --lf-error-200: #fecaca;
-  --lf-error-300: #fca5a5;
-  --lf-error-400: #f87171;
-  --lf-error-500: #ef4444;
-  --lf-error-600: #dc2626;
-  --lf-error-700: #b91c1c;
-  --lf-error-800: #991b1b;
-  --lf-error-900: #7f1d1d;
-  --lf-error-950: #450a0a;
+  /* Error — warm red */
+  --lf-error-50: #fbeae4;
+  --lf-error-100: #f8d9cc;
+  --lf-error-200: #f0b49e;
+  --lf-error-300: #e58a6b;
+  --lf-error-400: #d9613f;
+  --lf-error-500: #c9501f;
+  --lf-error-600: #a93e12;
+  --lf-error-700: #8a3210;
+  --lf-error-800: #6e2a12;
+  --lf-error-900: #571f0f;
+  --lf-error-950: #3a140a;
   --lf-error-foreground: #ffffff;
 
-  /* Warning — amber (50–700 scale) */
+  /* Warning — warm amber (50–700 scale) */
   --lf-warning-50: #fffbeb;
   --lf-warning-100: #fef3c7;
   --lf-warning-200: #fde68a;
@@ -74,46 +75,46 @@
   --lf-warning-700: #92400e;
   --lf-warning-foreground: #ffffff;
 
-  /* Canvas — slate */
-  --lf-canvas: #f8fafc;
-  --lf-canvas-subtle: #f1f5f9;
+  /* Canvas — warm ivory */
+  --lf-canvas: #faf7f1;
+  --lf-canvas-subtle: #f3eee3;
   --lf-canvas-elevated: #ffffff;
 
-  /* Text — slate ink */
-  --lf-text: #0f172a;
-  --lf-text-muted: #64748b;
-  --lf-text-subtle: #94a3b8;
-  --lf-text-inverse: #ffffff;
+  /* Text — warm ink */
+  --lf-text: #1c1917;
+  --lf-text-muted: #57534e;
+  --lf-text-subtle: #78716c;
+  --lf-text-inverse: #faf7f1;
 
-  /* Borders — slate hairlines */
-  --lf-border: #e2e8f0;
-  --lf-border-strong: #cbd5e1;
+  /* Borders — warm hairlines */
+  --lf-border: #e8e2d5;
+  --lf-border-strong: #d9d1be;
 
-  /* Gold — deprecated, maps to indigo-300 */
-  --lf-gold: #a5b4fc;
+  /* Gold — landing flourishes + "plan complete" moments ONLY */
+  --lf-gold: #a98a3d;
 
-  /* Radius — 16px cards; 10px controls */
+  /* Radius — 14px cards; 10px controls */
   --lf-radius-none: 0px;
   --lf-radius-sm: 6px;
   --lf-radius-control: 10px;
   --lf-radius-md: 12px;
-  --lf-radius-card: 16px;
+  --lf-radius-card: 14px;
   --lf-radius-lg: 20px;
   --lf-radius-full: 9999px;
 
-  /* Typography — Inter only (see app/layout.tsx);
-     the `--font-*` variables are set on <html>. */
+  /* Typography — Fraunces (display serif) + Inter (UI sans);
+     the `--font-*` variables are set on <html> via next/font. */
   --lf-font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --lf-font-serif: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --lf-font-serif: var(--font-fraunces), Georgia, serif;
   --lf-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Elevation — soft layered fintech shadows */
-  --lf-shadow-subtle: 0 1px 2px 0 rgb(15 23 42 / 0.06);
-  --lf-shadow-card: 0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.08);
+  /* Elevation — thin warm borders do the work; one soft warm shadow for overlays */
+  --lf-shadow-subtle: 0 1px 2px 0 rgb(28 25 23 / 0.06);
+  --lf-shadow-card: 0 8px 24px rgb(28 25 23 / 0.08);
 }
 
 /* ------------------------------------------------------------------ */
-/* Fintech motion system — keyframes + utilities                       */
+/* Heritage Editorial motion system — keyframes + utilities            */
 /* ------------------------------------------------------------------ */
 
 @keyframes lf-slide-in {
@@ -132,9 +133,9 @@
 }
 
 @keyframes lf-pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgb(79 70 229 / 0.25); }
-  70% { box-shadow: 0 0 0 8px rgb(79 70 229 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(79 70 229 / 0); }
+  0% { box-shadow: 0 0 0 0 rgb(169 79 49 / 0.25); }
+  70% { box-shadow: 0 0 0 8px rgb(169 79 49 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(169 79 49 / 0); }
 }
 
 /* Message entrance */
@@ -147,7 +148,7 @@
 /* Typing indicator dots */
 .lf-typing-dot {
   width: 8px; height: 8px; border-radius: 9999px;
-  background: var(--lf-primary-600);
+  background: var(--lf-accent-600);
   animation: lf-bounce-dot 1.2s infinite;
 }
 .lf-typing-dot:nth-child(2) { animation-delay: 0.15s; }
@@ -159,22 +160,22 @@
 
 /* Card hover lift */
 .lf-lift { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, border-color 0.2s ease-out; }
-.lf-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgb(15 23 42 / 0.1); }
+.lf-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgb(28 25 23 / 0.1); }
 
 /* Progress bar fill */
 .lf-progress-fill { transition: width 0.5s ease; }
 
 /* Composer focus glow */
 .lf-composer:focus-within {
-  border-color: var(--lf-primary-600);
-  box-shadow: 0 0 0 3px rgb(79 70 229 / 0.12);
+  border-color: var(--lf-accent-600);
+  box-shadow: 0 0 0 3px rgb(169 79 49 / 0.12);
 }
 
 /* Proposal card hover glow */
 .lf-proposal { transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.2s ease-out; }
 .lf-proposal:hover {
-  border-color: var(--lf-primary-400);
-  box-shadow: 0 8px 20px rgb(79 70 229 / 0.12);
+  border-color: var(--lf-accent-400);
+  box-shadow: 0 8px 20px rgb(169 79 49 / 0.12);
   transform: translateY(-2px);
 }
 
