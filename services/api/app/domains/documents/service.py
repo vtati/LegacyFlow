@@ -801,19 +801,39 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
     if household_id:
         persons = household_repo.list_persons_for_household(conn, UUID(str(household_id)))
         children = []
+        adults = []
         for p in persons:
             kind = str(p.get("kind") or "").lower()
             name = str(p.get("full_name") or "")
-            if not name:
+            if not name or name == "Unknown person":
                 continue
             dob = p.get("date_of_birth")
             dob_str = f" (DOB: {dob})" if dob else ""
-            if kind in ("child", "minor_child", "son", "daughter"):
-                children.append(f"{name}{dob_str}")
+            if kind in ("minor", "child", "minor_child", "son", "daughter"):
+                children.append(name)
+            else:
+                adults.append(name)
         if children:
-            context["children_list"] = "\n".join(f"- {c}" for c in children)
+            context["children_list"] = ", ".join(children)
         else:
             context["children_list"] = "___"
+        if adults:
+            context["testator_name"] = adults[0]
+            context["grantor_name"] = adults[0]
+            context["trustee_name"] = adults[0]
+            if len(adults) > 1:
+                context["spouse_name"] = adults[1]
+        # Guardian names from verified interview answers
+        for row in intake_repo.list_answers(conn, UUID(str(matter["id"]))):
+            key = str(row["question_key"]).lower()
+            ans = row["answer"]
+            if not isinstance(ans, str) or not ans.strip():
+                continue
+            if "guardian" in key:
+                if "backup" in key or "alternate" in key or "successor" in key:
+                    context.setdefault("alternate_guardian_name", ans)
+                elif "primary" in key or "guardian_person" in key:
+                    context.setdefault("guardian_name", ans)
 
     # Replace any remaining unfilled placeholders with blank lines.
     # The _flag_unfilled_placeholders step still records them for attorney review.
@@ -948,7 +968,7 @@ def generate_demo(
     if template is None:
         raise ConflictError("The package's template is missing.")
 
-    body = _merge_placeholders(_template_content_body(template), _render_context(conn, matter))
+    body = _merge_placeholders(_template_content_body(template), build_template_context(conn, UUID(str(matter["id"]))))
     title = f"{template['name']} — Demo"
     _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
     created = _render_package_versions(
