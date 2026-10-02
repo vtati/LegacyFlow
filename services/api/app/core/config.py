@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # no Supabase admin calls in this slice. Never expose it to the browser.
     SUPABASE_SERVICE_ROLE_KEY: str
     DATABASE_URL: str | None = None
+    # File storage backend: "local" (disk, dev/test default) or "supabase"
+    # (Supabase Storage, production). Supabase mode requires SUPABASE_URL and
+    # SUPABASE_SERVICE_ROLE_KEY.
+    STORAGE_BACKEND: str = "local"
     TEST_JWT_ISSUER: str | None = None
     TEST_JWT_SECRET: str | None = None
     API_ENV: str = "development"

@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
+import json
+import urllib.request
+import urllib.error
+
 import psycopg
 from psycopg.rows import dict_row
 
@@ -42,6 +46,52 @@ MIME_MAGIC: dict[str, tuple[bytes, ...]] = {
 }
 
 _HEADER_READ_BYTES = 16
+
+
+def _download_stored_bytes(stored_path: str) -> bytes:
+    """Download file bytes via the configured storage backend.
+
+    Supports ``<bucket>/<key>`` Supabase paths (via Storage REST API) and
+    legacy local-disk paths. Raises FileNotFoundError when missing.
+    """
+    settings = get_worker_settings()
+    backend = str(getattr(settings, "STORAGE_BACKEND", "local") or "local").lower()
+
+    if "/" in stored_path:
+        bucket, _, key = stored_path.partition("/")
+        if bucket in ("client-uploads", "plan-documents") and key:
+            if backend == "supabase":
+                supabase_url = str(getattr(settings, "SUPABASE_URL", "") or "").rstrip("/")
+                service_key = str(getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "") or "")
+                if not supabase_url or not service_key:
+                    raise FileNotFoundError(f"Supabase storage not configured: {stored_path}")
+                req = urllib.request.Request(
+                    f"{supabase_url}/storage/v1/object/{bucket}/{key}",
+                    headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        return resp.read()
+                except urllib.error.HTTPError as exc:
+                    if exc.code == 404:
+                        raise FileNotFoundError(f"File not found: {stored_path}")
+                    raise
+            # Local backend: <bucket>/<key> under the storage root.
+            from pathlib import Path as _Path
+
+            root = _Path(str(getattr(settings, "STORAGE_DIR", "/tmp/legacyflow-uploads") or "/tmp/legacyflow-uploads"))
+            candidate = (root / bucket / key).resolve()
+            if candidate.is_file():
+                return candidate.read_bytes()
+            raise FileNotFoundError(f"File not found: {stored_path}")
+
+    # Legacy absolute local path.
+    from pathlib import Path as _Path
+
+    p = _Path(stored_path)
+    if p.is_file():
+        return p.read_bytes()
+    raise FileNotFoundError(f"File not found: {stored_path}")
 
 
 @dataclass(frozen=True)
@@ -72,13 +122,13 @@ class DevScanner:
     def __init__(self, magic: dict[str, tuple[bytes, ...]] | None = None) -> None:
         self._magic = magic if magic is not None else MIME_MAGIC
 
-    def scan(self, path: Path, mime_type: str) -> ScanResult:
+    def scan(self, path: Path | bytes, mime_type: str) -> ScanResult:
         normalized = mime_type.strip().lower()
         expected = self._magic.get(normalized)
         if expected is None:
             return ScanResult(clean=False, detail=f"unsupported MIME type: {mime_type!r}")
         try:
-            header = path.read_bytes()[:_HEADER_READ_BYTES]
+            header = (path if isinstance(path, bytes) else path.read_bytes())[:_HEADER_READ_BYTES]
         except OSError as exc:
             return ScanResult(clean=False, detail=f"could not read file: {exc}")
         if not header:
@@ -108,9 +158,11 @@ def perform_file_scan(
     if status != "pending":
         return {"scanned": 0, "status": status}
 
-    result = (scanner or DevScanner()).scan(
-        Path(str(row["stored_path"])), str(row["mime_type"] or "")
-    )
+    try:
+        file_bytes = _download_stored_bytes(str(row["stored_path"]))
+    except FileNotFoundError:
+        return {"scanned": 0, "status": "missing"}
+    result = (scanner or DevScanner()).scan(file_bytes, str(row["mime_type"] or ""))
     new_status = "clean" if result.clean else "quarantined"
     with conn.cursor() as cur:
         cur.execute(

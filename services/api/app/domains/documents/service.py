@@ -139,18 +139,16 @@ def _actor_id(actor_sub: str) -> UUID:
 # ---------------------------------------------------------------------------
 
 
-def _storage_dir() -> Path:
-    """Server-side directory where rendered files are stored."""
-    directory = get_settings().document_storage_dir
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
 def _store_file(filename_stem: str, file_format: str, content: bytes) -> str:
-    """Write rendered bytes to the storage dir; return the stored path."""
-    path = _storage_dir() / f"{filename_stem}-{uuid.uuid4().hex}.{SUFFIX_BY_FORMAT[file_format]}"
-    path.write_bytes(content)
-    return str(path)
+    """Write rendered bytes via the storage backend; return the stored path.
+
+    Stored as ``plan-documents/<stem>-<uuid>.<suffix>``.
+    """
+    from app.domains.files.storage_backend import PLAN_DOCUMENTS_BUCKET, get_storage_backend
+
+    key = f"{filename_stem}-{uuid.uuid4().hex}.{SUFFIX_BY_FORMAT[file_format]}"
+    mime_type = MIME_BY_FORMAT[file_format]
+    return get_storage_backend().upload(PLAN_DOCUMENTS_BUCKET, key, content, mime_type)
 
 
 def _file_format_from_upload(row: dict[str, Any]) -> Literal["docx", "pdf"]:
@@ -220,8 +218,12 @@ def _evidence_out(conn: Any, evidence_file_id: Any) -> sch.FundingEvidenceOut | 
     upload = repo.get_file_upload(conn, UUID(str(evidence_file_id)))
     if upload is None:
         return None
-    path = Path(str(upload["stored_path"]))
-    digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    from app.domains.files import service as files_service
+
+    try:
+        digest = hashlib.sha256(files_service.download_bytes(str(upload["stored_path"]))).hexdigest()
+    except FileNotFoundError:
+        digest = None
     return sch.FundingEvidenceOut(
         file_name=str(upload["original_filename"]),
         size_bytes=int(upload["size_bytes"]),
@@ -981,10 +983,14 @@ def get_version_download(conn: Any, *, actor_sub: str, version_id: UUID) -> tupl
         raise NotFoundError("Document version not found.")
     # Existence-oracle: no access to the matter reads as not found.
     authz.get_matter_scope(conn, UUID(str(row["package_matter_id"])), actor_id)
-    path = Path(str(row["stored_path"]))
-    if not path.is_file():
+    from app.domains.files import service as files_service
+
+    stored_path = str(row["stored_path"])
+    try:
+        content = files_service.download_bytes(stored_path)
+    except FileNotFoundError:
         raise GoneError("The rendered file is no longer available.")
-    return path.read_bytes(), str(row["mime_type"]), str(row["original_filename"])
+    return content, str(row["mime_type"]), str(row["original_filename"])
 
 
 def release_production(conn: Any, *, actor_sub: str, package_id: UUID) -> None:

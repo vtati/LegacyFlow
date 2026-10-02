@@ -111,10 +111,23 @@ def create_download_token(
 
 @router.get("/files/download")
 def download_file(token: Annotated[str, Query(...)]) -> StreamingResponse:
-    """Stream a ``clean`` upload's bytes. Public: token-authenticated, no JWT."""
+    """Serve a ``clean`` upload's bytes. Public: token-authenticated, no JWT.
+
+    With the Supabase backend, redirects (302) to a 15-minute signed URL.
+    With the local backend, streams the file directly.
+    """
     with db.transaction() as conn:
         row = service.authorize_download(conn, token=token)
-    path = service.resolve_stored_path(str(row["stored_path"]))
+    stored_path = str(row["stored_path"])
+
+    # Prefer a signed URL when the backend supports it (Supabase).
+    signed = service.storage_signed_url(stored_path, expires_in=900)
+    if signed:
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url=signed, status_code=302)
+
+    path = service.resolve_stored_path(stored_path)
     if not path.is_file():
         # Row exists but bytes are missing: a server-side inconsistency.
         raise NotFoundError("File not found.")

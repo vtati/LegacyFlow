@@ -19,6 +19,11 @@ class WorkerSettings(BaseSettings):
     NOTIFICATION_SANDBOX_DIR: str = "/tmp/legacyflow-mail"
     # Attempts after which an outbox row is marked 'failed'.
     NOTIFICATION_MAX_ATTEMPTS: int = 5
+    # File storage backend: "local" (disk) or "supabase" (Supabase Storage).
+    STORAGE_BACKEND: str = "local"
+    SUPABASE_URL: str | None = None
+    SUPABASE_SERVICE_ROLE_KEY: str | None = None
+    STORAGE_DIR: str = "/tmp/legacyflow-uploads"
 
 
 @lru_cache(maxsize=1)
