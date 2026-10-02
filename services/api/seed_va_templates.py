@@ -44,6 +44,12 @@ TEMPLATES = [
         "template_type": "instruction_letter",
         "pack_id": "us-va",
     },
+    {
+        "file": "revocable-living-trust.txt",
+        "name": "Revocable Living Trust (Virginia)",
+        "template_type": "trust",
+        "pack_id": "us-va",
+    },
 ]
 
 

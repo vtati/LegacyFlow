@@ -132,7 +132,7 @@ export default function FirmReviewQueuePage(): React.JSX.Element {
                       >
                         {row.matter.title || 'Untitled matter'}
                       </Link>
-                      <p className="mt-0.5 text-sm text-lf-text-muted">{row.matter.household.name}</p>
+                      <p className="mt-0.5 text-sm text-lf-text-muted">{row.matter.household?.name ?? 'Household'}</p>
                       {row.failed && (
                         <p className="mt-0.5 text-xs text-lf-error-700">
                           Some details could not be loaded for this matter.

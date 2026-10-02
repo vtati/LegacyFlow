@@ -124,9 +124,42 @@ export async function apiFetchBlob(
   return { blob, filename: match?.[1] ?? 'document' };
 }
 
+/** POST a multipart file upload (vault complete-upload). Throws ApiError on failure. */
+export async function apiFetchMultipart<T>(
+  path: string,
+  file: File,
+  options: ApiClientOptions & { signal?: AbortSignal } = {},
+): Promise<T> {
+  const { baseUrl = '', getToken, signal } = options;
+  const headers: Record<string, string> = {};
+  const token = await getToken?.();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const response = await fetch(`${baseUrl}/v1${path}`, {
+    method: 'POST',
+    headers,
+    body: form,
+    signal,
+  });
+  if (!response.ok) {
+    let parsed: unknown = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    const { message, code } = readErrorMessage(response.status, parsed);
+    throw new ApiError(response.status, message, { code, details: parsed });
+  }
+  return (await response.json()) as T;
+}
+
 /** Build the same-origin download URL for a file given a short-lived token. */
-export function fileDownloadUrl(fileId: string, token: string, baseUrl = ''): string {
-  return `${baseUrl}/v1/files/${fileId}/download?token=${encodeURIComponent(token)}`;
+export function fileDownloadUrl(_fileId: string, token: string, baseUrl = ''): string {
+  return `${baseUrl}/v1/files/download?token=${encodeURIComponent(token)}`;
 }
 
 /* ------------------------------------------------------------------ types */
@@ -144,7 +177,8 @@ export interface MatterSummary {
   jurisdiction_code: string;
   status: MatterStatus;
   completeness_pct: number;
-  household: HouseholdRef;
+  /** Nullable at runtime (e.g. household without a display name); always null-guard. */
+  household: HouseholdRef | null;
   created_at: string;
   updated_at: string;
   assigned_attorney_id: string | null;
@@ -660,32 +694,61 @@ export interface GateDecisionInput {
 
 export type FileScanStatus = 'pending' | 'clean' | 'quarantined' | string;
 
+export interface FileKeyFact {
+  label: string;
+  value: string;
+}
+
+/** Mirrors the API's FileUploadOut (files domain), including vault AI analysis. */
 export interface MatterFile {
   id: string;
   firm_id: string;
-  matter_id: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
+  household_id: string;
+  matter_id: string | null;
+  uploader_user_id: string;
+  original_filename: string;
+  stored_path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
   scan_status: FileScanStatus;
-  uploaded_by_user_id: string;
+  scan_detail: string | null;
+  extracted_text: string | null;
+  extraction_status: string;
+  document_type: string | null;
+  ai_summary: string | null;
+  key_facts: FileKeyFact[];
+  tags: string[];
+  analysis_confidence: number | null;
+  analyzed_at: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface FileUploadIntentInput {
   filename: string;
-  content_type: string;
+  mime_type: string;
   size_bytes: number;
+  purpose: 'evidence' | 'document' | 'attachment';
 }
 
 export interface FileUploadIntent {
   upload_id: string;
-  /** Pre-signed URL the browser PUTs the file bytes to directly. */
-  upload_url: string;
+  stored_path: string;
+  status: string;
+}
+
+export interface FileAnalysis {
+  upload_id: string;
+  document_type: string;
+  summary: string;
+  key_facts: FileKeyFact[];
+  suggested_tags: string[];
+  confidence: number;
+  analyzed_at: string;
 }
 
 export interface DownloadTokenResponse {
-  download_token: string;
+  token: string;
   expires_at: string;
 }
 
@@ -959,8 +1022,10 @@ export interface FamilyApi {
   /* files (matter-scoped) */
   listFiles: (matterId: string) => Promise<MatterFile[]>;
   requestIntent: (matterId: string, input: FileUploadIntentInput) => Promise<FileUploadIntent>;
-  completeUpload: (uploadId: string) => Promise<MatterFile>;
-  getDownloadToken: (matterId: string, fileId: string) => Promise<DownloadTokenResponse>;
+  completeUpload: (uploadId: string, file: File) => Promise<MatterFile>;
+  getDownloadToken: (fileId: string) => Promise<DownloadTokenResponse>;
+  analyzeFile: (uploadId: string) => Promise<FileAnalysis>;
+  addFileTags: (uploadId: string, tags: string[]) => Promise<MatterFile>;
   /* ai assistant */
   askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
   /* documents (drafts, family-visible) */
@@ -1176,10 +1241,14 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         method: 'POST',
         body: input,
       }),
-    completeUpload: (uploadId) =>
-      call<MatterFile>(`/files/uploads/${uploadId}/complete`, { method: 'POST' }),
-    getDownloadToken: (matterId, fileId) =>
-      call<DownloadTokenResponse>(`/matters/${matterId}/files/${fileId}/download-token`),
+    completeUpload: (uploadId, file) =>
+      apiFetchMultipart<MatterFile>(`/files/${uploadId}/complete`, file, options),
+    getDownloadToken: (fileId) =>
+      call<DownloadTokenResponse>(`/files/${fileId}/download-token`, { method: 'POST' }),
+    analyzeFile: (uploadId) =>
+      call<FileAnalysis>(`/files/${uploadId}/analyze`, { method: 'POST', track: false }),
+    addFileTags: (uploadId, tags) =>
+      call<MatterFile>(`/files/${uploadId}/tags`, { method: 'POST', body: { tags } }),
     /* ai assistant */
     askAi: (matterId, question) =>
       call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {
@@ -1399,7 +1468,8 @@ export interface FirmApi {
   decideGate: (gateId: string, input: GateDecisionInput) => Promise<Gate>;
   /* files (matter-scoped, read + download) */
   listFiles: (matterId: string) => Promise<MatterFile[]>;
-  getDownloadToken: (matterId: string, fileId: string) => Promise<DownloadTokenResponse>;
+  getDownloadToken: (fileId: string) => Promise<DownloadTokenResponse>;
+  analyzeFile: (uploadId: string) => Promise<FileAnalysis>;
   /* ai assistant */
   askAi: (matterId: string, question: string) => Promise<AiAskResponse>;
   /* documents */
@@ -1531,8 +1601,10 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       }),
     /* files */
     listFiles: (matterId) => call<MatterFile[]>(`/matters/${matterId}/files`),
-    getDownloadToken: (matterId, fileId) =>
-      call<DownloadTokenResponse>(`/matters/${matterId}/files/${fileId}/download-token`),
+    getDownloadToken: (fileId) =>
+      call<DownloadTokenResponse>(`/files/${fileId}/download-token`, { method: 'POST' }),
+    analyzeFile: (uploadId) =>
+      call<FileAnalysis>(`/files/${uploadId}/analyze`, { method: 'POST', track: false }),
     /* ai assistant */
     askAi: (matterId, question) =>
       call<AiAskResponse>(`/matters/${matterId}/ai/ask`, {

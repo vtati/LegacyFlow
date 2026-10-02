@@ -169,7 +169,7 @@ function MatterCheckupCard({ checkup }: { checkup: MatterCheckup }) {
           <div>
             <CardTitle>{matter.title}</CardTitle>
             <CardDescription>
-              {matter.household.name} · {matter.jurisdiction_code}
+              {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code}
             </CardDescription>
           </div>
           <span

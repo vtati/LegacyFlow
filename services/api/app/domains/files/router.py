@@ -95,6 +95,40 @@ def list_matter_files(user: User, matter_id: UUID) -> list[sch.FileUploadOut]:
         return service.list_matter_files(conn, actor_sub=user.sub, matter_id=matter_id)
 
 
+@router.post("/files/{upload_id}/analyze", response_model=sch.FileAnalysisOut)
+def analyze_upload(
+    user: User, upload_id: UUID, request: Request
+) -> sch.FileAnalysisOut:
+    """Run AI document analysis on an upload's extracted text.
+
+    Returns the document type, summary, key facts, suggested tags, and
+    confidence. Suggested tags are merged into the file's tag list.
+    Requires extracted text — 422 when extraction is unavailable.
+    """
+    with db.transaction() as conn:
+        return service.analyze_upload(
+            conn,
+            actor_sub=user.sub,
+            upload_id=upload_id,
+            correlation_id=_correlation_id(request),
+        )
+
+
+@router.post("/files/{upload_id}/tags", response_model=sch.FileUploadOut)
+def add_upload_tags(
+    user: User, upload_id: UUID, payload: sch.FileTagsUpdate, request: Request
+) -> sch.FileUploadOut:
+    """Add user tags to an upload (deduplicated, normalized)."""
+    with db.transaction() as conn:
+        return service.add_upload_tags(
+            conn,
+            actor_sub=user.sub,
+            upload_id=upload_id,
+            tags=payload.tags,
+            correlation_id=_correlation_id(request),
+        )
+
+
 @router.post("/files/{upload_id}/download-token", response_model=sch.DownloadTokenResponse)
 def create_download_token(
     user: User, upload_id: UUID, request: Request

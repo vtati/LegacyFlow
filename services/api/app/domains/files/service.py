@@ -39,6 +39,8 @@ from app.core.errors import (
 )
 from app.domains.files import repository as repo
 from app.domains.files import schemas as sch
+from app.domains.files import analysis as file_analysis
+from app.domains.files import extraction as file_extraction
 from app.domains.files.storage_backend import (
     CLIENT_UPLOADS_BUCKET,
     LocalStorageBackend,
@@ -353,6 +355,25 @@ def complete_upload(
         bucket, key, content, str(row["mime_type"] or "application/octet-stream")
     )
 
+    # Vault AI analysis, step 1: extract text now while bytes are in hand.
+    # Images (and unknown types) record 'unavailable' — never fake OCR.
+    try:
+        extracted = file_extraction.extract_text(content, str(row["mime_type"] or ""))
+    except Exception:
+        extracted = ""
+    if extracted is None:
+        extraction_status = "unavailable"
+    elif extracted:
+        extraction_status = "done"
+    else:
+        extraction_status = "failed"
+    row = repo.update_extraction(
+        conn,
+        upload_id,
+        extracted_text=extracted,
+        extraction_status=extraction_status,
+    )
+
     record_audit_event(
         conn,
         action="files.upload_completed",
@@ -374,6 +395,101 @@ def list_matter_files(conn: Any, *, actor_sub: str, matter_id: UUID) -> list[sch
     scope = authz.get_matter_scope(conn, matter_id, actor_id)
     _require_matter_read(scope)
     return [_file_upload_out(row) for row in repo.list_file_uploads_for_matter(conn, matter_id)]
+
+
+# ---------------------------------------------------------------------------
+# Vault AI analysis
+# ---------------------------------------------------------------------------
+
+
+def analyze_upload(
+    conn: Any,
+    *,
+    actor_sub: str,
+    upload_id: UUID,
+    correlation_id: UUID | None = None,
+) -> sch.FileAnalysisOut:
+    """Run AI document analysis on an upload's extracted text.
+
+    Requires extracted text (422 when extraction is unavailable/failed).
+    Firm staff+ or any household member may analyze. Suggested tags are
+    merged into the file's tag list; the analysis is persisted and returned.
+    """
+    actor_id = caller_id(actor_sub)
+    scope = get_upload_scope(conn, upload_id, actor_id)
+    _require_upload_read(scope)
+
+    row = scope.upload
+    if str(row.get("extraction_status")) != "done" or not row.get("extracted_text"):
+        raise ValidationAppError(
+            "Text extraction is unavailable for this file, so it cannot be analyzed."
+        )
+
+    result = file_analysis.analyze_with_llm(
+        str(row["extracted_text"]), str(row["original_filename"])
+    )
+    updated = repo.update_analysis(
+        conn,
+        upload_id,
+        document_type=result["document_type"],
+        ai_summary=result["summary"],
+        key_facts=result["key_facts"],
+        suggested_tags=result["suggested_tags"],
+        confidence=result["confidence"],
+    )
+    record_audit_event(
+        conn,
+        action="files.analyzed",
+        resource_type="file_upload",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(row["firm_id"])),
+        matter_id=UUID(str(row["matter_id"])) if row.get("matter_id") else None,
+        resource_id=upload_id,
+        correlation_id=correlation_id,
+        metadata={
+            "document_type": result["document_type"],
+            "confidence": result["confidence"],
+            "key_facts": len(result["key_facts"]),
+        },
+    )
+    return sch.FileAnalysisOut(
+        upload_id=upload_id,
+        document_type=result["document_type"],
+        summary=result["summary"],
+        key_facts=[sch.KeyFact.model_validate(kf) for kf in result["key_facts"]],
+        suggested_tags=result["suggested_tags"],
+        confidence=result["confidence"],
+        analyzed_at=updated["analyzed_at"],
+    )
+
+
+def add_upload_tags(
+    conn: Any,
+    *,
+    actor_sub: str,
+    upload_id: UUID,
+    tags: list[str],
+    correlation_id: UUID | None = None,
+) -> sch.FileUploadOut:
+    """Add user tags to an upload (firm staff+ or household writer)."""
+    actor_id = caller_id(actor_sub)
+    scope = get_upload_scope(conn, upload_id, actor_id)
+    _require_upload_write(scope)
+    row = repo.add_tags(conn, upload_id, tags=tags)
+    record_audit_event(
+        conn,
+        action="files.tags_added",
+        resource_type="file_upload",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(row["firm_id"])),
+        matter_id=UUID(str(row["matter_id"])) if row.get("matter_id") else None,
+        resource_id=upload_id,
+        correlation_id=correlation_id,
+        metadata={"tags": tags},
+    )
+    return _file_upload_out(row)
 
 
 # ---------------------------------------------------------------------------

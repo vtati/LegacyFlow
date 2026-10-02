@@ -212,7 +212,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       {matter && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-lf-text-muted">
           <span>
-            {matter.household.name} · {matter.jurisdiction_code}
+            {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code}
           </span>
           <span className="rounded-full bg-lf-primary-50 px-2.5 py-1 text-xs font-medium text-lf-primary-800">
             {formatStatus(matter.status)}

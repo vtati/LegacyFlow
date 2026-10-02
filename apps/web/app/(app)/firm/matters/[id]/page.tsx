@@ -97,7 +97,7 @@ export default function FirmMatterDetailPage({
                 {matter.matter.title}
               </h1>
               <p className="mt-2 text-sm text-lf-text-muted">
-                {matter.household.name} · {matter.matter.jurisdiction_code}
+                {matter.household?.name ?? 'Household'} · {matter.matter.jurisdiction_code}
               </p>
             </div>
             <div className="flex flex-col items-end gap-3">

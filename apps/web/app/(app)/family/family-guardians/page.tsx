@@ -185,7 +185,7 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
         <>
           {selectedMatter && (
             <p className="text-sm text-lf-text-muted">
-              {selectedMatter.household.name} · {formatStatus(selectedMatter.status)}
+              {selectedMatter.household?.name ?? 'Household'} · {formatStatus(selectedMatter.status)}
             </p>
           )}
 

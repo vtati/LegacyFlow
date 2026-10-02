@@ -241,7 +241,9 @@ export default function FamilyAssetsAccountsPage(): React.JSX.Element {
   const load = useCallback(async (list: MatterSummary[]) => {
     const unique = new Map<string, HouseholdRef>();
     for (const matter of list) {
-      if (!unique.has(matter.household.id)) unique.set(matter.household.id, matter.household);
+      const hh = matter.household;
+      if (!hh || unique.has(hh.id)) continue;
+      unique.set(hh.id, hh);
     }
     setLoading(true);
     setError(null);

@@ -47,7 +47,7 @@ function AttentionRow({ matter, reasons }: AttentionMatter) {
           <span className="block font-medium text-lf-primary-700 underline-offset-4 hover:underline">
             {matter.title}
           </span>
-          <span className="block text-sm text-lf-text-muted">{matter.household.name}</span>
+          <span className="block text-sm text-lf-text-muted">{matter.household?.name ?? 'Household'}</span>
         </span>
         <span className="flex flex-wrap items-center gap-2">
           <span
@@ -202,7 +202,7 @@ export default function FirmOverviewPage(): React.JSX.Element {
                       <span className="block font-medium text-lf-primary-700 underline-offset-4 hover:underline">
                         {matter.title}
                       </span>
-                      <span className="block text-sm text-lf-text-muted">{matter.household.name}</span>
+                      <span className="block text-sm text-lf-text-muted">{matter.household?.name ?? 'Household'}</span>
                     </span>
                     <span className="shrink-0 text-sm text-lf-text-muted">{formatDate(matter.updated_at)}</span>
                   </Link>

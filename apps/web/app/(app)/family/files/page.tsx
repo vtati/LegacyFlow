@@ -45,7 +45,7 @@ export default function FamilyFilesPage(): React.JSX.Element {
 
   const handleUploaded = (file: MatterFile) => {
     setFiles((prev) => [file, ...prev]);
-    setNotice(`“${file.filename}” uploaded — it will be scanned shortly.`);
+    setNotice(`“${file.original_filename}” uploaded — text extracted, ready for analysis.`);
   };
 
   const handleDownload = (file: MatterFile) => {
@@ -53,11 +53,11 @@ export default function FamilyFilesPage(): React.JSX.Element {
     setDownloadingId(file.id);
     setDownloadError(null);
     api
-      .getDownloadToken(matterId, file.id)
+      .getDownloadToken(file.id)
       .then((response) => {
         const anchor = document.createElement('a');
-        anchor.href = fileDownloadUrl(file.id, response.download_token);
-        anchor.download = file.filename;
+        anchor.href = fileDownloadUrl(file.id, response.token);
+        anchor.download = file.original_filename;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -70,6 +70,10 @@ export default function FamilyFilesPage(): React.JSX.Element {
         ),
       )
       .finally(() => setDownloadingId(null));
+  };
+
+  const handleAnalyzed = (file: MatterFile) => {
+    setFiles((prev) => prev.map((f) => (f.id === file.id ? file : f)));
   };
 
   return (
@@ -119,6 +123,8 @@ export default function FamilyFilesPage(): React.JSX.Element {
             downloadingId={downloadingId}
             onDownload={handleDownload}
             downloadError={downloadError}
+            onAnalyzed={handleAnalyzed}
+            allowAnalyze
           />
         </section>
       )}

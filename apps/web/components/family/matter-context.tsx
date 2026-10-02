@@ -65,13 +65,13 @@ export function MatterSelect({
         </option>
         {matters.map((matter) => (
           <option key={matter.id} value={matter.id}>
-            {matter.title} — {matter.household.name}
+            {matter.title} — {matter.household?.name ?? 'Household'}
           </option>
         ))}
       </select>
       {selected && (
         <p className="text-xs text-lf-text-subtle">
-          {selected.household.name} · {formatStatus(selected.status)}
+          {selected.household?.name ?? 'Household'} · {formatStatus(selected.status)}
         </p>
       )}
     </div>

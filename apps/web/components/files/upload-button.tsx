@@ -57,18 +57,12 @@ export function UploadButton({ matterId, onUploaded }: UploadButtonProps): React
     try {
       const intent = await api.requestIntent(matterId, {
         filename: file.name,
-        content_type: file.type,
+        mime_type: file.type,
         size_bytes: file.size,
+        purpose: 'document',
       });
-      const putResponse = await fetch(intent.upload_url, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
-      if (!putResponse.ok) {
-        throw new Error('The upload did not complete. Please try again.');
-      }
-      const completed = await api.completeUpload(intent.upload_id);
+      // The API accepts the bytes as multipart on the complete endpoint.
+      const completed = await api.completeUpload(intent.upload_id, file);
       onUploaded(completed);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not upload the file.');

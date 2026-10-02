@@ -182,6 +182,18 @@ def create_person(
         kind=payload.kind,
         notes=payload.notes,
     )
+    # Link the person as a household member in the same transaction —
+    # without this row the person never appears in the household's
+    # member list (the profile page renders members, not bare persons).
+    repo.insert_household_member(
+        conn,
+        household_id=household_id,
+        relationship_role=payload.relationship_role,
+        access_status="active",
+        user_id=None,
+        person_id=UUID(str(row["id"])),
+        invited_by=actor_id,
+    )
     record_audit_event(
         conn,
         action="persons.created",

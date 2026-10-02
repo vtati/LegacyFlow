@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PersonKind = Literal["adult", "minor"]
 HouseholdRole = Literal["primary_client", "collaborator", "dependent", "trusted_contact"]
@@ -43,6 +43,19 @@ class PersonCreate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     kind: PersonKind = Field(description="adult or minor")
     notes: str | None = Field(default=None, max_length=2000)
+    relationship_role: str = Field(
+        default="dependent",
+        description="Household member role for the auto-created membership link.",
+    )
+
+    @field_validator("relationship_role")
+    @classmethod
+    def _role_allowed(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        allowed = {"primary_client", "collaborator", "dependent", "trusted_contact"}
+        if normalized not in allowed:
+            raise ValueError(f"relationship_role must be one of: {', '.join(sorted(allowed))}.")
+        return normalized
 
 
 class PersonPatch(BaseModel):

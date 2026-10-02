@@ -38,13 +38,15 @@ interface HouseholdGroup {
 function groupByHousehold(matters: MatterSummary[]): HouseholdGroup[] {
   const groups = new Map<string, HouseholdGroup>();
   for (const matter of matters) {
-    const existing = groups.get(matter.household.id);
+    const hid = matter.household?.id;
+    if (!hid) continue; // matter without a linked household: not groupable
+    const existing = groups.get(hid);
     if (existing) {
       existing.matters.push(matter);
     } else {
-      groups.set(matter.household.id, {
-        id: matter.household.id,
-        name: matter.household.name,
+      groups.set(hid, {
+        id: hid,
+        name: matter.household?.name ?? 'Household',
         matters: [matter],
       });
     }

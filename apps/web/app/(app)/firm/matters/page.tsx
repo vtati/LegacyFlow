@@ -107,7 +107,7 @@ function MatterRow({ matter }: { matter: MatterSummary }) {
         >
           {matter.title || 'Untitled matter'}
         </Link>
-        <p className="mt-0.5 text-sm text-lf-text-muted">{matter.household.name}</p>
+        <p className="mt-0.5 text-sm text-lf-text-muted">{matter.household?.name ?? 'Household'}</p>
       </td>
       <td data-th="Jurisdiction" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{matter.jurisdiction_code}</td>
       <td data-th="Status" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>

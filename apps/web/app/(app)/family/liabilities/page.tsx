@@ -78,7 +78,7 @@ export default function FamilyLiabilitiesPage(): React.JSX.Element {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const householdId = useMemo(
-    () => matters.find((matter) => matter.id === matterId)?.household.id ?? null,
+    () => matters.find((matter) => matter.id === matterId)?.household?.id ?? null,
     [matters, matterId],
   );
 

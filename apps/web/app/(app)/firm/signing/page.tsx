@@ -32,7 +32,7 @@ function SigningCard({ row }: { row: SigningRow }) {
           </Link>
         </CardTitle>
         <CardDescription>
-          {matter.household.name} · {formatStatus(matter.status)}
+          {matter.household?.name ?? 'Household'} · {formatStatus(matter.status)}
         </CardDescription>
       </CardHeader>
       <CardContent>

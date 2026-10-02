@@ -88,7 +88,7 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
               {matter.title || 'Untitled matter'}
             </Link>
             <p className="mt-0.5 text-sm text-lf-text-muted">
-              {matter.household.name} · {matter.jurisdiction_code}
+              {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code}
             </p>
           </div>
           <span
@@ -137,8 +137,8 @@ export default function FamilyHomePage(): React.JSX.Element {
   const { matters, loading, error, reload } = useMatters();
   const [modalOpen, setModalOpen] = useState(false);
   const greeting = greetingForHour(new Date().getHours());
-  const householdName = matters[0]?.household.name ?? 'your household';
-  const householdId = matters[0]?.household.id ?? null;
+  const householdName = matters[0]?.household?.name ?? 'your household';
+  const householdId = matters[0]?.household?.id ?? null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -226,7 +226,7 @@ export default function FamilyHomePage(): React.JSX.Element {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         householdId={householdId}
-        householdName={matters[0]?.household.name ?? null}
+        householdName={matters[0]?.household?.name ?? null}
         onCreated={reload}
       />
     </div>

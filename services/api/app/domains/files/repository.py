@@ -13,6 +13,8 @@ this layer follows it exactly:
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 from uuid import UUID
 
@@ -96,5 +98,89 @@ def update_scan_status(
             RETURNING *
             """,
             (scan_status, scan_detail, str(upload_id)),
+        )
+        return dict(cur.fetchone())
+
+
+def update_extraction(
+    conn: Any, upload_id: UUID, *, extracted_text: str | None, extraction_status: str
+) -> dict[str, Any]:
+    """Store extracted text and its status; return the updated row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE file_uploads
+            SET extracted_text = %s, extraction_status = %s, updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (extracted_text, extraction_status, str(upload_id)),
+        )
+        return dict(cur.fetchone())
+
+
+def update_analysis(
+    conn: Any,
+    upload_id: UUID,
+    *,
+    document_type: str,
+    ai_summary: str,
+    key_facts: list[dict[str, str]],
+    suggested_tags: list[str],
+    confidence: float,
+) -> dict[str, Any]:
+    """Persist AI analysis; merge suggested tags into the tag list."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT tags FROM file_uploads WHERE id = %s", (str(upload_id),))
+        row = cur.fetchone()
+        existing = list(row["tags"]) if row and row["tags"] else []
+        merged = list(existing)
+        for tag in suggested_tags:
+            if tag not in merged:
+                merged.append(tag)
+        cur.execute(
+            """
+            UPDATE file_uploads
+            SET document_type = %s, ai_summary = %s, key_facts = %s,
+                tags = %s, analysis_confidence = %s, analyzed_at = now(),
+                updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                document_type,
+                ai_summary,
+                json.dumps(key_facts),
+                json.dumps(merged),
+                confidence,
+                str(upload_id),
+            ),
+        )
+        return dict(cur.fetchone())
+
+
+def add_tags(conn: Any, upload_id: UUID, *, tags: list[str]) -> dict[str, Any]:
+    """Add user tags (deduplicated, normalized); return the updated row."""
+    normalized: list[str] = []
+    for tag in tags:
+        t = re.sub(r"[^a-z0-9\-]", "", str(tag).strip().lower().replace(" ", "-"))[:40]
+        if t and t not in normalized:
+            normalized.append(t)
+    with conn.cursor() as cur:
+        cur.execute("SELECT tags FROM file_uploads WHERE id = %s", (str(upload_id),))
+        row = cur.fetchone()
+        existing = list(row["tags"]) if row and row["tags"] else []
+        merged = list(existing)
+        for tag in normalized:
+            if tag not in merged:
+                merged.append(tag)
+        cur.execute(
+            """
+            UPDATE file_uploads
+            SET tags = %s, updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (json.dumps(merged), str(upload_id)),
         )
         return dict(cur.fetchone())

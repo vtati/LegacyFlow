@@ -32,10 +32,16 @@ function respondWith(payload: unknown, status = 200) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
+      let body: unknown;
+      if (init?.body instanceof FormData) {
+        body = '[FormData]';
+      } else if (init?.body) {
+        body = JSON.parse(init.body as string);
+      }
       requests.push({
         url,
         method: init?.method ?? 'GET',
-        body: init?.body ? JSON.parse(init.body as string) : undefined,
+        body,
         headers: (init?.headers ?? {}) as Record<string, string>,
       });
       return mockResponse(payload, status);
@@ -51,13 +57,25 @@ afterEach(() => {
 const sampleFile: MatterFile = {
   id: 'file-1',
   firm_id: 'firm-1',
+  household_id: 'household-1',
   matter_id: 'matter-1',
-  filename: 'deed.pdf',
-  content_type: 'application/pdf',
+  uploader_user_id: 'user-1',
+  original_filename: 'deed.pdf',
+  stored_path: 'client-uploads/file-1.pdf',
+  mime_type: 'application/pdf',
   size_bytes: 102400,
   scan_status: 'clean',
-  uploaded_by_user_id: 'user-1',
+  scan_detail: null,
+  extracted_text: 'GENERAL WARRANTY DEED',
+  extraction_status: 'done',
+  document_type: 'deed',
+  ai_summary: 'A property deed.',
+  key_facts: [{ label: 'Grantor', value: 'Robert Smith' }],
+  tags: ['deed'],
+  analysis_confidence: 0.9,
+  analyzed_at: '2026-09-27T12:05:00Z',
   created_at: '2026-09-27T12:00:00Z',
+  updated_at: '2026-09-27T12:05:00Z',
 };
 
 const askResponse: AiAskResponse = {
@@ -78,40 +96,74 @@ describe('Family API — files (Slice 4)', () => {
   });
 
   it('requests an upload intent and completes the upload', async () => {
-    respondWith({ upload_id: 'upl-1', upload_url: 'https://storage.example/put' });
+    respondWith({ upload_id: 'upl-1', stored_path: 'client-uploads/upl-1.pdf', status: 'pending' });
     const intent = await family.requestIntent('matter-1', {
       filename: 'deed.pdf',
-      content_type: 'application/pdf',
+      mime_type: 'application/pdf',
       size_bytes: 102400,
+      purpose: 'document',
     });
     expect(intent.upload_id).toBe('upl-1');
     expect(requests[0]).toMatchObject({
       url: '/v1/matters/matter-1/files/intent',
       method: 'POST',
-      body: { filename: 'deed.pdf', content_type: 'application/pdf', size_bytes: 102400 },
+      body: {
+        filename: 'deed.pdf',
+        mime_type: 'application/pdf',
+        size_bytes: 102400,
+        purpose: 'document',
+      },
     });
 
     respondWith(sampleFile);
-    const completed = await family.completeUpload('upl-1');
+    const file = new File(['bytes'], 'deed.pdf', { type: 'application/pdf' });
+    const completed = await family.completeUpload('upl-1', file);
     expect(completed.id).toBe('file-1');
     expect(requests[1]).toMatchObject({
-      url: '/v1/files/uploads/upl-1/complete',
+      url: '/v1/files/upl-1/complete',
       method: 'POST',
     });
   });
 
   it('gets a download token', async () => {
-    respondWith({ download_token: 'tok-1', expires_at: '2026-09-27T13:00:00Z' });
-    const token = await family.getDownloadToken('matter-1', 'file-1');
-    expect(token.download_token).toBe('tok-1');
+    respondWith({ token: 'tok-1', expires_at: '2026-09-27T12:15:00Z' });
+    const token = await family.getDownloadToken('file-1');
+    expect(token.token).toBe('tok-1');
     expect(requests[0]).toMatchObject({
-      url: '/v1/matters/matter-1/files/file-1/download-token',
-      method: 'GET',
+      url: '/v1/files/file-1/download-token',
+      method: 'POST',
+    });
+  });
+
+  it('analyzes a file and adds tags', async () => {
+    respondWith({
+      upload_id: 'file-1',
+      document_type: 'deed',
+      summary: 'A property deed.',
+      key_facts: [{ label: 'Grantor', value: 'Robert Smith' }],
+      suggested_tags: ['deed'],
+      confidence: 0.9,
+      analyzed_at: '2026-09-27T12:05:00Z',
+    });
+    const analysis = await family.analyzeFile('file-1');
+    expect(analysis.document_type).toBe('deed');
+    expect(requests[0]).toMatchObject({
+      url: '/v1/files/file-1/analyze',
+      method: 'POST',
+    });
+
+    respondWith({ ...sampleFile, tags: ['deed', 'reviewed'] });
+    const updated = await family.addFileTags('file-1', ['reviewed']);
+    expect(updated.tags).toContain('reviewed');
+    expect(requests[1]).toMatchObject({
+      url: '/v1/files/file-1/tags',
+      method: 'POST',
+      body: { tags: ['reviewed'] },
     });
   });
 
   it('builds a token download URL', () => {
-    expect(fileDownloadUrl('file-1', 'tok-1')).toBe('/v1/files/file-1/download?token=tok-1');
+    expect(fileDownloadUrl('file-1', 'tok-1')).toBe('/v1/files/download?token=tok-1');
   });
 });
 

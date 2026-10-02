@@ -93,6 +93,13 @@ class UploadIntentResponse(BaseModel):
     status: str
 
 
+class KeyFact(BaseModel):
+    """One AI-extracted fact: label + value (e.g. deed → property address)."""
+
+    label: str
+    value: str
+
+
 class FileUploadOut(BaseModel):
     """Full file_uploads metadata, including the scanner verdict."""
 
@@ -107,8 +114,45 @@ class FileUploadOut(BaseModel):
     size_bytes: int | None
     scan_status: str
     scan_detail: str | None
+    # Vault AI analysis (null/empty until extracted + analyzed).
+    extracted_text: str | None = None
+    extraction_status: str = "pending"
+    document_type: str | None = None
+    ai_summary: str | None = None
+    key_facts: list[KeyFact] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    analysis_confidence: float | None = None
+    analyzed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class FileAnalysisOut(BaseModel):
+    """Result of POST /files/{upload_id}/analyze."""
+
+    upload_id: UUID
+    document_type: str
+    summary: str
+    key_facts: list[KeyFact]
+    suggested_tags: list[str]
+    confidence: float
+    analyzed_at: datetime
+
+
+class FileTagsUpdate(BaseModel):
+    """Request body for POST /files/{upload_id}/tags."""
+
+    tags: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("tags")
+    @classmethod
+    def _tags_valid(cls, value: list[str]) -> list[str]:
+        for tag in value:
+            if not tag.strip():
+                raise ValueError("Tags must not be blank.")
+            if len(tag) > 40:
+                raise ValueError("Each tag must be at most 40 characters.")
+        return value
 
 
 class DownloadTokenResponse(BaseModel):

@@ -43,10 +43,10 @@ function TaskCard({
     if (!task.evidence_file_id) return;
     setDownloadError(null);
     api
-      .getDownloadToken(task.matter_id, task.evidence_file_id)
+      .getDownloadToken(task.evidence_file_id)
       .then((response) => {
         const anchor = document.createElement('a');
-        anchor.href = fileDownloadUrl(task.evidence_file_id ?? '', response.download_token);
+        anchor.href = fileDownloadUrl(task.evidence_file_id ?? '', response.token);
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -211,19 +211,11 @@ export default function FamilyFundingPage(): React.JSX.Element {
     api
       .requestIntent(matterId, {
         filename: file.name,
-        content_type: file.type,
+        mime_type: file.type,
         size_bytes: file.size,
+        purpose: 'evidence',
       })
-      .then((intent) =>
-        fetch(intent.upload_url, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type },
-          body: file,
-        }).then((putResponse) => {
-          if (!putResponse.ok) throw new Error('The upload did not complete. Please try again.');
-          return api.completeUpload(intent.upload_id);
-        }),
-      )
+      .then((intent) => api.completeUpload(intent.upload_id, file))
       .then((completed) =>
         api.updateFundingTask(task.id, {
           status: task.status,

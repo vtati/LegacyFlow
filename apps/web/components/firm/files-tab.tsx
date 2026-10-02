@@ -31,11 +31,11 @@ export function FilesTab({ matterId }: { matterId: string }): React.JSX.Element 
     setDownloadingId(file.id);
     setDownloadError(null);
     firmApi
-      .getDownloadToken(matterId, file.id)
+      .getDownloadToken(file.id)
       .then((response) => {
         const anchor = document.createElement('a');
-        anchor.href = fileDownloadUrl(file.id, response.download_token);
-        anchor.download = file.filename;
+        anchor.href = fileDownloadUrl(file.id, response.token);
+        anchor.download = file.original_filename;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();

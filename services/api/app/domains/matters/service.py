@@ -89,11 +89,15 @@ def matter_out(row: dict[str, Any]) -> MatterOut:
     data["completeness_pct"] = int(pct) if pct is not None else 0
     data["title"] = data.get("title") or ""
     household_name = data.get("household_name")
-    if data.get("household_id") is not None and household_name:
+    if data.get("household_id") is not None:
+        # Always populate the household summary when the link exists —
+        # a missing display_name must never null out the whole object
+        # (web clients dereference matter.household.name).
+        name = str(household_name) if household_name else "Household"
         data["household"] = MatterHouseholdSummary(
             id=data["household_id"],
-            name=str(household_name),
-            display_name=str(household_name),
+            name=name,
+            display_name=name,
         )
     return MatterOut.model_validate(data)
 

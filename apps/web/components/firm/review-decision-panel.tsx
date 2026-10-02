@@ -51,12 +51,12 @@ export function ReviewDecisionPanel({
         decision: 'approved',
         notes: notes.trim() || null,
       });
-      const updated = await firmApi.transitionMatter(
-        matterId,
-        'APPROVED_FOR_ASSEMBLY',
-        notes.trim() || null,
-      );
-      onStatusChange(updated.matter.status);
+      // The backend transitions the matter on gate approval
+      // (ATTORNEY_REVIEW → APPROVED_FOR_ASSEMBLY). Refetch instead of
+      // issuing a redundant transition — re-transitioning to the current
+      // state fails validation and would mask the successful approval.
+      const refreshed = await firmApi.getMatter(matterId);
+      onStatusChange(refreshed.matter.status);
       setNotes('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not approve.');

@@ -42,7 +42,7 @@ export default function FamilyIntakeIndexPage(): React.JSX.Element {
                   <div>
                     <p className="font-semibold text-lf-text">{matter.title}</p>
                     <p className="text-sm text-lf-text-muted">
-                      {matter.household.name} · {matter.jurisdiction_code} ·{' '}
+                      {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code} ·{' '}
                       {formatStatus(matter.status)}
                     </p>
                   </div>

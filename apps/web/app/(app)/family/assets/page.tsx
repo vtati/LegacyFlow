@@ -171,7 +171,7 @@ export default function FamilyAssetsPage(): React.JSX.Element {
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
 
   const householdId = useMemo(
-    () => matters.find((matter) => matter.id === matterId)?.household.id ?? null,
+    () => matters.find((matter) => matter.id === matterId)?.household?.id ?? null,
     [matters, matterId],
   );
 
