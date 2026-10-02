@@ -1,0 +1,43 @@
+# Virginia starter pack manifest (artifact §9.3).
+# Status: internal_testing — legal content remains attorney-pending.
+pack:
+  id: us-dc
+  country_code: US
+  subdivision_code: DC
+  display_name: District of Columbia
+  semantic_version: 0.1.0
+  status: internal_testing
+  effective_from: '2026-09-26'
+
+governance:
+  legal_content_owner_type: attorney_or_firm
+  review_status: pending
+  approved_by: null
+
+capabilities:
+  intake: true
+  education: true
+  eligibility_triage: true
+  attorney_review: true
+  document_assembly: true
+  execution_guidance: attorney_pending
+  funding_guidance: true
+
+requirements:
+  minimum_platform_version: '1.0.0'
+  required_question_set_versions:
+    household: '1.0.0'
+    guardians: '1.0.0'
+    assets: '1.0.0'
+
+sources:
+  - source_id: va-code-will-execution
+    authority_type: statute
+    citation: 'Va. Code § 64.2-403'
+    source_url: 'https://law.lis.virginia.gov/vacode/title64.2/chapter2/section64.2-403/'
+    retrieved_on: '2026-09-26'
+  - source_id: va-code-advance-directive
+    authority_type: statute
+    citation: 'Va. Code § 54.1-2983 and § 54.1-2984'
+    source_url: 'https://law.lis.virginia.gov/vacode/title54.1/chapter29/section54.1-2984/'
+    retrieved_on: '2026-09-26'

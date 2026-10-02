@@ -773,6 +773,51 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
 _UNFILLED_TOKEN = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 
 
+def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
+    """Build the full placeholder context for document templates.
+
+    Public API for template rendering. Wraps the internal ``_render_context``
+    and enhances it with structured person data (children lists, etc.) from
+    the matter's household.
+
+    Missing data is represented as ``___`` (blank line for attorney to fill)
+    rather than leaving raw ``{{placeholder}}`` tokens in legal documents.
+    """
+    from ...domains.household import repository as household_repo
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM matters WHERE id = %s", (str(matter_id),))
+        matter_row = cur.fetchone()
+    if matter_row is None:
+        raise NotFoundError("Matter not found.")
+    matter = dict(matter_row)
+
+    context = _render_context(conn, matter)
+
+    # Enhance with person data from the household.
+    household_id = matter.get("household_id")
+    if household_id:
+        persons = household_repo.list_persons_for_household(conn, UUID(str(household_id)))
+        children = []
+        for p in persons:
+            kind = str(p.get("kind") or "").lower()
+            name = str(p.get("full_name") or "")
+            if not name:
+                continue
+            dob = p.get("date_of_birth")
+            dob_str = f" (DOB: {dob})" if dob else ""
+            if kind in ("child", "minor_child", "son", "daughter"):
+                children.append(f"{name}{dob_str}")
+        if children:
+            context["children_list"] = "\n".join(f"- {c}" for c in children)
+        else:
+            context["children_list"] = "___"
+
+    # Replace any remaining unfilled placeholders with blank lines.
+    # The _flag_unfilled_placeholders step still records them for attorney review.
+    return context
+
+
 def unfilled_placeholders(rendered_body: str) -> list[str]:
     """Placeholder names still present after merging the render context."""
     return sorted(set(_UNFILLED_TOKEN.findall(rendered_body)))

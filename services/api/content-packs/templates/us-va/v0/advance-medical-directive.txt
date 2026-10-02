@@ -1,0 +1,103 @@
+VIRGINIA ADVANCE MEDICAL DIRECTIVE
+(Va. Code §§ 54.1-2981 et seq. — Health Care Decisions Act)
+
+This form contains: (1) a Living Will, (2) appointment of a Health Care Agent, and (3) anatomical gift provisions. You may complete any or all sections. This form meets the requirements of Virginia's Health Care Decisions Act. If you have legal questions, consult an attorney.
+
+DECLARANT: I, {{declarant_name}}, of {{declarant_address}}, {{declarant_city}}, Virginia, being of sound mind, willfully and voluntarily make this Advance Medical Directive.
+
+DATE: {{today}}
+
+─────────────────────────────────────────
+PART 1 — LIVING WILL
+(Cross through this section if you do not wish to make a living will.)
+
+If at any time my attending physician determines that I have a terminal condition where the application of life-prolonging procedures would serve only to artificially prolong the dying process, I direct that such procedures be withheld or withdrawn, and that I be permitted to die naturally with only the administration of medication or medical procedures necessary to provide comfort care and alleviate pain.
+
+{{living_will_directives}}
+
+Additional instructions regarding life-prolonging procedures:
+{{additional_living_will_instructions}}
+
+─────────────────────────────────────────
+PART 2 — APPOINTMENT OF HEALTH CARE AGENT
+
+I appoint the following person as my agent to make health care decisions for me if I am determined to be incapable of making an informed decision:
+
+Agent: {{healthcare_agent_name}}
+Address: {{healthcare_agent_address}}
+Telephone: {{healthcare_agent_phone}}
+
+If my agent is unable or unwilling to act, I appoint as successor agent:
+Successor Agent: {{successor_healthcare_agent_name}}
+Address: {{successor_healthcare_agent_address}}
+Telephone: {{successor_healthcare_agent_phone}}
+
+My health care agent shall have authority to:
+(a) Consent to, refuse, or withdraw any health care treatment;
+(b) Access my medical records and information;
+(c) Authorize admission to or discharge from any medical facility;
+(d) Make decisions regarding pain management and comfort care;
+(e) Take any lawful actions necessary to carry out my health care decisions, including granting releases of liability to medical providers.
+
+{{healthcare_agent_limitations}}
+
+─────────────────────────────────────────
+PART 3 — ANATOMICAL GIFT
+(Optional — cross through if you do not wish to make an anatomical gift.)
+
+Upon my death, I direct that an anatomical gift be made as follows:
+{{anatomical_gift_directions}}
+
+I appoint {{organ_donation_agent}} to make any anatomical gift or organ, tissue, or eye donation following my death.
+
+─────────────────────────────────────────
+AFFIRMATION AND RIGHT TO REVOKE
+
+By signing below, I indicate that I am emotionally and mentally capable of making this advance directive and that I understand the purpose and effect of this document.
+
+I understand I may revoke all or any part of this document at any time:
+(i) with a signed, dated writing;
+(ii) by physical cancellation or destruction of this directive; or
+(iii) by my oral expression of intent to revoke.
+
+This advance directive shall not terminate in the event of my disability.
+
+________________________________________
+{{declarant_name}}, Declarant
+
+Date: {{today}}
+
+
+WITNESS ATTESTATION
+(Va. Code § 54.1-2983 — signed by declarant in presence of two subscribing witnesses)
+
+We, the undersigned, certify that {{declarant_name}} signed this Advance Medical Directive in our presence.
+
+Witness 1:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name
+
+________________________________________
+Address
+
+
+Witness 2:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name
+
+________________________________________
+Address
+
+
+IMPORTANT NOTICES:
+- Provide a copy of this directive to your attending physician, your health care agent, and close family members.
+- You are encouraged to register this directive with Virginia's Advance Directive Registry at https://www.connectvirginia.org/adr/ (notarization required for registry submission).
+- This directive is valid without notarization, but notarization is recommended.

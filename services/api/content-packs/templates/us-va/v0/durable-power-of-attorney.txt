@@ -1,0 +1,81 @@
+DURABLE GENERAL POWER OF ATTORNEY
+Commonwealth of Virginia
+(Va. Code §§ 64.2-1600 et seq. — Uniform Power of Attorney Act)
+
+NOTICE: This is an important legal document. It creates a durable power of attorney. You should consult an attorney before signing.
+
+PRINCIPAL: {{principal_name}}, of {{principal_address}}, {{principal_city}}, Virginia ("Principal").
+
+AGENT: I appoint {{agent_name}}, of {{agent_address}}, as my agent and attorney-in-fact ("Agent"). If {{agent_name}} is unable or unwilling to act, I appoint {{successor_agent_name}} as successor Agent.
+
+DURABILITY: This power of attorney is durable and shall not be affected by my subsequent disability or incapacity, pursuant to Va. Code § 64.2-1602. It shall remain in effect until revoked by me in writing.
+
+GRANT OF AUTHORITY: My Agent shall have full power and authority to act on my behalf with respect to the following matters, to the same extent as I could act personally:
+
+1. REAL PROPERTY — To buy, sell, lease, manage, mortgage, and convey any interest in real property.
+
+2. TANGIBLE PERSONAL PROPERTY — To buy, sell, lease, and manage tangible personal property.
+
+3. STOCKS AND BONDS — To buy, sell, and manage stocks, bonds, mutual funds, and other securities.
+
+4. COMMODITIES AND OPTIONS — To buy, sell, and trade commodities, futures, and options.
+
+5. BANKS AND FINANCIAL INSTITUTIONS — To open, close, and manage bank accounts; to endorse, deposit, and withdraw funds; to borrow money.
+
+6. OPERATION OF ENTITY OR BUSINESS — To operate, manage, and conduct any business or entity in which I have an interest.
+
+7. INSURANCE AND ANNUITIES — To procure, manage, and surrender insurance policies and annuities.
+
+8. ESTATES, TRUSTS, AND BENEFICIARY INTERESTS — To represent my interests in estates, trusts, and as a beneficiary.
+
+9. CLAIMS AND LITIGATION — To commence, prosecute, defend, and settle claims and litigation on my behalf.
+
+10. PERSONAL AND FAMILY MAINTENANCE — To provide for the support and maintenance of myself, my spouse, and my dependents.
+
+11. BENEFITS FROM GOVERNMENTAL PROGRAMS — To apply for and manage Social Security, Medicare, Medicaid, military, and other governmental benefits.
+
+12. RETIREMENT PLANS — To manage individual retirement accounts, 401(k) plans, pensions, and other retirement benefits.
+
+13. TAXES — To prepare, sign, and file tax returns; to represent me before tax authorities.
+
+{{additional_powers}}
+
+LIMITATIONS: My Agent shall not have the authority to:
+(a) Make a will or codicil on my behalf;
+(b) Make healthcare decisions on my behalf (see my Advance Medical Directive);
+(c) Exercise any power I do not possess.
+
+DUTIES OF AGENT: My Agent shall act in my best interest, in good faith, and within the scope of authority granted. My Agent shall keep accurate records of all transactions.
+
+RELIANCE: Any third party dealing with my Agent may rely on this power of attorney pursuant to Va. Code §§ 64.2-1619 through 64.2-1622. A photocopy or electronically transmitted copy of this document shall have the same effect as the original (§ 64.2-1604(D)).
+
+EFFECTIVE DATE: This power of attorney becomes effective immediately upon execution and shall remain effective during any subsequent disability or incapacity.
+
+IN WITNESS WHEREOF, I have signed this Durable Power of Attorney on {{today}}.
+
+________________________________________
+{{principal_name}}, Principal
+
+
+ACKNOWLEDGMENT BEFORE NOTARY
+(Va. Code § 64.2-1603 — signature presumed genuine if acknowledged before notary)
+
+STATE OF VIRGINIA
+CITY/COUNTY OF _____________________
+
+The foregoing instrument was acknowledged before me on {{today}} by {{principal_name}}, who is personally known to me or who produced _________________________ as identification.
+
+________________________________________
+Notary Public
+My commission expires: __________________
+[NOTARY SEAL]
+
+
+AGENT'S ACCEPTANCE (Optional but Recommended)
+
+I, {{agent_name}}, accept appointment as Agent under this Durable Power of Attorney and agree to act in the Principal's best interest.
+
+________________________________________
+{{agent_name}}, Agent
+
+Date: __________________
