@@ -62,7 +62,7 @@ async function buildMatterCheckup(matter: MatterSummary): Promise<MatterCheckup>
 
   if (progressResult.status === 'fulfilled') {
     const overall = progressResult.value.overall;
-    if (overall.required_total > 0 && overall.required_answered < overall.required_total) {
+    if (overall && overall.required_total > 0 && overall.required_answered < overall.required_total) {
       const remaining = overall.required_total - overall.required_answered;
       items.push({
         label: 'Finish intake',

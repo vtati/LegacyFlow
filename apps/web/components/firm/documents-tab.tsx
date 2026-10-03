@@ -32,9 +32,8 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
 
-  const templateNames = pkg.template_ids.map(
-    (id) => templates.find((t) => t.id === id)?.name ?? id,
-  );
+  const templateName =
+    templates.find((t) => t.id === pkg.template_id)?.name ?? pkg.template_id;
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -101,7 +100,7 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
             <CardTitle className="text-base">
               Package created {formatDateTime(pkg.created_at)}
             </CardTitle>
-            <CardDescription>{templateNames.join(' · ') || 'No templates'}</CardDescription>
+            <CardDescription>{templateName}</CardDescription>
           </div>
           <span
             className={cn(
@@ -173,7 +172,6 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [packages, setPackages] = useState<DocumentPackage[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
@@ -206,15 +204,14 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
     }
     setCreating(true);
     setFormError(null);
-    firmApi
-      .createPackage(matterId, {
-        template_ids: selected,
-        notes: notes.trim() || null,
-      })
+    // The API creates one package per template; create a package for each
+    // selected template so multi-select still works end to end.
+    Promise.all(selected.map((templateId) => firmApi.createPackage(matterId, { template_id: templateId })))
       .then((created) => {
-        setPackages((prev) => [created, ...prev]);
+        setPackages((prev) =>
+          [...created, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+        );
         setSelected([]);
-        setNotes('');
       })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 409) {
@@ -272,17 +269,9 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
             </ul>
           )}
           <div className="space-y-1.5">
-            <label htmlFor="package-notes" className="text-sm font-medium text-lf-text">
-              Package notes (optional)
-            </label>
-            <input
-              id="package-notes"
-              type="text"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="Why this package is being created…"
-              className="h-10 w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text shadow-lf-subtle placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
-            />
+            <p className="text-sm text-lf-text-muted">
+              One package is created per selected template.
+            </p>
           </div>
           {formError && (
             <p role="alert" className="text-sm text-lf-error-700">

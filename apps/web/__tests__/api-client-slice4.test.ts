@@ -318,12 +318,12 @@ describe('Firm API (Slice 4)', () => {
       method: 'GET',
     });
 
-    respondWith({ id: 'pkg-1', template_ids: ['tpl-1'] });
-    await firm.createPackage('matter-1', { template_ids: ['tpl-1'] });
+    respondWith({ id: 'pkg-1', template_id: 'tpl-1' });
+    await firm.createPackage('matter-1', { template_id: 'tpl-1' });
     expect(requests[1]).toMatchObject({
       url: '/v1/matters/matter-1/document-packages',
       method: 'POST',
-      body: { template_ids: ['tpl-1'] },
+      body: { template_id: 'tpl-1' },
     });
 
     respondWith({ package: { id: 'pkg-1' }, versions: [] });

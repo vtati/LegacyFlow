@@ -80,7 +80,7 @@ from . import schemas as sch
 # Constants
 # ---------------------------------------------------------------------------
 
-DEMO_DISCLAIMER = "DEMO ONLY — NOT LEGALLY VALID"
+DEMO_DISCLAIMER = "DRAFT — NOT LEGALLY VALID"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PDF_MIME = "application/pdf"
 MIME_BY_FORMAT = {"docx": DOCX_MIME, "pdf": PDF_MIME}
@@ -422,7 +422,7 @@ def render_demo_docx(title: str, body: str, watermark_text: str) -> bytes:
     closing = doc.add_paragraph()
     closing.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = closing.add_run(
-        "This is a demonstration document only. It is not legal advice and "
+        "This is a draft document only. It is not legal advice and "
         "creates no attorney-client relationship."
     )
     run.italic = True
@@ -486,7 +486,7 @@ def render_demo_pdf(title: str, body: str, watermark_text: str) -> bytes:
             text.setFont("Helvetica", 11)
     text.setFont("Helvetica-Oblique", 9)
     text.textLine(
-        "This is a demonstration document only. It is not legal advice and "
+        "This is a draft document only. It is not legal advice and "
         "creates no attorney-client relationship."
     )
     pdf.drawText(text)

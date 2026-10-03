@@ -795,15 +795,14 @@ export interface DocumentTemplateCreateInput {
 }
 
 export interface DocumentPackageInput {
-  template_ids: string[];
-  notes?: string | null;
+  template_id: string;
 }
 
 export interface DocumentPackage {
   id: string;
   firm_id: string;
   matter_id: string;
-  template_ids: string[];
+  template_id: string;
   status: string;
   created_at: string;
 }
