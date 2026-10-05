@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-GateType = Literal["intake_approval", "document_release"]
+GateType = Literal["intake_approval", "document_release", "amendment_approval"]
 GateStatus = Literal["pending", "approved", "rejected"]
 GateDecision = Literal["approved", "rejected"]
 ClarificationStatus = Literal["open", "answered"]

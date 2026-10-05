@@ -50,6 +50,18 @@ TEMPLATES = [
         "template_type": "trust",
         "pack_id": "us-va",
     },
+    {
+        "file": "codicil-to-will.txt",
+        "name": "Codicil to Last Will and Testament (Virginia)",
+        "template_type": "codicil",
+        "pack_id": "us-va",
+    },
+    {
+        "file": "trust-amendment.txt",
+        "name": "Amendment to Revocable Living Trust (Virginia)",
+        "template_type": "trust_amendment",
+        "pack_id": "us-va",
+    },
 ]
 
 

@@ -423,3 +423,37 @@ def generate_instruction_letter(
             conn, actor_sub=user.sub, matter_id=matter_id, payload=payload
         )
         return sch.InstructionLetterOut(package=package, versions=versions)
+
+
+# ---------------------------------------------------------------------------
+# Amendments
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/matters/{matter_id}/amendments",
+    response_model=sch.AmendmentRequestOut,
+    status_code=201,
+)
+def create_amendment_request(
+    user: User, matter_id: UUID, payload: sch.AmendmentRequestIn
+) -> sch.AmendmentRequestOut:
+    """Request changes to an implemented plan."""
+    with db.transaction() as conn:
+        return service.create_amendment_request(
+            conn, actor_sub=user.sub, matter_id=matter_id, payload=payload
+        )
+
+
+@router.get(
+    "/matters/{matter_id}/amendments",
+    response_model=list[sch.AmendmentRequestOut],
+)
+def list_amendment_requests(
+    user: User, matter_id: UUID
+) -> list[sch.AmendmentRequestOut]:
+    """List amendment requests for a matter (version timeline)."""
+    with db.transaction() as conn:
+        return service.list_amendment_requests(
+            conn, actor_sub=user.sub, matter_id=matter_id
+        )

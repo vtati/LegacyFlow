@@ -2027,6 +2027,27 @@ VA_EXECUTION_REQUIREMENTS: dict[str, dict[str, Any]] = {
             "If executed as part of the will, no separate formalities are needed beyond the will's execution.",
         ],
     },
+    "codicil": {
+        "title": "Codicil to Last Will and Testament",
+        "citation": "Va. Code §§ 64.2-403, 64.2-452",
+        "steps": [
+            "A codicil must be executed with the same formalities as a will: testator signs in the presence of two competent witnesses, all present together.",
+            "Both witnesses sign in the presence of the testator and each other.",
+            "Witnesses should be disinterested (not beneficiaries under the will or codicil).",
+            "Notary acknowledgment (included): testator and both witnesses sign before a notary public; notary completes the acknowledgment and affixes seal.",
+            "Keep the codicil with the original will — they are read together.",
+        ],
+    },
+    "trust_amendment": {
+        "title": "Amendment to Revocable Living Trust",
+        "citation": "Virginia Uniform Trust Code, Va. Code §§ 64.2-700 et seq.",
+        "steps": [
+            "Grantor signs the trust amendment, exercising the reserved power to amend.",
+            "Notary acknowledgment (included): grantor appears before a notary public, proves identity, and acknowledges the signature; notary completes the acknowledgment and affixes seal.",
+            "Keep the amendment with the original trust declaration — they are read together.",
+            "If real property was transferred into the trust, no new deed is needed for the amendment itself, but confirm the trust remains the title holder of record.",
+        ],
+    },
 }
 
 
@@ -2209,3 +2230,87 @@ def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes
         after_summary={"packages": len(final_pdfs)},
     )
     return out.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Amendments
+# ---------------------------------------------------------------------------
+
+
+def create_amendment_request(
+    conn: Any, *, actor_sub: str, matter_id: UUID, payload: sch.AmendmentRequestIn
+) -> sch.AmendmentRequestOut:
+    """Create an amendment request for an implemented plan."""
+    actor_id = _actor_id(actor_sub)
+    scope = authz.get_matter_scope(conn, matter_id, actor_id)
+    matter = scope.matter
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO amendment_requests
+              (firm_id, matter_id, description, affected_template_types, created_by_user_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, matter_id, description, affected_template_types, status, created_at
+            """,
+            (
+                str(matter["firm_id"]),
+                str(matter_id),
+                payload.description,
+                payload.affected_template_types,
+                str(actor_id),
+            ),
+        )
+        row = cur.fetchone()
+
+    record_audit_event(
+        conn,
+        action="document_amendment.requested",
+        resource_type="matters",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(matter["firm_id"])),
+        matter_id=matter_id,
+        resource_id=row["id"],
+        after_summary={"description": payload.description[:200]},
+    )
+    return sch.AmendmentRequestOut(
+        id=row["id"],
+        matter_id=row["matter_id"],
+        description=row["description"],
+        affected_template_types=row["affected_template_types"],
+        status=row["status"],
+        created_at=row["created_at"],
+    )
+
+
+def list_amendment_requests(
+    conn: Any, *, actor_sub: str, matter_id: UUID
+) -> list[sch.AmendmentRequestOut]:
+    """List amendment requests for a matter (version timeline)."""
+    actor_id = _actor_id(actor_sub)
+    authz.get_matter_scope(conn, matter_id, actor_id)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, matter_id, description, affected_template_types, status, created_at
+            FROM amendment_requests
+            WHERE matter_id = %s
+            ORDER BY created_at DESC
+            """,
+            (str(matter_id),),
+        )
+        rows = cur.fetchall()
+
+    return [
+        sch.AmendmentRequestOut(
+            id=r["id"],
+            matter_id=r["matter_id"],
+            description=r["description"],
+            affected_template_types=r["affected_template_types"],
+            status=r["status"],
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]

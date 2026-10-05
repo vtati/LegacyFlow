@@ -249,3 +249,29 @@ class InstructionLetterIn(BaseModel):
 class InstructionLetterOut(BaseModel):
     package: DocumentPackageOut
     versions: list[DocumentVersionOut]
+
+
+# ---------------------------------------------------------------------------
+# Amendments (codicils, trust amendments)
+# ---------------------------------------------------------------------------
+
+
+class AmendmentRequestIn(BaseModel):
+    """Request changes to an implemented plan.
+
+    The user describes what changed in plain language; the attorney reviews
+    the delta and decides whether a codicil, trust amendment, or full
+    restatement is needed.
+    """
+
+    description: str = Field(min_length=1, max_length=5000)
+    affected_template_types: list[str] = Field(default_factory=list)
+
+
+class AmendmentRequestOut(BaseModel):
+    id: UUID
+    matter_id: UUID
+    description: str
+    affected_template_types: list[str]
+    status: str  # pending, approved, rejected, completed
+    created_at: datetime
