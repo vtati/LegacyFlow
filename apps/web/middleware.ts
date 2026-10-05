@@ -19,6 +19,19 @@ function toLogin(request: NextRequest): NextResponse {
  * Supabase session (and refreshes it).
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  // Defensive: if Supabase redirects an OAuth/magic-link `code` to any path
+  // other than /auth/callback (e.g. the site root when the Supabase Site URL
+  // or Redirect URLs allowlist doesn't match the requesting domain), forward
+  // it to the callback handler so sign-in still completes.
+  if (
+    request.nextUrl.searchParams.has('code') &&
+    request.nextUrl.pathname !== '/auth/callback'
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/auth/callback';
+    return NextResponse.redirect(url);
+  }
+
   if (isMockAuth()) {
     const session = request.cookies.get(MOCK_SESSION_COOKIE)?.value;
     if (!session) return toLogin(request);
@@ -51,5 +64,5 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ['/family/:path*', '/firm/:path*', '/admin/:path*'],
+  matcher: ['/', '/family/:path*', '/firm/:path*', '/admin/:path*'],
 };
