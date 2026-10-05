@@ -132,24 +132,28 @@ def generate_demo(user: User, package_id: UUID) -> sch.DemoReleaseOut:
 
 @router.post(
     "/packages/{package_id}/release-production",
-    status_code=409,
+    response_model=sch.DemoReleaseOut,
     responses={
         409: {
             "description": (
-                "Production release is unavailable in this slice "
-                "(code: production_release_unavailable)."
+                "Release is unavailable until the attorney approves the "
+                "document release gate for the matter."
             )
         }
     },
 )
-def release_production(user: User, package_id: UUID) -> None:
-    """Production release: always fails closed (HTTP 409).
+def release_production(user: User, package_id: UUID) -> sch.DemoReleaseOut:
+    """Release clean final documents for a package.
 
-    Every authenticated call returns 409 with the stable
-    ``production_release_unavailable`` error code.
+    Requires the attorney or firm_admin firm role and an approved
+    ``document_release`` gate on the matter. Renders watermark-free
+    DOCX+PDF versions and marks the package ``released``.
     """
     with db.transaction() as conn:
-        service.release_production(conn, actor_sub=user.sub, package_id=package_id)
+        package, versions = service.release_production(
+            conn, actor_sub=user.sub, package_id=package_id
+        )
+        return sch.DemoReleaseOut(package=package, versions=versions)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +172,27 @@ def download_document_version(user: User, version_id: UUID) -> Response:
         content=content,
         media_type=content_type,
         headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
+@router.get("/matters/{matter_id}/notary-package")
+def download_notary_package(user: User, matter_id: UUID) -> Response:
+    """Download the notary execution package as a single PDF.
+
+    Contains a cover page, the Virginia execution checklist, and the
+    clean final PDF of every released package. All packages must be
+    released (attorney-approved) before the package can be built.
+    """
+    with db.transaction() as conn:
+        content = service.build_notary_package(
+            conn, actor_sub=user.sub, matter_id=matter_id
+        )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="notary-package-{matter_id}.pdf"'
+        },
     )
 
 

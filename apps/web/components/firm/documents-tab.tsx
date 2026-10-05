@@ -75,12 +75,24 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
   const handleRelease = () => {
     setReleasing(true);
     setReleaseError(null);
+    setNotice(null);
     firmApi
       .releaseProduction(pkg.id)
-      .then(() => setReleaseError(null))
+      .then(async ({ versions }) => {
+        const version = versions.find((v) => v.file_format === format);
+        if (!version) {
+          throw new Error(`No ${format} final version was released.`);
+        }
+        const path = version.download_url.replace(/^\/v1/, '');
+        const { blob, filename } = await apiFetchBlob(path, { method: 'GET' });
+        downloadBlob(blob, filename);
+        setNotice(`Final documents released and downloaded: ${filename}.`);
+      })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 409) {
-          setReleaseError('Production release is not available in this version.');
+          setReleaseError(
+            'Final release requires attorney approval of the document release gate first.',
+          );
         } else {
           setReleaseError(
             err instanceof Error
@@ -176,6 +188,8 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
   const [error, setError] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [downloadingPackage, setDownloadingPackage] = useState(false);
+  const [packageError, setPackageError] = useState<string | null>(null);
 
   const loadAll = useCallback(() => {
     setLoading(true);
@@ -226,9 +240,67 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
   if (loading) return <LoadingState lines={4} label="Loading documents…" />;
   if (error != null) return <ErrorState error={error} onRetry={loadAll} />;
 
+  const releasedCount = packages.filter((p) => p.status === 'released').length;
+  const allReleased = packages.length > 0 && releasedCount === packages.length;
+
+  const handleDownloadNotaryPackage = () => {
+    setDownloadingPackage(true);
+    setPackageError(null);
+    firmApi
+      .downloadNotaryPackage(matterId)
+      .then(({ blob, filename }) => {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      })
+      .catch((err: unknown) => {
+        setPackageError(
+          err instanceof ApiError && err.status === 409
+            ? 'All packages must be released before building the notary package.'
+            : err instanceof Error
+              ? `Could not build the notary package: ${err.message}`
+              : 'Could not build the notary package.',
+        );
+      })
+      .finally(() => setDownloadingPackage(false));
+  };
+
   return (
     <div className="space-y-6">
       <WatermarkNotice />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Notary execution package</CardTitle>
+          <CardDescription>
+            Download a single PDF with the final documents and the Virginia execution
+            checklist — ready to share with the notary. All packages must be released first.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-lf-text-muted">
+            {releasedCount} of {packages.length} packages released.
+          </p>
+          {packageError && (
+            <p role="alert" className="text-sm text-lf-error-700">
+              {packageError}
+            </p>
+          )}
+          <Button
+            type="button"
+            onClick={handleDownloadNotaryPackage}
+            disabled={downloadingPackage || !allReleased}
+          >
+            <Download className="size-4" aria-hidden="true" />
+            {downloadingPackage ? 'Building…' : 'Download notary package (PDF)'}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

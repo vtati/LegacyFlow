@@ -1479,7 +1479,8 @@ export interface FirmApi {
   listPackages: (matterId: string) => Promise<DocumentPackage[]>;
   createPackage: (matterId: string, input: DocumentPackageInput) => Promise<DocumentPackage>;
   generateDraft: (packageId: string, format: DraftFormat) => Promise<GeneratedDraft>;
-  releaseProduction: (packageId: string) => Promise<void>;
+  releaseProduction: (packageId: string) => Promise<GeneratedDraft>;
+  downloadNotaryPackage: (matterId: string) => Promise<{ blob: Blob; filename: string }>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
   /* funding */
@@ -1630,7 +1631,9 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
         body: { format },
       }),
     releaseProduction: (packageId) =>
-      call<void>(`/packages/${packageId}/release-production`, { method: 'POST' }),
+      call<GeneratedDraft>(`/packages/${packageId}/release-production`, { method: 'POST' }),
+    downloadNotaryPackage: (matterId: string) =>
+      apiFetchBlob(`/matters/${matterId}/notary-package`, { method: 'GET' }),
     /* signing */
     getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing/checklist`),
     /* funding */

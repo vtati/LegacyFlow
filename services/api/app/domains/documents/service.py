@@ -400,18 +400,24 @@ def _add_docx_diagonal_watermark(doc: DocxDocument, text: str) -> None:
     run._r.append(pict)
 
 
-def render_demo_docx(title: str, body: str, watermark_text: str) -> bytes:
-    """Render a demo DOCX with header/footer and a diagonal watermark."""
+def render_demo_docx(title: str, body: str, watermark_text: str | None) -> bytes:
+    """Render a DOCX with header/footer and a diagonal watermark.
+
+    When ``watermark_text`` is ``None``, renders a clean final document
+    with no watermark, banner, or draft disclaimer — for production release
+    after attorney approval.
+    """
     doc = Document()
     _add_docx_header_footer(doc, title)
-    _add_docx_diagonal_watermark(doc, watermark_text)
+    if watermark_text is not None:
+        _add_docx_diagonal_watermark(doc, watermark_text)
 
-    banner = doc.add_paragraph()
-    banner.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = banner.add_run(DEMO_DISCLAIMER)
-    run.bold = True
-    run.font.size = Pt(14)
-    run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
+        banner = doc.add_paragraph()
+        banner.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = banner.add_run(DEMO_DISCLAIMER)
+        run.bold = True
+        run.font.size = Pt(14)
+        run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
 
     doc.add_heading(title, level=1)
     for paragraph_text in body.split("\n\n"):
@@ -419,22 +425,28 @@ def render_demo_docx(title: str, body: str, watermark_text: str) -> bytes:
         if paragraph_text:
             doc.add_paragraph(paragraph_text)
 
-    closing = doc.add_paragraph()
-    closing.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = closing.add_run(
-        "This is a draft document only. It is not legal advice and "
-        "creates no attorney-client relationship."
-    )
-    run.italic = True
-    run.font.size = Pt(9)
+    if watermark_text is not None:
+        closing = doc.add_paragraph()
+        closing.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = closing.add_run(
+            "This is a draft document only. It is not legal advice and "
+            "creates no attorney-client relationship."
+        )
+        run.italic = True
+        run.font.size = Pt(9)
 
     buffer = io.BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
 
 
-def render_demo_pdf(title: str, body: str, watermark_text: str) -> bytes:
-    """Render a demo PDF with header/footer and a diagonal watermark."""
+def render_demo_pdf(title: str, body: str, watermark_text: str | None) -> bytes:
+    """Render a PDF with header/footer and a diagonal watermark.
+
+    When ``watermark_text`` is ``None``, renders a clean final document
+    with no watermark, banner, or draft disclaimer — for production release
+    after attorney approval.
+    """
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -444,22 +456,24 @@ def render_demo_pdf(title: str, body: str, watermark_text: str) -> bytes:
         pdf.setFont("Helvetica", 9)
         pdf.setFillColor(Color(0.33, 0.33, 0.33))
         pdf.drawString(inch, height - 0.6 * inch, title)
-        pdf.setFont("Helvetica-Bold", 9)
-        pdf.setFillColor(Color(0.69, 0.0, 0.0))
-        pdf.drawCentredString(width / 2, 0.6 * inch, DEMO_DISCLAIMER)
-        pdf.setFont("Helvetica-Bold", 48)
-        pdf.setFillColor(Color(0.75, 0.75, 0.75, alpha=0.35))
-        pdf.saveState()
-        pdf.translate(width / 2, height / 2)
-        pdf.rotate(45)
-        pdf.drawCentredString(0, 0, watermark_text)
-        pdf.restoreState()
+        if watermark_text is not None:
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.setFillColor(Color(0.69, 0.0, 0.0))
+            pdf.drawCentredString(width / 2, 0.6 * inch, DEMO_DISCLAIMER)
+            pdf.setFont("Helvetica-Bold", 48)
+            pdf.setFillColor(Color(0.75, 0.75, 0.75, alpha=0.35))
+            pdf.saveState()
+            pdf.translate(width / 2, height / 2)
+            pdf.rotate(45)
+            pdf.drawCentredString(0, 0, watermark_text)
+            pdf.restoreState()
         pdf.restoreState()
 
     draw_chrome()
     text = pdf.beginText(inch, height - 1.2 * inch)
-    text.setFont("Helvetica-Bold", 16)
-    text.textLine(DEMO_DISCLAIMER)
+    if watermark_text is not None:
+        text.setFont("Helvetica-Bold", 16)
+        text.textLine(DEMO_DISCLAIMER)
     text.setFont("Helvetica-Bold", 14)
     text.textLine(title)
     text.setFont("Helvetica", 11)
@@ -484,11 +498,12 @@ def render_demo_pdf(title: str, body: str, watermark_text: str) -> bytes:
             draw_chrome()
             text = pdf.beginText(inch, height - 1.2 * inch)
             text.setFont("Helvetica", 11)
-    text.setFont("Helvetica-Oblique", 9)
-    text.textLine(
-        "This is a draft document only. It is not legal advice and "
-        "creates no attorney-client relationship."
-    )
+    if watermark_text is not None:
+        text.setFont("Helvetica-Oblique", 9)
+        text.textLine(
+            "This is a draft document only. It is not legal advice and "
+            "creates no attorney-client relationship."
+        )
     pdf.drawText(text)
     pdf.showPage()
     pdf.save()
@@ -886,9 +901,15 @@ def _create_version(
     file_format: Literal["docx", "pdf"],
     content: bytes,
     title: str,
-    watermark_text: str,
+    watermark_text: str | None,
 ) -> dict[str, Any]:
     """Store rendered bytes and append an immutable version row."""
+    suffix = "FINAL" if watermark_text is None else "DEMO"
+    scan_detail = (
+        "Server-generated final render; no user upload scanned."
+        if watermark_text is None
+        else "Server-generated demo render; no user upload scanned."
+    )
     stored_path = _store_file(f"package-{package_id}", file_format, content)
     upload = repo.insert_file_upload(
         conn,
@@ -896,12 +917,12 @@ def _create_version(
         household_id=UUID(str(matter["household_id"])),
         matter_id=UUID(str(matter["id"])),
         uploader_user_id=created_by_user_id,
-        original_filename=f"{title}-DEMO.{SUFFIX_BY_FORMAT[file_format]}",
+        original_filename=f"{title}-{suffix}.{SUFFIX_BY_FORMAT[file_format]}",
         stored_path=stored_path,
         mime_type=MIME_BY_FORMAT[file_format],
         size_bytes=len(content),
         scan_status="clean",
-        scan_detail="Server-generated demo render; no user upload scanned.",
+        scan_detail=scan_detail,
     )
     version_number = repo.next_version_number(conn, package_id)
     return repo.insert_version(
@@ -923,9 +944,13 @@ def _render_package_versions(
     template_name: str,
     body: str,
     title: str,
-    watermark_text: str = DEMO_DISCLAIMER,
+    watermark_text: str | None = DEMO_DISCLAIMER,
 ) -> list[dict[str, Any]]:
-    """Render DOCX+PDF, store them, append version rows, mark demo_released."""
+    """Render DOCX+PDF, store them, append version rows.
+
+    A ``None`` watermark renders clean final documents for production
+    release; otherwise renders watermarked drafts.
+    """
     docx_bytes = render_demo_docx(title, body, watermark_text)
     pdf_bytes = render_demo_pdf(title, body, watermark_text)
     created = []
@@ -1013,15 +1038,81 @@ def get_version_download(conn: Any, *, actor_sub: str, version_id: UUID) -> tupl
     return content, str(row["mime_type"]), str(row["original_filename"])
 
 
-def release_production(conn: Any, *, actor_sub: str, package_id: UUID) -> None:
-    """Fail closed: production release is never available in Slice 4.
+def release_production(
+    conn: Any, *, actor_sub: str, package_id: UUID
+) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
+    """Release clean final documents for a package after attorney approval.
 
-    Every authenticated call raises 409 with the stable
-    ``production_release_unavailable`` code — including for unknown
-    package ids — so a client can never probe release state.
+    Requires:
+    - the actor holds the attorney or firm_admin firm role;
+    - the matter's ``document_release`` gate has been approved (matter is
+      at DOCUMENTS_RELEASED or later).
+
+    Renders watermark-free DOCX+PDF versions, marks the package
+    ``released``, and records an audit event. Returns the package and the
+    newly created final versions.
     """
-    _actor_id(actor_sub)
-    raise ProductionReleaseUnavailableError()
+    from app.domains.review import repository as review_repo
+
+    actor_id = _actor_id(actor_sub)
+    package = _require_package(conn, package_id)
+    matter_id = UUID(str(package["matter_id"]))
+    scope = authz.require_matter_firm_role(conn, matter_id, actor_id, authz.ATTORNEY_ROLES)
+    matter = scope.matter
+
+    # The document_release gate must be approved before final documents
+    # can be released.
+    gates = review_repo.list_gates(conn, matter_id)
+    release_gate = next(
+        (g for g in gates if str(g.get("gate_type")) == "document_release"), None
+    )
+    if release_gate is None or str(release_gate.get("status")) != "approved":
+        raise ConflictError(
+            "Final documents can only be released after the attorney approves "
+            "the document release gate for this matter."
+        )
+
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    _require_document_assembly(
+        conn,
+        firm_id=UUID(str(matter["firm_id"])),
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
+    template = repo.get_template(conn, UUID(str(package["template_id"])))
+    if template is None:
+        raise ConflictError("The package's template is missing.")
+
+    body = _merge_placeholders(
+        _template_content_body(template),
+        build_template_context(conn, UUID(str(matter["id"]))),
+    )
+    title = str(template["name"])
+    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=title)
+    created = _render_package_versions(
+        conn,
+        package_id=package_id,
+        matter=matter,
+        actor_id=actor_id,
+        template_name=title,
+        body=body,
+        title=title,
+        watermark_text=None,
+    )
+    package = repo.update_package_status(conn, package_id, "released")
+    record_audit_event(
+        conn,
+        action="document_production.released",
+        resource_type="document_packages",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(matter["firm_id"])),
+        matter_id=UUID(str(matter["id"])),
+        resource_id=package_id,
+        after_summary={"formats": ["docx", "pdf"], "final": True},
+    )
+    return _package_out(package), [_version_out(row) for row in created]
 
 
 # ---------------------------------------------------------------------------
@@ -1859,3 +1950,232 @@ def send_reminders(conn: Any, *, limit: int = 100) -> dict[str, int]:
         processed += 1
         queued += 1
     return {"processed": processed, "queued": queued}
+
+
+# ---------------------------------------------------------------------------
+# Notary package
+# ---------------------------------------------------------------------------
+
+# Virginia execution requirements per document type. Each entry lists the
+# signing formalities a notary should verify. Citations are to the Virginia
+# Code. This is a starting checklist — the reviewing attorney must confirm
+# the requirements for each specific document before execution.
+VA_EXECUTION_REQUIREMENTS: dict[str, dict[str, Any]] = {
+    "will": {
+        "title": "Last Will and Testament",
+        "citation": "Va. Code §§ 64.2-403, 64.2-452",
+        "steps": [
+            "Testator signs the will in the presence of two competent witnesses, all present together.",
+            "Both witnesses sign in the presence of the testator and each other.",
+            "Witnesses should be disinterested (not beneficiaries under the will).",
+            "Self-proving affidavit (included): testator and both witnesses sign before a notary public; notary completes the acknowledgment and affixes seal.",
+        ],
+    },
+    "trust": {
+        "title": "Revocable Living Trust",
+        "citation": "Virginia Uniform Trust Code, Va. Code §§ 64.2-700 et seq.",
+        "steps": [
+            "Grantor signs the trust declaration.",
+            "Notary acknowledgment (included): grantor appears before a notary public, proves identity, and acknowledges the signature; notary completes the acknowledgment and affixes seal.",
+            "Notarization is strongly recommended so financial institutions and recorders accept the instrument.",
+        ],
+    },
+    "poa": {
+        "title": "Durable Power of Attorney",
+        "citation": "Virginia Uniform Power of Attorney Act, Va. Code §§ 64.2-1600 et seq.",
+        "steps": [
+            "Principal signs the power of attorney.",
+            "The signature must be acknowledged before a notary public OR witnessed by two disinterested witnesses.",
+            "Notary acknowledgment is the recommended path; notary completes the acknowledgment and affixes seal.",
+        ],
+    },
+    "advance_directive": {
+        "title": "Advance Medical Directive",
+        "citation": "Virginia Health Care Decisions Act, Va. Code §§ 54.1-2981 et seq.",
+        "steps": [
+            "Declarant signs the advance directive.",
+            "Two witnesses sign in the presence of the declarant.",
+            "Witnesses must meet statutory eligibility (not the appointed agent, with additional restrictions per statute).",
+        ],
+    },
+    "guardianship": {
+        "title": "Guardianship Designation",
+        "citation": "Va. Code §§ 64.2-1700 et seq.",
+        "steps": [
+            "Designation follows will-execution formalities: signed writing with two competent witnesses present together.",
+            "If executed as part of the will, no separate formalities are needed beyond the will's execution.",
+        ],
+    },
+}
+
+
+def _notary_cover_page(
+    pdf: Any, matter: dict[str, Any], packages: list[dict[str, Any]], width: float, height: float
+) -> None:
+    """Render the notary package cover page."""
+    from reportlab.lib.units import inch
+
+    text = pdf.beginText(inch, height - 1.5 * inch)
+    text.setFont("Helvetica-Bold", 20)
+    text.textLine("Notary Execution Package")
+    text.setFont("Helvetica", 12)
+    text.textLine("")
+    text.textLine(f"Matter: {matter.get('title', 'Estate Plan')}")
+    text.textLine(f"Household: {(matter.get('household') or {}).get('name', '')}")
+    text.textLine(f"Jurisdiction: Virginia ({matter.get('jurisdiction_code', 'us-va')})")
+    text.textLine(f"Prepared: {datetime.now(UTC).strftime('%B %d, %Y')}")
+    text.textLine("")
+    text.setFont("Helvetica-Bold", 12)
+    text.textLine("Documents included:")
+    text.setFont("Helvetica", 11)
+    for i, pkg in enumerate(packages, 1):
+        text.textLine(f"  {i}. {pkg.get('template_name', 'Document')}")
+    text.textLine("")
+    text.setFont("Helvetica-Oblique", 10)
+    text.textLine(
+        "This package contains final documents approved by the reviewing attorney. "
+        "Execution requirements below summarize Virginia formalities; the notary "
+        "and attorney should verify all requirements before execution."
+    )
+    pdf.drawText(text)
+
+
+def _notary_checklist_page(
+    pdf: Any, packages: list[dict[str, Any]], width: float, height: float
+) -> None:
+    """Render the execution checklist page."""
+    from reportlab.lib.units import inch
+
+    text = pdf.beginText(inch, height - 1.2 * inch)
+    text.setFont("Helvetica-Bold", 16)
+    text.textLine("Execution Checklist — Virginia")
+    text.setFont("Helvetica", 11)
+    text.textLine("")
+    for pkg in packages:
+        doc_type = str(pkg.get("template_type", ""))
+        req = VA_EXECUTION_REQUIREMENTS.get(doc_type)
+        if req is None:
+            continue
+        text.setFont("Helvetica-Bold", 12)
+        text.textLine(f"{req['title']}")
+        text.setFont("Helvetica-Oblique", 10)
+        text.textLine(f"  {req['citation']}")
+        text.setFont("Helvetica", 11)
+        for step in req["steps"]:
+            # Simple word-wrap for checklist steps
+            words = step.split()
+            line = "  • "
+            for word in words:
+                candidate = f"{line} {word}".strip()
+                if pdf.stringWidth(candidate, "Helvetica", 11) > (width - 2 * inch) and line != "  • ":
+                    text.textLine(line)
+                    line = f"    {word}"
+                else:
+                    line = candidate
+            if line.strip() and line.strip() != "•":
+                text.textLine(line)
+        text.textLine("")
+        if text.getY() < 2 * inch:
+            pdf.drawText(text)
+            pdf.showPage()
+            text = pdf.beginText(inch, height - 1.2 * inch)
+            text.setFont("Helvetica", 11)
+    pdf.drawText(text)
+
+
+def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes:
+    """Build a single PDF notary package for a matter.
+
+    Contains: cover page, Virginia execution checklist, and the clean
+    final PDF of every released package. Requires the actor to hold a
+    firm role on the matter and every package to be released.
+    """
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    actor_id = _actor_id(actor_sub)
+    scope = authz.get_matter_scope(conn, matter_id, actor_id)
+    matter = scope.matter
+
+    packages = repo.list_packages_for_matter(conn, matter_id)
+    if not packages:
+        raise ConflictError("This matter has no document packages.")
+    unreleased = [p for p in packages if str(p.get("status")) != "released"]
+    if unreleased:
+        raise ConflictError(
+            "All document packages must be released before building the notary package. "
+            f"{len(unreleased)} package(s) are not yet released."
+        )
+
+    # Collect the final (non-watermarked) PDF for each package.
+    final_pdfs: list[tuple[str, bytes]] = []
+    for pkg in packages:
+        versions = repo.list_versions_for_package(conn, UUID(str(pkg["id"])))
+        # Prefer the latest non-watermarked PDF version.
+        pdf_versions = [
+            v for v in versions
+            if str(v.get("mime_type", "")).endswith("pdf") and not v.get("watermark_text")
+        ]
+        if not pdf_versions:
+            raise ConflictError(
+                f"No final PDF found for package {pkg['id']}."
+            )
+        latest = max(pdf_versions, key=lambda v: int(v.get("version", 0)))
+        upload = repo.get_file_upload(conn, UUID(str(latest["file_upload_id"])))
+        if upload is None:
+            raise ConflictError(f"Final document file missing for package {pkg['id']}.")
+        from app.domains.files import service as files_service
+        try:
+            content = files_service.download_bytes(str(upload["stored_path"]))
+        except FileNotFoundError:
+            raise GoneError("A final document file is no longer available.")
+        template = repo.get_template(conn, UUID(str(pkg["template_id"])))
+        final_pdfs.append((
+            str(template["name"]) if template else "Document",
+            content,
+        ))
+
+    # Build the combined PDF: cover + checklist + documents.
+    width, height = letter
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    # Enrich packages with template info for the cover/checklist.
+    enriched = []
+    for pkg, (name, _) in zip(packages, final_pdfs):
+        template = repo.get_template(conn, UUID(str(pkg["template_id"])))
+        enriched.append({
+            "template_name": name,
+            "template_type": str(template.get("template_type", "")) if template else "",
+        })
+
+    _notary_cover_page(pdf, matter, enriched, width, height)
+    pdf.showPage()
+    _notary_checklist_page(pdf, enriched, width, height)
+    pdf.showPage()
+    pdf.save()
+
+    writer = PdfWriter()
+    cover_reader = PdfReader(io.BytesIO(buffer.getvalue()))
+    for page in cover_reader.pages:
+        writer.add_page(page)
+    for _name, content in final_pdfs:
+        reader = PdfReader(io.BytesIO(content))
+        for page in reader.pages:
+            writer.add_page(page)
+
+    out = io.BytesIO()
+    writer.write(out)
+    record_audit_event(
+        conn,
+        action="document_notary_package.built",
+        resource_type="matters",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(matter["firm_id"])),
+        matter_id=matter_id,
+        resource_id=matter_id,
+        after_summary={"packages": len(final_pdfs)},
+    )
+    return out.getvalue()

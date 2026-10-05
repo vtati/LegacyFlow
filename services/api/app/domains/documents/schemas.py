@@ -17,7 +17,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 DocumentTemplateType = Literal["will", "trust", "poa", "instruction_letter"]
-PackageStatus = Literal["draft", "demo_released"]
+PackageStatus = Literal["draft", "demo_released", "released"]
 FundingTaskStatus = Literal["pending", "in_progress", "completed"]
 
 
