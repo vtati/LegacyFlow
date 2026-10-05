@@ -814,6 +814,15 @@ export interface GeneratedDraft {
   versions: DraftDocument[];
 }
 
+export interface AmendmentRequest {
+  id: string;
+  matter_id: string;
+  description: string;
+  affected_template_types: string[];
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  created_at: string;
+}
+
 export interface DraftDocument {
   id: string;
   package_id: string;
@@ -1481,6 +1490,8 @@ export interface FirmApi {
   generateDraft: (packageId: string, format: DraftFormat) => Promise<GeneratedDraft>;
   releaseProduction: (packageId: string) => Promise<GeneratedDraft>;
   downloadNotaryPackage: (matterId: string) => Promise<{ blob: Blob; filename: string }>;
+  createAmendmentRequest: (matterId: string, input: { description: string; affected_template_types: string[] }) => Promise<AmendmentRequest>;
+  listAmendmentRequests: (matterId: string) => Promise<AmendmentRequest[]>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
   /* funding */
@@ -1634,6 +1645,13 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       call<GeneratedDraft>(`/packages/${packageId}/release-production`, { method: 'POST' }),
     downloadNotaryPackage: (matterId: string) =>
       apiFetchBlob(`/matters/${matterId}/notary-package`, { method: 'GET' }),
+    createAmendmentRequest: (matterId, input) =>
+      call<AmendmentRequest>(`/matters/${matterId}/amendments`, {
+        method: 'POST',
+        body: input,
+      }),
+    listAmendmentRequests: (matterId) =>
+      call<AmendmentRequest[]>(`/matters/${matterId}/amendments`),
     /* signing */
     getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing/checklist`),
     /* funding */

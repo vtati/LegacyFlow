@@ -10,6 +10,7 @@ import {
   ApiError,
   apiFetchBlob,
   firmApi,
+  type AmendmentRequest,
   type DraftFormat,
   type DocumentPackage,
   type DocumentTemplate,
@@ -190,14 +191,23 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
   const [formError, setFormError] = useState<string | null>(null);
   const [downloadingPackage, setDownloadingPackage] = useState(false);
   const [packageError, setPackageError] = useState<string | null>(null);
+  const [amendments, setAmendments] = useState<AmendmentRequest[]>([]);
+  const [amendmentText, setAmendmentText] = useState('');
+  const [requestingAmendment, setRequestingAmendment] = useState(false);
+  const [amendmentError, setAmendmentError] = useState<string | null>(null);
 
   const loadAll = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([firmApi.listTemplates(), firmApi.listPackages(matterId)])
-      .then(([templateList, packageList]) => {
+    Promise.all([
+      firmApi.listTemplates(),
+      firmApi.listPackages(matterId),
+      firmApi.listAmendmentRequests(matterId),
+    ])
+      .then(([templateList, packageList, amendmentList]) => {
         setTemplates(templateList);
         setPackages([...packageList].sort((a, b) => b.created_at.localeCompare(a.created_at)));
+        setAmendments(amendmentList);
       })
       .catch((err: unknown) => setError(err))
       .finally(() => setLoading(false));
@@ -299,6 +309,68 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
             <Download className="size-4" aria-hidden="true" />
             {downloadingPackage ? 'Building…' : 'Download notary package (PDF)'}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Request changes</CardTitle>
+          <CardDescription>
+            Life changes — new property, new beneficiaries, new wishes. Describe what changed
+            and the attorney will review whether a codicil, trust amendment, or restatement is needed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <textarea
+            className="w-full rounded-md border border-lf-border bg-white p-3 text-sm"
+            rows={3}
+            placeholder="e.g. We bought a new house at 123 Oak St. Please add it to the trust."
+            value={amendmentText}
+            onChange={(e) => setAmendmentText(e.target.value)}
+          />
+          {amendmentError && (
+            <p role="alert" className="text-sm text-lf-error-700">
+              {amendmentError}
+            </p>
+          )}
+          <Button
+            type="button"
+            disabled={requestingAmendment || !amendmentText.trim()}
+            onClick={() => {
+              setRequestingAmendment(true);
+              setAmendmentError(null);
+              firmApi
+                .createAmendmentRequest(matterId, {
+                  description: amendmentText.trim(),
+                  affected_template_types: [],
+                })
+                .then((created) => {
+                  setAmendments((prev) => [created, ...prev]);
+                  setAmendmentText('');
+                })
+                .catch((err: unknown) => {
+                  setAmendmentError(
+                    err instanceof ApiError ? err.message : 'Could not submit the request.',
+                  );
+                })
+                .finally(() => setRequestingAmendment(false));
+            }}
+          >
+            {requestingAmendment ? 'Submitting…' : 'Submit change request'}
+          </Button>
+          {amendments.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-sm font-medium">Change history</p>
+              {amendments.map((a) => (
+                <div key={a.id} className="rounded-md border border-lf-border p-3 text-sm">
+                  <p>{a.description}</p>
+                  <p className="mt-1 text-xs text-lf-text-muted">
+                    {formatStatus(a.status)} · {formatDateTime(a.created_at)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
