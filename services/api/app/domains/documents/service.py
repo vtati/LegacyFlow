@@ -904,7 +904,7 @@ def _create_version(
     watermark_text: str | None,
 ) -> dict[str, Any]:
     """Store rendered bytes and append an immutable version row."""
-    suffix = "FINAL" if watermark_text is None else "DEMO"
+    suffix = "FINAL" if watermark_text is None else "DRAFT"
     scan_detail = (
         "Server-generated final render; no user upload scanned."
         if watermark_text is None
@@ -994,7 +994,7 @@ def generate_demo(
         raise ConflictError("The package's template is missing.")
 
     body = _merge_placeholders(_template_content_body(template), build_template_context(conn, UUID(str(matter["id"]))))
-    title = f"{template['name']} — Demo"
+    title = f"{template['name']} — Draft"
     _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
     created = _render_package_versions(
         conn,
