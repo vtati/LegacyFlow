@@ -400,6 +400,19 @@ def _add_docx_diagonal_watermark(doc: DocxDocument, text: str) -> None:
     run._r.append(pict)
 
 
+def _strip_draft_header(body: str) -> str:
+    """Remove the template's DRAFT header line for final documents.
+
+    Templates start with e.g. "DRAFT — requires licensed attorney review
+    before use." — this is appropriate for drafts but not for final
+    released documents that have already been attorney-approved.
+    """
+    lines = body.split("\n")
+    if lines and lines[0].strip().startswith("DRAFT"):
+        return "\n".join(lines[1:]).lstrip("\n")
+    return body
+
+
 def render_demo_docx(title: str, body: str, watermark_text: str | None) -> bytes:
     """Render a DOCX with header/footer and a diagonal watermark.
 
@@ -407,6 +420,11 @@ def render_demo_docx(title: str, body: str, watermark_text: str | None) -> bytes
     with no watermark, banner, or draft disclaimer — for production release
     after attorney approval.
     """
+    # For final documents, strip the template's DRAFT header line
+    # (e.g. "DRAFT — requires licensed attorney review before use.")
+    # since attorney approval has already been obtained.
+    if watermark_text is None:
+        body = _strip_draft_header(body)
     doc = Document()
     _add_docx_header_footer(doc, title)
     if watermark_text is not None:
@@ -447,6 +465,9 @@ def render_demo_pdf(title: str, body: str, watermark_text: str | None) -> bytes:
     with no watermark, banner, or draft disclaimer — for production release
     after attorney approval.
     """
+    # For final documents, strip the template's DRAFT header line
+    if watermark_text is None:
+        body = _strip_draft_header(body)
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -2140,6 +2161,15 @@ def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes
     width, height = letter
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    # Enrich matter with household name for the cover page.
+    household_id = matter.get("household_id")
+    if household_id:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM households WHERE id = %s", (str(household_id),))
+            row = cur.fetchone()
+            if row:
+                matter = {**matter, "household": {"name": row["name"]}}
 
     # Enrich packages with template info for the cover/checklist.
     enriched = []
