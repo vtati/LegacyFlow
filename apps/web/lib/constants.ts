@@ -4,6 +4,6 @@
  * a document is legally valid and never presents unapproved legal content.
  */
 export const SAFETY_LABEL =
-  'Attorney review pending. Not legal advice. Synthetic data only.';
+  'Attorney review pending. Not legal advice.';
 
 export const PRODUCT_NAME = 'LegacyFlow';

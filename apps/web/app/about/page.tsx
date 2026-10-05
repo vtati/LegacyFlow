@@ -68,8 +68,7 @@ export default function AboutPage(): React.JSX.Element {
               role="note"
             >
               <strong className="text-lf-text">Bottom line:</strong> nothing here is legal
-              advice, and no document shown here is legally valid until an attorney approves it. All sample content is synthetic
-              and clearly labeled.
+              advice, and no document shown here is legally valid until an attorney approves it.
             </p>
           </CardContent>
         </Card>
