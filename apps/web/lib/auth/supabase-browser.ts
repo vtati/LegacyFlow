@@ -21,8 +21,8 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
       const supabase = getBrowserSupabase();
       const next =
         typeof window !== 'undefined'
-          ? (new URLSearchParams(window.location.search).get('next') ?? '/')
-          : '/';
+          ? (new URLSearchParams(window.location.search).get('next') ?? '/family/home')
+          : '/family/home';
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
