@@ -2143,16 +2143,28 @@ def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes
     packages = repo.list_packages_for_matter(conn, matter_id)
     if not packages:
         raise ConflictError("This matter has no document packages.")
-    unreleased = [p for p in packages if str(p.get("status")) != "released"]
+
+    # Exclude non-releasable types (e.g. instruction letters are demo-only by design
+    # and never go through production release).
+    releasable: list[dict[str, Any]] = []
+    for p in packages:
+        tmpl = repo.get_template(conn, UUID(str(p["template_id"])))
+        ttype = str(tmpl.get("template_type", "")) if tmpl else ""
+        if ttype != "instruction_letter":
+            releasable.append(p)
+    if not releasable:
+        raise ConflictError("This matter has no releasable document packages.")
+
+    unreleased = [p for p in releasable if str(p.get("status")) != "released"]
     if unreleased:
         raise ConflictError(
             "All document packages must be released before building the notary package. "
             f"{len(unreleased)} package(s) are not yet released."
         )
 
-    # Collect the final (non-watermarked) PDF for each package.
+    # Collect the final (non-watermarked) PDF for each releasable package.
     final_pdfs: list[tuple[str, bytes]] = []
-    for pkg in packages:
+    for pkg in releasable:
         versions = repo.list_versions_for_package(conn, UUID(str(pkg["id"])))
         # Prefer the latest non-watermarked PDF version.
         pdf_versions = [
@@ -2187,14 +2199,14 @@ def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes
     household_id = matter.get("household_id")
     if household_id:
         with conn.cursor() as cur:
-            cur.execute("SELECT name FROM households WHERE id = %s", (str(household_id),))
+            cur.execute("SELECT display_name FROM households WHERE id = %s", (str(household_id),))
             row = cur.fetchone()
             if row:
-                matter = {**matter, "household": {"name": row["name"]}}
+                matter = {**matter, "household": {"name": row["display_name"]}}
 
     # Enrich packages with template info for the cover/checklist.
     enriched = []
-    for pkg, (name, _) in zip(packages, final_pdfs):
+    for pkg, (name, _) in zip(releasable, final_pdfs):
         template = repo.get_template(conn, UUID(str(pkg["template_id"])))
         enriched.append({
             "template_name": name,
@@ -2314,3 +2326,76 @@ def list_amendment_requests(
         )
         for r in rows
     ]
+
+
+def decide_amendment_request(
+    conn: Any, *, actor_sub: str, matter_id: UUID, amendment_id: UUID,
+    payload: sch.AmendmentDecideIn,
+) -> sch.AmendmentRequestOut:
+    """Attorney decision on an amendment request.
+
+    Legal transitions: pending→approved|rejected, approved→completed.
+    Requires attorney or firm_admin role.
+    """
+    actor_id = _actor_id(actor_sub)
+    scope = authz.get_matter_scope(conn, matter_id, actor_id)
+    # Require attorney/firm_admin
+    if scope.role not in ("attorney", "firm_admin"):
+        from app.core.errors import ForbiddenError
+        raise ForbiddenError("Only attorneys or firm admins can decide amendment requests.")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, status FROM amendment_requests WHERE id = %s AND matter_id = %s",
+            (str(amendment_id), str(matter_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            from app.core.errors import NotFoundError
+            raise NotFoundError("Amendment request not found.")
+
+        current = row["status"]
+        decision = payload.decision
+        # Validate legal transitions
+        legal = {
+            "pending": ("approved", "rejected"),
+            "approved": ("completed",),
+            "rejected": (),
+            "completed": (),
+        }
+        if decision not in legal.get(current, ()):
+            from app.core.errors import ConflictError
+            raise ConflictError(
+                f"Cannot transition amendment from '{current}' to '{decision}'."
+            )
+
+        cur.execute(
+            """
+            UPDATE amendment_requests
+            SET status = %s, decided_by_user_id = %s, decided_at = now(), updated_at = now()
+            WHERE id = %s
+            RETURNING id, matter_id, description, affected_template_types, status, created_at
+            """,
+            (decision, str(actor_id), str(amendment_id)),
+        )
+        updated = cur.fetchone()
+
+    record_audit_event(
+        conn,
+        action=f"document_amendment.{decision}",
+        resource_type="matters",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(scope.matter["firm_id"])),
+        matter_id=matter_id,
+        resource_id=amendment_id,
+        after_summary={"decision": decision, "notes": payload.notes},
+    )
+    return sch.AmendmentRequestOut(
+        id=updated["id"],
+        matter_id=updated["matter_id"],
+        description=updated["description"],
+        affected_template_types=updated["affected_template_types"],
+        status=updated["status"],
+        created_at=updated["created_at"],
+    )

@@ -457,3 +457,18 @@ def list_amendment_requests(
         return service.list_amendment_requests(
             conn, actor_sub=user.sub, matter_id=matter_id
         )
+
+
+@router.patch(
+    "/matters/{matter_id}/amendments/{amendment_id}",
+    response_model=sch.AmendmentRequestOut,
+)
+def decide_amendment_request(
+    user: User, matter_id: UUID, amendment_id: UUID, payload: sch.AmendmentDecideIn
+) -> sch.AmendmentRequestOut:
+    """Attorney decision on an amendment request (attorney/firm_admin only)."""
+    with db.transaction() as conn:
+        return service.decide_amendment_request(
+            conn, actor_sub=user.sub, matter_id=matter_id,
+            amendment_id=amendment_id, payload=payload,
+        )

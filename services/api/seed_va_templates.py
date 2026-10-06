@@ -35,13 +35,13 @@ TEMPLATES = [
     {
         "file": "advance-medical-directive.txt",
         "name": "Advance Medical Directive (Virginia)",
-        "template_type": "poa",
+        "template_type": "advance_directive",
         "pack_id": "us-va",
     },
     {
         "file": "guardianship-designation.txt",
         "name": "Designation of Guardian for Minor Children (Virginia)",
-        "template_type": "instruction_letter",
+        "template_type": "guardianship",
         "pack_id": "us-va",
     },
     {

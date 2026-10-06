@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Modal } from '@/components/ui/modal';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { WATERMARK_NOTICE, WatermarkNotice } from '@/components/documents/watermark-notice';
 import {
@@ -32,6 +34,7 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
   const [releasing, setReleasing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [confirmRelease, setConfirmRelease] = useState(false);
 
   const templateName =
     templates.find((t) => t.id === pkg.template_id)?.name ?? pkg.template_id;
@@ -74,6 +77,7 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
   };
 
   const handleRelease = () => {
+    setConfirmRelease(false);
     setReleasing(true);
     setReleaseError(null);
     setNotice(null);
@@ -157,11 +161,26 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
             variant="outline"
             size="sm"
             disabled={releasing}
-            onClick={handleRelease}
+            onClick={() => setConfirmRelease(true)}
           >
             {releasing ? 'Releasing…' : 'Release for production'}
           </Button>
         </div>
+        <Modal
+          open={confirmRelease}
+          onClose={() => setConfirmRelease(false)}
+          title="Release final documents?"
+          description="This will generate the clean, final versions of the documents for production use. This action should only be taken after attorney approval."
+        >
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setConfirmRelease(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleRelease} disabled={releasing}>
+              {releasing ? 'Releasing…' : 'Confirm release'}
+            </Button>
+          </div>
+        </Modal>
         {notice && (
           <p role="status" className="text-sm text-lf-text-muted">
             {notice}
@@ -321,7 +340,9 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <Label htmlFor="amendment-text">Describe what changed</Label>
           <textarea
+            id="amendment-text"
             className="w-full rounded-md border border-lf-border bg-white p-3 text-sm"
             rows={3}
             placeholder="e.g. We bought a new house at 123 Oak St. Please add it to the trust."

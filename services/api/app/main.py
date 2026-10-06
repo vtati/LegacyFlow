@@ -150,7 +150,12 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        # Never leak internal details to the client.
+        # Log the full traceback server-side; never leak internal details to the client.
+        logger = logging.getLogger(__name__)
+        logger.exception(
+            "Unhandled exception",
+            extra={"request_id": _request_id_of(request), "path": request.url.path},
+        )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=_problem(

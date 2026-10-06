@@ -275,3 +275,10 @@ class AmendmentRequestOut(BaseModel):
     affected_template_types: list[str]
     status: str  # pending, approved, rejected, completed
     created_at: datetime
+
+
+class AmendmentDecideIn(BaseModel):
+    """Attorney decision on an amendment request."""
+
+    decision: Literal["approved", "rejected", "completed"]
+    notes: str | None = Field(default=None, max_length=1000)
