@@ -546,6 +546,9 @@ def post_turn(
 
     answers = _answers_map(conn, matter_id)
     completeness, missing, total_required, answered_required = _progress(pack, answers)
+    # Keys with open proposals awaiting user confirmation — the model should
+    # NOT re-ask about these; instead acknowledge they're pending review.
+    pending_keys = sorted(repo.open_proposal_keys(conn, session_id))
     docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
     retrieved = [
         RetrievedDocument(
@@ -564,6 +567,7 @@ def post_turn(
         missing_required_keys=missing,
         answered_required=answered_required,
         total_required=total_required,
+        pending_proposal_keys=pending_keys,
     )
     history = _history_messages(conn, session_id)
     system_prompt = prompts.build_system_prompt(
@@ -572,6 +576,7 @@ def post_turn(
         missing_required_keys=missing,
         answered_required=answered_required,
         total_required=total_required,
+        pending_proposal_keys=pending_keys,
     )
 
     provider = get_llm_provider()

@@ -188,6 +188,7 @@ class InterviewContext:
     missing_required_keys: list[str] = field(default_factory=list)
     answered_required: int = 0
     total_required: int = 0
+    pending_proposal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -398,7 +399,12 @@ class OpenAIChatProvider:
             # what was recorded and asks about the next missing item directly,
             # instead of the generic "tell me more" loop.
             recorded = f"{len(proposals)} value{'s' if len(proposals) != 1 else ''}" if proposals else "that"
-            next_key = (context.missing_required_keys or [None])[0]
+            # Skip keys that already have pending proposals awaiting confirmation
+            pending_set = set(context.pending_proposal_keys or [])
+            next_key = next(
+                (k for k in context.missing_required_keys if k not in pending_set),
+                None,
+            )
             if next_key:
                 # Make the key human-readable: "minor_children" -> "minor children"
                 readable = next_key.replace("_", " ")
