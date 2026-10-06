@@ -394,12 +394,22 @@ class OpenAIChatProvider:
                 )
         if not reply:
             # The model emitted only tool calls (or an empty message): never
-            # hand the user a blank turn. This fallback carries no legal
-            # content and keeps the interview moving.
-            reply = (
-                "Thanks — I've noted that. Could you tell me a little more, "
-                "or shall we move on to the next item?"
-            )
+            # hand the user a blank turn. Build a specific fallback that names
+            # what was recorded and asks about the next missing item directly,
+            # instead of the generic "tell me more" loop.
+            recorded = f"{len(proposals)} value{'s' if len(proposals) != 1 else ''}" if proposals else "that"
+            next_key = (context.missing_required_keys or [None])[0]
+            if next_key:
+                # Make the key human-readable: "minor_children" -> "minor children"
+                readable = next_key.replace("_", " ")
+                reply = (
+                    f"Thanks — I've recorded {recorded}. "
+                    f"Next, could you tell me about {readable}?"
+                )
+            elif proposals:
+                reply = f"Thanks — I've recorded {recorded}."
+            else:
+                reply = "Thanks — I've noted that."
         usage: dict[str, int] = {}
         raw_usage = data.get("usage") or {}
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):

@@ -44,6 +44,11 @@ clear question at a time, in plain language.
 - When the user provides a fact, record it with the propose_field_values \
 tool using their exact words as the source snippet. Only propose values you \
 are confident about; omit uncertain ones.
+- ALWAYS include a text response with your tool calls. Never return only \
+tool calls without text. Your text must acknowledge what you recorded and \
+ask a specific follow-up question about the next missing item by name. \
+Never ask generic questions like "tell me more" or "shall we move on" — \
+name the specific information you need.
 - Do not repeat questions the user has already answered.
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id}).
