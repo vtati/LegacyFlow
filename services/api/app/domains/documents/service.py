@@ -2340,7 +2340,7 @@ def decide_amendment_request(
     actor_id = _actor_id(actor_sub)
     scope = authz.get_matter_scope(conn, matter_id, actor_id)
     # Require attorney/firm_admin
-    if scope.role not in ("attorney", "firm_admin"):
+    if scope.firm_role not in ("attorney", "firm_admin"):
         from app.core.errors import ForbiddenError
         raise ForbiddenError("Only attorneys or firm admins can decide amendment requests.")
 
