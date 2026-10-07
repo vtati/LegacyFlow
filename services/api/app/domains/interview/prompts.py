@@ -9,7 +9,7 @@ in the packs and is retrieved per turn.
 from __future__ import annotations
 
 PROMPT_TEMPLATE_NAME = "interview_system"
-PROMPT_TEMPLATE_VERSION = "v1"
+PROMPT_TEMPLATE_VERSION = "v2"
 
 
 def build_system_prompt(
@@ -25,7 +25,14 @@ def build_system_prompt(
     missing = ", ".join(missing_required_keys[:12])
     more = f" (+{len(missing_required_keys) - 12} more)" if len(missing_required_keys) > 12 else ""
     pending = pending_proposal_keys or []
+    # "Still needed" excludes items already awaiting user confirmation, so the
+    # model never has to cross-reference two lists to avoid re-asking.
+    pending_set = set(pending)
+    still_needed = [k for k in missing_required_keys if k not in pending_set]
+    still_needed_str = ", ".join(still_needed[:12])
+    still_more = f" (+{len(still_needed) - 12} more)" if len(still_needed) > 12 else ""
     pending_str = ", ".join(pending[:12]) if pending else "none"
+    pending_more = f" (+{len(pending) - 12} more)" if len(pending) > 12 else ""
     return f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \
@@ -53,9 +60,9 @@ estate plan, then ask the specific question.
 
 INTERVIEW STATE:
 - Progress: {answered_required} of {total_required} required items complete.
-- Still needed: {missing}{more}.
+- Still needed: {still_needed_str}{still_more}.
 - Awaiting user confirmation (do NOT re-ask about these — the user sees \
-them as review cards): {pending_str}.
+them as review cards): {pending_str}{pending_more}.
 
 QUESTION BEHAVIOR:
 - Advance the interview toward the missing items listed above. Ask ONE \
@@ -72,6 +79,5 @@ tool calls without text. Your text must acknowledge what you recorded and \
 ask a specific follow-up question about the next missing item by name. \
 Never ask generic questions like "tell me more" or "shall we move on" — \
 name the specific information you need.
-- Do not repeat questions the user has already answered.
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id})."""

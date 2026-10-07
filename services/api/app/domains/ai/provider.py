@@ -189,6 +189,7 @@ class InterviewContext:
     answered_required: int = 0
     total_required: int = 0
     pending_proposal_keys: list[str] = field(default_factory=list)
+    question_labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -396,24 +397,41 @@ class OpenAIChatProvider:
         if not reply:
             # The model emitted only tool calls (or an empty message): never
             # hand the user a blank turn. Build a specific fallback that names
-            # what was recorded and asks about the next missing item directly,
-            # instead of the generic "tell me more" loop.
-            recorded = f"{len(proposals)} value{'s' if len(proposals) != 1 else ''}" if proposals else "that"
-            # Skip keys that already have pending proposals awaiting confirmation
+            # what was recorded and asks the next missing item using the
+            # pack's human question label — never a generic "tell me more".
+            # Only count proposals for keys the pack actually defines, so the
+            # count can't promise values that post-chat validation will drop.
+            labels = context.question_labels or {}
+            valid_proposals = [
+                pr for pr in proposals if pr.question_key in labels
+            ]
+            recorded = (
+                f"{len(valid_proposals)} value{'s' if len(valid_proposals) != 1 else ''}"
+                if valid_proposals else "that"
+            )
+            # Skip keys that already have pending proposals awaiting confirmation,
+            # plus keys the model just proposed for this turn (they become
+            # pending once post-chat validation stores them).
             pending_set = set(context.pending_proposal_keys or [])
+            just_proposed = {pr.question_key for pr in valid_proposals}
+            skip = pending_set | just_proposed
             next_key = next(
-                (k for k in context.missing_required_keys if k not in pending_set),
+                (k for k in context.missing_required_keys
+                 if k not in skip and k in labels),
                 None,
             )
             if next_key:
-                # Make the key human-readable: "minor_children" -> "minor children"
-                readable = next_key.replace("_", " ")
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
-                    f"Next, could you tell me about {readable}?"
+                    f"Next: {labels[next_key]}"
                 )
-            elif proposals:
-                reply = f"Thanks — I've recorded {recorded}."
+            elif valid_proposals:
+                # Every remaining missing key is awaiting user confirmation —
+                # the only thing blocking progress is the review cards.
+                reply = (
+                    f"Thanks — I've recorded {recorded}. "
+                    "Please review the proposed values above to continue."
+                )
             else:
                 reply = "Thanks — I've noted that."
         usage: dict[str, int] = {}

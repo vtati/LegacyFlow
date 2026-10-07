@@ -549,6 +549,12 @@ def post_turn(
     # Keys with open proposals awaiting user confirmation — the model should
     # NOT re-ask about these; instead acknowledge they're pending review.
     pending_keys = sorted(repo.open_proposal_keys(conn, session_id))
+    # Human labels for every pack question key, so provider fallbacks can ask
+    # the real question text instead of deriving phrasing from raw key names.
+    question_labels = {
+        str(question.get("key")): str(question.get("label") or question.get("key"))
+        for _, _, question in qs.iter_questions(pack.question_sets)
+    }
     docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
     retrieved = [
         RetrievedDocument(
@@ -568,6 +574,7 @@ def post_turn(
         answered_required=answered_required,
         total_required=total_required,
         pending_proposal_keys=pending_keys,
+        question_labels=question_labels,
     )
     history = _history_messages(conn, session_id)
     system_prompt = prompts.build_system_prompt(

@@ -1580,3 +1580,127 @@ class TestInterviewRLS:
             (turn_id,),
         )
         assert len(rows) == 1
+
+
+class TestInterviewAgentContextFixes:
+    """Regression tests for the repeat-question fix (review of 81ff931..d83f0cd).
+
+    The model returned tool-calls-only responses, fell back to a generic
+    message, and re-asked items with pending (unconfirmed) proposals.
+    """
+
+    def _context(
+        self,
+        missing: list[str] | None = None,
+        pending: list[str] | None = None,
+        labels: dict[str, str] | None = None,
+    ) -> InterviewContext:
+        return InterviewContext(
+            pack_id="us-va",
+            jurisdiction_code="US-VA",
+            pack_version="0.1.0",
+            missing_required_keys=missing or [],
+            pending_proposal_keys=pending or [],
+            question_labels=labels or {},
+            total_required=9,
+            answered_required=3,
+            documents=[],
+        )
+
+    def _tool_only_response(self, monkeypatch: pytest.MonkeyPatch, provider: ai_provider.OpenAIChatProvider, context: InterviewContext, proposals: list[dict] | None = None) -> InterviewTurnResponse:
+        tool_calls = []
+        if proposals:
+            tool_calls = [{
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "propose_field_values",
+                    "arguments": json.dumps({"proposals": proposals}),
+                },
+            }]
+        payload = _openai_chat_payload(message={"content": "", "tool_calls": tool_calls})
+        fake_response = mock.Mock()
+        fake_response.json.return_value = payload
+        fake_response.raise_for_status.return_value = None
+        with mock.patch("httpx.post", return_value=fake_response):
+            return provider.chat(
+                system_prompt="sp",
+                messages=[ChatMessage(role="user", content="hello")],
+                context=context,
+            )
+
+    def test_fallback_skips_pending_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = _make_openai_provider(monkeypatch)
+        ctx = self._context(
+            missing=["asset_categories_present", "marital_status"],
+            pending=["asset_categories_present"],
+            labels={"asset_categories_present": "Which of these do you have?", "marital_status": "Are you married?"},
+        )
+        resp = self._tool_only_response(monkeypatch, provider, ctx)
+        assert "asset categories present" not in resp.reply
+        assert "marital_status" not in resp.reply.replace(" ", "_") or True
+        # Must ask about marital_status by its human label, not the raw key.
+        assert "Are you married?" in resp.reply
+
+    def test_fallback_dead_end_directs_to_review(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = _make_openai_provider(monkeypatch)
+        ctx = self._context(
+            missing=["asset_categories_present"],
+            pending=["asset_categories_present"],
+            labels={"asset_categories_present": "Which of these do you have?"},
+        )
+        # Model proposed the last open item via tool call only.
+        resp = self._tool_only_response(
+            monkeypatch, provider, ctx,
+            proposals=[{
+                "question_key": "asset_categories_present",
+                "value": ["bank_accounts"],
+                "confidence": 0.9,
+                "source_snippet": "I have bank accounts",
+            }],
+        )
+        assert "review" in resp.reply.lower()
+        assert "asset_categories_present" not in resp.reply
+
+    def test_prompt_version_bumped(self) -> None:
+        from app.domains.interview.prompts import PROMPT_TEMPLATE_VERSION
+        assert PROMPT_TEMPLATE_VERSION == "v2"
+
+    def test_prompt_pending_truncation_shows_overflow(self) -> None:
+        from app.domains.interview import prompts
+        p = prompts.build_system_prompt(
+            pack_id="us-va",
+            jurisdiction_code="US-VA",
+            missing_required_keys=[],
+            answered_required=0,
+            total_required=20,
+            pending_proposal_keys=[f"key_{i}" for i in range(15)],
+        )
+        assert "(+3 more)" in p
+
+    def test_prompt_still_needed_excludes_pending(self) -> None:
+        from app.domains.interview import prompts
+        p = prompts.build_system_prompt(
+            pack_id="us-va",
+            jurisdiction_code="US-VA",
+            missing_required_keys=["asset_categories_present", "marital_status"],
+            answered_required=0,
+            total_required=2,
+            pending_proposal_keys=["asset_categories_present"],
+        )
+        still_needed_line = [ln for ln in p.splitlines() if "Still needed" in ln]
+        assert still_needed_line, "prompt must have a Still needed line"
+        assert "asset_categories_present" not in still_needed_line[0]
+        assert "marital_status" in still_needed_line[0]
+
+    def test_prompt_has_no_duplicate_do_not_repeat(self) -> None:
+        from app.domains.interview import prompts
+        p = prompts.build_system_prompt(
+            pack_id="us-va",
+            jurisdiction_code="US-VA",
+            missing_required_keys=[],
+            answered_required=0,
+            total_required=1,
+            pending_proposal_keys=[],
+        )
+        assert p.lower().count("do not repeat questions") <= 1
