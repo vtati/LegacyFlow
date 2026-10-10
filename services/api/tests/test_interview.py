@@ -1664,7 +1664,7 @@ class TestInterviewAgentContextFixes:
 
     def test_prompt_version_bumped(self) -> None:
         from app.domains.interview.prompts import PROMPT_TEMPLATE_VERSION
-        assert PROMPT_TEMPLATE_VERSION == "v2"
+        assert PROMPT_TEMPLATE_VERSION == "v3"
 
     def test_prompt_pending_truncation_shows_overflow(self) -> None:
         from app.domains.interview import prompts
@@ -1704,3 +1704,42 @@ class TestInterviewAgentContextFixes:
             pending_proposal_keys=[],
         )
         assert p.lower().count("do not repeat questions") <= 1
+
+
+class TestInterviewGuardrails:
+    """Guardrail contract for the AI interviewer (Venugopal, 2026-10-10).
+
+    - Terminology questions (wills/trusts concepts) get clear educational answers.
+    - Code generation / off-topic requests are politely declined, never answered.
+    - LegacyFlow app questions are answered.
+    """
+
+    def _prompt(self) -> str:
+        from app.domains.interview import prompts
+        return prompts.build_system_prompt(
+            pack_id="us-va",
+            jurisdiction_code="US-VA",
+            missing_required_keys=["marital_status"],
+            answered_required=0,
+            total_required=1,
+            pending_proposal_keys=[],
+        )
+
+    def test_prompt_names_terminology_as_in_scope(self) -> None:
+        p = self._prompt().lower()
+        assert "terminology" in p
+
+    def test_prompt_explicitly_refuses_code_generation(self) -> None:
+        p = self._prompt().lower()
+        assert "code" in p and ("never" in p or "do not" in p or "decline" in p)
+
+    def test_prompt_has_standard_decline_response(self) -> None:
+        p = self._prompt()
+        assert "I'm only able to help with estate planning" in p
+
+    def test_prompt_names_legacyflow_app_as_in_scope(self) -> None:
+        assert "legacyflow" in self._prompt().lower()
+
+    def test_prompt_rejects_pretend_framings(self) -> None:
+        p = self._prompt().lower()
+        assert "pretend" in p or "just this once" in p
