@@ -33,6 +33,7 @@ const ROLE_LABELS: Record<NominationType, string> = {
 };
 
 function memberPersonId(member: HouseholdMember): string | null {
+  if (!member.person) return null;
   return typeof member.person === 'string' ? member.person : (member.person.id ?? null);
 }
 
