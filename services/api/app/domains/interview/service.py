@@ -234,16 +234,29 @@ def _deterministic_person_proposal(
     for _, _, question in qs.iter_questions(question_sets):
         if question.get("type") != "person":
             continue
+        key = str(question.get("key", ""))
         label = str(question.get("label") or "")
+        # Match on key words (e.g. "guardian" in "primary_guardian_person")
+        # AND label words, since the model paraphrases the question.
+        key_words = [w for w in key.split("_") if len(w) > 3]
         label_words = [
             w for w in re.findall(r"\w+", label.lower())
             if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that", "who"}
         ]
-        if not label_words:
-            continue
-        matches = sum(1 for w in label_words if w in reply_lower)
-        if matches >= 2 and matches >= len(label_words) * 0.5:
-            asked_key = str(question["key"])
+        # Check key words in reply (e.g. "guardian" appears in both)
+        key_matches = sum(1 for w in key_words if w in reply_lower)
+        label_matches = sum(1 for w in label_words if w in reply_lower)
+        # For role-based person questions, the role word (guardian/executor/
+        # trustee) is distinctive enough on its own, since the model
+        # paraphrases the pack label.
+        if any(w in reply_lower for w in ("guardian", "executor", "trustee")) and any(
+            w in key_words for w in ("guardian", "executor", "trustee")
+        ):
+            asked_key = key
+            break
+        # Match if key word appears AND at least one label word, or vice versa
+        if (key_matches >= 1 and label_matches >= 1) or label_matches >= 2:
+            asked_key = key
             break
 
     if asked_key is None:

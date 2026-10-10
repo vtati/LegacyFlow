@@ -1892,7 +1892,8 @@ class TestDeterministicPersonFallback:
 
         result = _deterministic_person_proposal(
             user_message="Meera Nair.",
-            assistant_reply="Who should care for your minor children if neither parent can?",
+            # Model paraphrases the pack label; matching must handle this.
+            assistant_reply="Who would you like to designate as the primary guardian?",
             question_sets=self._questions(),
             existing_proposal_keys=set(),
         )
