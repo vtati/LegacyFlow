@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { signingSummary } from '@/components/firm/signing-tab';
-import { api, type SigningChecklist, type SigningChecklistItem } from '@/lib/api-client';
+import { api, ApiError, type SigningChecklist, type SigningChecklistItem } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 
 /**
@@ -123,7 +123,15 @@ export default function FamilySigningPage(): React.JSX.Element {
     api
       .getChecklist(id)
       .then(setChecklist)
-      .catch((err: unknown) => setError(err))
+      .catch((err: unknown) => {
+        // A 404 means no checklist exists yet — normal for in-progress matters.
+        // Show a friendly empty state, not an error.
+        if (err instanceof ApiError && err.status === 404) {
+          setChecklist(null);
+        } else {
+          setError(err);
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -197,6 +205,13 @@ export default function FamilySigningPage(): React.JSX.Element {
       {error != null && matterId != null && !loading ? (
         <ErrorState error={error} onRetry={() => loadChecklist(matterId)} />
       ) : null}
+
+      {matterId && !loading && !error && !checklist && (
+        <EmptyState
+          title="No signing checklist yet"
+          description="Your signing checklist will be ready once your documents are finalized. Check back after your attorney reviews your plan."
+        />
+      )}
 
       {matterId && !loading && !error && checklist && (
         <Card>
