@@ -1743,3 +1743,96 @@ class TestInterviewGuardrails:
     def test_prompt_rejects_pretend_framings(self) -> None:
         p = self._prompt().lower()
         assert "pretend" in p or "just this once" in p
+
+
+# ---------------------------------------------------------------------------
+# Unit: deterministic boolean fallback (loop prevention)
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicBooleanFallback:
+    """When the model asks a boolean question and the user gives a clear
+    yes/no answer, but the model fails to emit a proposal, the system must
+    deterministically record the answer instead of re-asking forever."""
+
+    def _questions(self) -> dict:
+        return {
+            "household": {
+                "sections": [
+                    {
+                        "id": "basics",
+                        "questions": [
+                            {
+                                "key": "expects_family_conflict",
+                                "type": "boolean",
+                                "label": "Do you expect disagreement among family members about your plan?",
+                            },
+                            {
+                                "key": "has_minor_children",
+                                "type": "boolean",
+                                "label": "Do you have minor children?",
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+
+    def test_yes_answer_creates_proposal(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message="Yes, I expect some disagreement.",
+            assistant_reply="Thanks. Next: Do you expect disagreement among family members about your plan?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "expects_family_conflict"
+        assert result["value"] is True
+
+    def test_no_answer_creates_proposal(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message="No, I don't expect any disagreement. We've discussed this as a family.",
+            assistant_reply="Thanks. Next: Do you expect disagreement among family members about your plan?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "expects_family_conflict"
+        assert result["value"] is False
+
+    def test_no_proposal_when_model_already_proposed(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message="No.",
+            assistant_reply="Next: Do you expect disagreement among family members about your plan?",
+            question_sets=self._questions(),
+            existing_proposal_keys={"expects_family_conflict"},
+        )
+        assert result is None
+
+    def test_no_proposal_for_ambiguous_answer(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message="Maybe, it depends on my brother.",
+            assistant_reply="Next: Do you expect disagreement among family members about your plan?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is None
+
+    def test_no_proposal_when_no_boolean_question_asked(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message="No.",
+            assistant_reply="Thanks for sharing. What is your name?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is None

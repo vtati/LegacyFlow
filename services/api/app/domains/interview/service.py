@@ -105,6 +105,93 @@ def _trace_hash(material: str) -> str:
     return hashlib.sha256(material.encode()).hexdigest()
 
 
+#: Patterns for deterministic yes/no parsing (loop prevention fallback).
+_YES_PATTERNS = (
+    r"^\s*(yes|yeah|yep|yup|sure|correct|right|absolutely|definitely)\b",
+    r"\bi do\b",
+    r"\bwe do\b",
+)
+_NO_PATTERNS = (
+    r"^\s*(no|nope|nah|never|not really)\b",
+    r"\bi don'?t\b",
+    r"\bwe don'?t\b",
+    r"\bdo not expect\b",
+    r"\bdon'?t expect\b",
+)
+
+
+def _parse_yes_no(text: str) -> bool | None:
+    """Parse a clear yes/no answer. Returns True/False or None if ambiguous."""
+    import re
+
+    lowered = text.lower().strip()
+    for pattern in _YES_PATTERNS:
+        if re.search(pattern, lowered):
+            # Guard against "yes, but..." hedges — still counts as yes
+            # unless followed by a clear negation.
+            return True
+    for pattern in _NO_PATTERNS:
+        if re.search(pattern, lowered):
+            return False
+    return None
+
+
+def _deterministic_boolean_proposal(
+    *,
+    user_message: str,
+    assistant_reply: str,
+    question_sets: dict[str, dict[str, Any]],
+    existing_proposal_keys: set[str],
+) -> dict[str, Any] | None:
+    """Deterministic fallback: if the model asked a boolean question and the
+    user gave a clear yes/no answer, but no proposal was emitted, create one.
+
+    This prevents the interview from looping forever on yes/no questions when
+    the model acknowledges without recording (e.g. "Thanks — I've noted that"
+    with no tool call).
+    """
+    import re
+
+    from app.domains.intake import question_sets as qs
+
+    # Find which boolean question was asked last by matching the assistant's
+    # reply against question labels.
+    reply_lower = assistant_reply.lower()
+    asked_key: str | None = None
+    for _, _, question in qs.iter_questions(question_sets):
+        if question.get("type") != "boolean":
+            continue
+        label = str(question.get("label") or "")
+        # Match on significant words from the label (skip stopwords).
+        label_words = [
+            w for w in re.findall(r"\w+", label.lower())
+            if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
+        ]
+        if not label_words:
+            continue
+        # Require at least 2 significant words to match (avoid false positives).
+        matches = sum(1 for w in label_words if w in reply_lower)
+        if matches >= 2 and matches >= len(label_words) * 0.5:
+            asked_key = str(question["key"])
+            break
+
+    if asked_key is None:
+        return None
+    if asked_key in existing_proposal_keys:
+        return None
+
+    value = _parse_yes_no(user_message)
+    if value is None:
+        return None
+
+    return {
+        "question_key": asked_key,
+        "value": value,
+        "confidence": 0.95,
+        "source_snippet": user_message.strip()[:500],
+    }
+
+
 def _answers_map(conn: Any, matter_id: UUID) -> dict[str, Any]:
     return {
         str(row["question_key"]): row["answer"] for row in intake_repo.list_answers(conn, matter_id)
@@ -614,6 +701,40 @@ def post_turn(
             )
             continue
         valid_proposals.append(draft)
+
+    # Deterministic boolean fallback (loop prevention): if the model asked a
+    # boolean question and the user gave a clear yes/no answer, but the model
+    # emitted no proposal, record it deterministically instead of re-asking.
+    # We look at the PREVIOUS assistant message (history[-1]) to find what
+    # was asked, since response.reply is the current turn's acknowledgement.
+    if not valid_proposals and history:
+        last_assistant_msg = next(
+            (m.content for m in reversed(history) if m.role == "assistant"),
+            "",
+        )
+        fallback = _deterministic_boolean_proposal(
+            user_message=message,
+            assistant_reply=last_assistant_msg,
+            question_sets=pack.question_sets,
+            existing_proposal_keys=set(repo.open_proposal_keys(conn, session_id)),
+        )
+        if fallback is not None:
+            from app.domains.ai.provider import FieldProposalDraft
+
+            valid_proposals.append(
+                FieldProposalDraft(
+                    question_key=fallback["question_key"],
+                    value=fallback["value"],
+                    confidence=fallback["confidence"],
+                    source_snippet=fallback["source_snippet"],
+                )
+            )
+            logger.info(
+                "Deterministic boolean fallback: %r=%r (session %s)",
+                fallback["question_key"],
+                fallback["value"],
+                session_id,
+            )
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
     _store_turn(
