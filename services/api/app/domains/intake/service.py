@@ -100,53 +100,58 @@ def _sync_nominations_from_answers(
 
     This keeps the My Plan "Key roles" section in sync with interview answers,
     so users don't see "Not named yet" after naming someone in the interview.
+    Best-effort: never raises, never fails the answer save.
     """
     import logging
 
-    from app.domains.nominations import repository as nom_repo
-
     logger = logging.getLogger(__name__)
-    for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
-        key = str(question.get("key", ""))
-        if key not in answers:
-            continue
-        target = _parse_nomination_maps_to(question.get("maps_to"))
-        if target is None:
-            continue
-        nomination_type, priority = target
-        value = answers[key]
-        if not isinstance(value, str) or not value.strip():
-            continue
-        person = _ensure_person_for_name(conn, household_id, value)
-        if person is None:
-            continue
-        person_id = UUID(str(person["id"]))
-        # Skip if an identical nomination already exists.
-        existing = nom_repo.list_nominations(conn, matter_id)
-        if any(
-            str(n.get("nomination_type")) == nomination_type
-            and str(n.get("person_id")) == str(person_id)
-            for n in existing
-        ):
-            continue
-        try:
-            nom_repo.insert_nomination(
-                conn,
-                matter_id=matter_id,
-                nomination_type=nomination_type,
-                person_id=person_id,
-                priority=priority,
-                notes=f"From interview answer: {key}",
-            )
-            logger.info(
-                "Auto-created %s nomination for %s (matter %s)",
-                nomination_type,
-                value,
-                matter_id,
-            )
-        except Exception as e:
-            # Nomination sync is best-effort; don't fail the answer save.
-            logger.warning("Failed to auto-create nomination: %s", e)
+    try:
+        from app.domains.nominations import repository as nom_repo
+
+        for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
+            key = str(question.get("key", ""))
+            if key not in answers:
+                continue
+            target = _parse_nomination_maps_to(question.get("maps_to"))
+            if target is None:
+                continue
+            nomination_type, priority = target
+            value = answers[key]
+            if not isinstance(value, str) or not value.strip():
+                continue
+            try:
+                person = _ensure_person_for_name(conn, household_id, value)
+                if person is None:
+                    continue
+                person_id = UUID(str(person["id"]))
+                # Skip if an identical nomination already exists.
+                existing = nom_repo.list_nominations(conn, matter_id)
+                if any(
+                    str(n.get("nomination_type")) == nomination_type
+                    and str(n.get("person_id")) == str(person_id)
+                    for n in existing
+                ):
+                    continue
+                nom_repo.insert_nomination(
+                    conn,
+                    matter_id=matter_id,
+                    nomination_type=nomination_type,
+                    person_id=person_id,
+                    priority=priority,
+                    notes=f"From interview answer: {key}",
+                )
+                logger.info(
+                    "Auto-created %s nomination for %s (matter %s)",
+                    nomination_type,
+                    value,
+                    matter_id,
+                )
+            except Exception as e:
+                # Per-answer failures are best-effort; don't fail the save.
+                logger.warning("Failed to auto-create nomination for %s: %s", key, e)
+    except Exception as e:
+        # Sync is best-effort; never fail the answer save.
+        logger.warning("Nomination sync failed: %s", e)
 
 
 def get_question_sets(conn: Any, *, actor_sub: str, matter_id: UUID) -> QuestionSetsOut:
