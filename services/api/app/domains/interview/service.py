@@ -775,46 +775,46 @@ def post_turn(
 
     # Deterministic fallbacks (loop prevention): if the model asked a
     # boolean or person-name question and the user gave a clear answer, but
-    # the model emitted no proposal, record it deterministically instead of
-    # re-asking. We look at the PREVIOUS assistant message (history[-1]) to
-    # find what was asked, since response.reply is the current turn's
-    # acknowledgement.
-    if not valid_proposals and history:
+    # the model emitted no proposal for that specific key, record it
+    # deterministically instead of re-asking. We look at the PREVIOUS
+    # assistant message (history[-1]) to find what was asked, since
+    # response.reply is the current turn's acknowledgement.
+    if history:
         last_assistant_msg = next(
             (m.content for m in reversed(history) if m.role == "assistant"),
             "",
         )
         existing_keys = set(repo.open_proposal_keys(conn, session_id))
-        fallback = _deterministic_boolean_proposal(
-            user_message=message,
-            assistant_reply=last_assistant_msg,
-            question_sets=pack.question_sets,
-            existing_proposal_keys=existing_keys,
-        )
-        if fallback is None:
-            fallback = _deterministic_person_proposal(
+        # Also include keys from valid_proposals (they'll become pending).
+        proposed_keys = {p.question_key for p in valid_proposals}
+        all_covered = existing_keys | proposed_keys
+
+        # Try boolean fallback first, then person-name fallback.
+        for fallback_fn in (_deterministic_boolean_proposal, _deterministic_person_proposal):
+            fallback = fallback_fn(
                 user_message=message,
                 assistant_reply=last_assistant_msg,
                 question_sets=pack.question_sets,
-                existing_proposal_keys=existing_keys,
+                existing_proposal_keys=all_covered,
             )
-        if fallback is not None:
-            from app.domains.ai.provider import FieldProposalDraft
+            if fallback is not None:
+                from app.domains.ai.provider import FieldProposalDraft
 
-            valid_proposals.append(
-                FieldProposalDraft(
-                    question_key=fallback["question_key"],
-                    value=fallback["value"],
-                    confidence=fallback["confidence"],
-                    source_snippet=fallback["source_snippet"],
+                valid_proposals.append(
+                    FieldProposalDraft(
+                        question_key=fallback["question_key"],
+                        value=fallback["value"],
+                        confidence=fallback["confidence"],
+                        source_snippet=fallback["source_snippet"],
+                    )
                 )
-            )
-            logger.info(
-                "Deterministic fallback: %r=%r (session %s)",
-                fallback["question_key"],
-                fallback["value"],
-                session_id,
-            )
+                logger.info(
+                    "Deterministic fallback: %r=%r (session %s)",
+                    fallback["question_key"],
+                    fallback["value"],
+                    session_id,
+                )
+                break
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
     _store_turn(
