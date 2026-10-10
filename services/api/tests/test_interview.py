@@ -1861,3 +1861,65 @@ class TestNominationMapsTo:
         assert _parse_nomination_maps_to("facts.marital_status") is None
         assert _parse_nomination_maps_to("") is None
         assert _parse_nomination_maps_to(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Unit: deterministic person-name fallback (loop prevention)
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicPersonFallback:
+    def _questions(self) -> dict:
+        return {
+            "guardians": {
+                "sections": [
+                    {
+                        "id": "primary",
+                        "questions": [
+                            {
+                                "key": "primary_guardian_person",
+                                "type": "person",
+                                "label": "Who should care for your minor children if neither parent can?",
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+
+    def test_simple_name_creates_proposal(self) -> None:
+        from app.domains.interview.service import _deterministic_person_proposal
+
+        result = _deterministic_person_proposal(
+            user_message="Meera Nair.",
+            assistant_reply="Who should care for your minor children if neither parent can?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "primary_guardian_person"
+        assert result["value"] == "Meera Nair"
+
+    def test_name_in_sentence_creates_proposal(self) -> None:
+        from app.domains.interview.service import _deterministic_person_proposal
+
+        result = _deterministic_person_proposal(
+            user_message="My sister Meera Nair should be their guardian.",
+            assistant_reply="Who should care for your minor children if neither parent can?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "primary_guardian_person"
+        assert "Meera Nair" in result["value"]
+
+    def test_no_proposal_when_already_proposed(self) -> None:
+        from app.domains.interview.service import _deterministic_person_proposal
+
+        result = _deterministic_person_proposal(
+            user_message="Meera Nair.",
+            assistant_reply="Who should care for your minor children if neither parent can?",
+            question_sets=self._questions(),
+            existing_proposal_keys={"primary_guardian_person"},
+        )
+        assert result is None
