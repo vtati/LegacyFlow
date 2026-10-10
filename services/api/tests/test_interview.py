@@ -1836,3 +1836,28 @@ class TestDeterministicBooleanFallback:
             existing_proposal_keys=set(),
         )
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Unit: nomination maps_to parsing
+# ---------------------------------------------------------------------------
+
+
+class TestNominationMapsTo:
+    def test_parses_guardian_priority(self) -> None:
+        from app.domains.intake.service import _parse_nomination_maps_to
+
+        assert _parse_nomination_maps_to("nominations.guardian.1") == ("guardian", 1)
+        assert _parse_nomination_maps_to("nominations.guardian.2") == ("guardian", 2)
+
+    def test_parses_executor(self) -> None:
+        from app.domains.intake.service import _parse_nomination_maps_to
+
+        assert _parse_nomination_maps_to("nominations.executor.1") == ("executor", 1)
+
+    def test_returns_none_for_facts(self) -> None:
+        from app.domains.intake.service import _parse_nomination_maps_to
+
+        assert _parse_nomination_maps_to("facts.marital_status") is None
+        assert _parse_nomination_maps_to("") is None
+        assert _parse_nomination_maps_to(None) is None
