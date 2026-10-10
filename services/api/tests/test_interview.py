@@ -1924,3 +1924,22 @@ class TestDeterministicPersonFallback:
             existing_proposal_keys={"primary_guardian_person"},
         )
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Unit: context-aware refusal messages
+# ---------------------------------------------------------------------------
+
+
+class TestContextAwareRefusal:
+    def test_medical_question_uses_out_of_scope(self) -> None:
+        from app.domains.interview.service import _is_non_legal_advice
+
+        assert _is_non_legal_advice("What medication should I take for my headache?") is True
+        assert _is_non_legal_advice("My doctor prescribed something, should I take it?") is True
+
+    def test_legal_question_uses_legal_refusal(self) -> None:
+        from app.domains.interview.service import _is_non_legal_advice
+
+        assert _is_non_legal_advice("Should I put my house in a trust?") is False
+        assert _is_non_legal_advice("Is it legal to disinherit my child?") is False

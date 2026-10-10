@@ -82,6 +82,28 @@ _REFUSAL_MESSAGE = (
     "information about your plan you'd like to provide?"
 )
 
+_OUT_OF_SCOPE_REFUSAL = (
+    "I'm only able to help with estate planning and the LegacyFlow interview. "
+    "Let's get back to your estate plan — is there factual information you'd "
+    "like to provide?"
+)
+
+#: Terms indicating a non-legal advice request (medical, etc.).
+_NON_LEGAL_TERMS = frozenset(
+    {
+        "medication", "medicine", "doctor", "headache", "symptom", "diagnosis",
+        "treatment", "prescription", "pill", "dose", "sick", "illness",
+    }
+)
+
+
+def _is_non_legal_advice(message: str) -> bool:
+    """Check if an advice-seeking message is clearly not about legal matters."""
+    import re
+
+    lowered = message.lower()
+    return any(term in lowered for term in _NON_LEGAL_TERMS)
+
 # Escalation rule ids recorded by the interviewer (distinct namespace).
 _INTERVIEW_ADVICE_RULE_ID = "interview_advice_request"
 _INTERVIEW_INCOMPLETE_RULE_ID = "interview_incomplete_item"
@@ -944,13 +966,20 @@ def _refused_turn(
     """Advice-seeking turn: refuse, escalate, persist, and return."""
     session_id = UUID(str(session["id"]))
     trace_hash = _trace_hash(f"{message}|{version}|refused")
-    ai_service._ensure_open_escalation(
-        conn,
-        matter_id=matter_id,
-        rule_id=_INTERVIEW_ADVICE_RULE_ID,
-        severity="review",
-        outcome="attorney_review",
+    # Use context-aware refusal: medical/other non-legal questions get the
+    # out-of-scope message, not the legal-advice one.
+    refusal_message = (
+        _OUT_OF_SCOPE_REFUSAL if _is_non_legal_advice(message) else _REFUSAL_MESSAGE
     )
+    # Only escalate to attorney for actual legal advice requests.
+    if not _is_non_legal_advice(message):
+        ai_service._ensure_open_escalation(
+            conn,
+            matter_id=matter_id,
+            rule_id=_INTERVIEW_ADVICE_RULE_ID,
+            severity="review",
+            outcome="attorney_review",
+        )
     _store_turn(
         conn,
         session_id=session_id,
@@ -966,7 +995,7 @@ def _refused_turn(
         firm_id=firm_id,
         matter_id=matter_id,
         role="assistant",
-        text=_REFUSAL_MESSAGE,
+        text=refusal_message,
     )
     _record_turn_audit(
         conn,
@@ -975,7 +1004,7 @@ def _refused_turn(
         matter_id=matter_id,
         session_id=session_id,
         user_summary=_summarize(message),
-        reply_summary=_summarize(_REFUSAL_MESSAGE),
+        reply_summary=_summarize(refusal_message),
         refused=True,
         proposal_count=0,
         trace_hash=trace_hash,
@@ -987,11 +1016,11 @@ def _refused_turn(
         id=UUID(str(assistant_turn["id"])),
         session_id=session_id,
         role="assistant",
-        reply=_REFUSAL_MESSAGE,
+        reply=refusal_message,
         citations=[],
         proposals=[],
         refused=True,
-        escalated=True,
+        escalated=not _is_non_legal_advice(message),
         trace_hash=trace_hash,
         completeness_pct=completeness,
         missing_required_keys=missing,
@@ -1009,7 +1038,7 @@ def _replay_turn(
     turn_id = UUID(str(reply_turn["id"]))
     body = repo.get_turn_body_ciphertext(conn, turn_id)
     reply = crypto.decrypt_text(str(body["ciphertext"])) if body else str(reply_turn["summary"])
-    was_refused = reply == _REFUSAL_MESSAGE
+    was_refused = reply in (_REFUSAL_MESSAGE, _OUT_OF_SCOPE_REFUSAL)
     proposals = [
         ProposalDraftOut(
             id=UUID(str(row["id"])),
