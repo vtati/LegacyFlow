@@ -38,9 +38,3 @@ sections:
         help: 'Why we ask: debts affect the overall picture your attorney reviews.'
         required: true
         maps_to: facts.has_debts
-      - key: beneficiary_review_unknown_ok
-        type: boolean
-        label: "I understand I can mark beneficiary details as 'unknown' and review them later"
-        help: "Why we ask: 'unknown' is always an acceptable answer — the app flags it for follow-up instead of guessing."
-        required: false
-        maps_to: facts.beneficiary_unknown_acknowledged

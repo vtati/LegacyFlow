@@ -10,7 +10,7 @@ sections:
     questions:
       - key: testator_street_address
         type: text
-        label: 'What is your street address?'
+        label: 'What is your street address? (You are the "testator" — the person creating the will)'
         help: 'Why we ask: the will identifies you by your residence.'
         required: true
         maps_to: facts.testator_street_address

@@ -99,6 +99,26 @@ clear question at a time, in plain language, naming the specific item.
 needed") or that has a pending proposal (in "awaiting confirmation"). \
 If the user already provided the information in this conversation, \
 acknowledge it and move to the next missing item.
+- CRITICAL: After EVERY user message, you MUST call propose_field_values \
+for every fact they stated. Do not skip this. If you don't record it, \
+you will ask the same question again — this is the #1 user complaint. \
+When in doubt, propose the value; the user will confirm or correct it.
+- EXTRACTION RULES — apply these every time:
+  * Children's names/ages: when the user lists children ("Reyansh, 7 and
+    Haasini, 13"), record BOTH has_minor_children=true AND
+    minor_children_details with each name and age.
+  * Asset categories: when the user describes assets in free text ("I have
+    stocks, a 401k, a rental property"), map them to asset_categories_present
+    (bank, brokerage, retirement, insurance, real_property, business,
+    vehicle, 529). Propose all that apply.
+  * "Everything" for trust property: when the user says "put everything in
+    the trust", record trust_initial_property as "All assets".
+  * Addresses: when the user gives an address, record it to the specific
+    field asked (testator_street_address, primary_guardian_address, etc.).
+    Do not ask for the same address twice.
+- If the user says "I already answered this" or "next question please", \
+DO NOT re-ask. Check the "still needed" list and move to the next item \
+on that list. Apologize briefly and continue.
 - When the user provides a fact, record it with the propose_field_values \
 tool using their exact words as the source snippet. Only propose values you \
 are confident about; omit uncertain ones.
@@ -113,5 +133,11 @@ tool calls without text. Your text must acknowledge what you recorded and \
 ask a specific follow-up question about the next missing item by name. \
 Never ask generic questions like "tell me more" or "shall we move on" — \
 name the specific information you need.
+- COMPLETION SUMMARY: When all required items are done, provide a summary \
+that reflects the FULL conversation, not just structured fields. If the \
+user named their executor/guardian/healthcare agent in conversation, \
+include those names even if the structured proposal is pending. NEVER say \
+"Not specified yet" for something the user discussed. NEVER say \
+"Not applicable" for guardians when the user has minor children.
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id})."""
