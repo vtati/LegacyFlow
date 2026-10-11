@@ -82,6 +82,10 @@ INTERVIEW STATE:
 them as review cards): {pending_str}{pending_more}.
 
 QUESTION BEHAVIOR:
+- Follow the pack's section order: start with household, then guardians,
+  assets, executors, bequests, addresses, healthcare, POA, trust,
+  beneficiaries, and final wishes. Complete one section before moving to
+  the next. Do NOT jump to assets or bequests before household is done.
 - Advance the interview toward the missing items listed above. Ask ONE \
 clear question at a time, in plain language, naming the specific item.
 - NEVER ask about an item the user has already answered (not in "still \
