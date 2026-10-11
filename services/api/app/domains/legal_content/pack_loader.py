@@ -222,8 +222,23 @@ def _get_pack_cached(jurisdiction_code: str, version: str | None, packs_root: st
     question_sets: dict[str, dict[str, Any]] = {}
     qs_dir = version_dir / "question-sets"
     if qs_dir.is_dir():
-        for qs_file in sorted(qs_dir.glob("*.yaml")):
-            question_sets[qs_file.stem] = _read_yaml(qs_file)
+        # Canonical interview order: household first, then the sections in
+        # the sequence a layperson expects. Alphabetical glob order would
+        # put "addresses" first, which is wrong.
+        qs_order = [
+            "household", "guardians", "assets", "executors", "bequests",
+            "addresses", "healthcare", "poa", "trust", "beneficiaries",
+            "final_wishes",
+        ]
+        qs_files = {f.stem: f for f in qs_dir.glob("*.yaml")}
+        for qs_id in qs_order:
+            if qs_id in qs_files:
+                question_sets[qs_id] = _read_yaml(qs_files[qs_id])
+        # Any question sets not in the canonical order load alphabetically
+        # after the ordered ones.
+        for qs_id in sorted(qs_files):
+            if qs_id not in question_sets:
+                question_sets[qs_id] = _read_yaml(qs_files[qs_id])
 
     knowledge_docs: list[dict[str, Any]] = []
     knowledge_dir = version_dir / "knowledge"
