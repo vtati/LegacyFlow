@@ -132,3 +132,12 @@ class ProviderError(AppError):
     title = "AI provider unavailable"
     status = 502
     detail = "The AI service is temporarily unavailable. Please try again in a moment."
+
+
+class RateLimitError(AppError):
+    """Too many requests (HTTP 429). Used for AI interview turn rate limiting."""
+
+    type = "urn:legacyflow:error:rate_limit_exceeded"
+    title = "Rate limit exceeded"
+    status = 429
+    detail = "Too many requests. Please slow down and try again shortly."

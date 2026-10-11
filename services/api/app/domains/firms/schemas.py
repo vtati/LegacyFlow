@@ -23,6 +23,13 @@ class FirmOut(BaseModel):
     created_at: datetime
 
 
+class FirmCreate(BaseModel):
+    """Create a new firm. The creator becomes its firm_admin."""
+
+    legal_name: str
+    display_name: str
+
+
 class FirmMemberOut(BaseModel):
     """Public firm-membership shape."""
 

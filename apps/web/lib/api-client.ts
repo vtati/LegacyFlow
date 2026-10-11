@@ -1730,6 +1730,18 @@ export async function listPublicFirms(options: ApiClientOptions = {}): Promise<F
   });
 }
 
+export async function createFirm(
+  payload: { legal_name: string; display_name: string },
+  options: ApiClientOptions = {},
+): Promise<FirmProfile> {
+  return apiFetch<FirmProfile>('/firms', {
+    ...options,
+    method: 'POST',
+    body: payload,
+    getToken: options.getToken ?? (() => getAuthAdapter().getAccessToken()),
+  });
+}
+
 /**
  * Shared browser client for the firm workspace. Sends the signed-in user's
  * Supabase access token as the API Bearer <redacted> (null when signed out or

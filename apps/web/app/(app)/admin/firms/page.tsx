@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState, LoadingState } from '@/components/family/page-state';
 import { AdminErrorState, FirmScopeNote } from '@/components/admin/admin-page-state';
-import { adminApi, type FirmMember, type FirmProfile } from '@/lib/api-client';
+import { adminApi, createFirm, type FirmMember, type FirmProfile } from '@/lib/api-client';
 import { formatDate, formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -187,8 +187,84 @@ export default function AdminFirmsPage(): React.JSX.Element {
               </Card>
             )}
           </section>
+
+          <section aria-label="Create new firm" className="space-y-3">
+            <h2 className="text-lg font-semibold text-lf-text">Create a new firm</h2>
+            <Card>
+              <CardContent className="space-y-4 pt-6">
+                <p className="text-sm text-lf-text-muted">
+                  Create a new firm. You will become its administrator.
+                </p>
+                <CreateFirmForm onCreated={load} />
+              </CardContent>
+            </Card>
+          </section>
         </>
       )}
     </div>
+  );
+}
+
+function CreateFirmForm({ onCreated }: { onCreated: () => void }): React.JSX.Element {
+  const [legalName, setLegalName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await createFirm({ legal_name: legalName.trim(), display_name: displayName.trim() });
+      setLegalName('');
+      setDisplayName('');
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create firm.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label htmlFor="firm-legal-name" className="block text-sm font-medium text-lf-text">
+          Legal name
+        </label>
+        <input
+          id="firm-legal-name"
+          type="text"
+          required
+          value={legalName}
+          onChange={(e) => setLegalName(e.target.value)}
+          placeholder="Gen Alpha Labs LLC"
+          className="mt-1 block w-full rounded-md border border-lf-border bg-lf-canvas px-3 py-2 text-sm text-lf-text"
+        />
+      </div>
+      <div>
+        <label htmlFor="firm-display-name" className="block text-sm font-medium text-lf-text">
+          Display name
+        </label>
+        <input
+          id="firm-display-name"
+          type="text"
+          required
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Gen Alpha Labs"
+          className="mt-1 block w-full rounded-md border border-lf-border bg-lf-canvas px-3 py-2 text-sm text-lf-text"
+        />
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <button
+        type="submit"
+        disabled={saving || !legalName.trim() || !displayName.trim()}
+        className="rounded-md bg-lf-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+      >
+        {saving ? 'Creating…' : 'Create firm'}
+      </button>
+    </form>
   );
 }

@@ -83,3 +83,38 @@ def list_public_firms(conn: Any) -> list[FirmOut]:
         )
         for r in rows
     ]
+
+
+def create_firm(conn: Any, *, actor_sub: str, legal_name: str, display_name: str) -> FirmOut:
+    """Create a new firm. The creator becomes its firm_admin.
+
+    Any authenticated user may create a firm (workspace-creation model).
+    """
+    import uuid
+
+    actor_id = _caller_id(actor_sub)
+    firm_id = uuid.uuid4()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO firms (id, legal_name, display_name, status)
+            VALUES (%s, %s, %s, 'active')
+            RETURNING id, legal_name, display_name, status, created_at
+            """,
+            (str(firm_id), legal_name.strip(), display_name.strip()),
+        )
+        row = cur.fetchone()
+        cur.execute(
+            """
+            INSERT INTO firm_memberships (firm_id, user_id, role, status)
+            VALUES (%s, %s, 'firm_admin', 'active')
+            """,
+            (str(firm_id), str(actor_id)),
+        )
+    return FirmOut(
+        id=UUID(str(row["id"])),
+        legal_name=row["legal_name"],
+        display_name=row["display_name"],
+        status=row["status"],
+        created_at=row["created_at"],
+    )

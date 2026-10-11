@@ -75,6 +75,51 @@ FLAG_KEY = "ai_interviewer"
 _SUMMARY_LIMIT = 200
 _HISTORY_TURNS = 10
 
+# Rate limits for interview turns (per user, to bound AI API costs).
+INTERVIEW_TURNS_PER_MINUTE = 10
+INTERVIEW_TURNS_PER_DAY = 200
+
+
+def _check_turn_rate_limit(conn: Any, actor_id: UUID) -> None:
+    """Enforce per-user interview turn rate limits. Raises RateLimitError."""
+    from app.core.errors import RateLimitError
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS n
+              FROM interview_turns t
+              JOIN interview_sessions s ON s.id = t.session_id
+             WHERE s.created_by_user_id = %s
+               AND t.created_at > NOW() - INTERVAL '1 minute'
+               AND t.role = 'user'
+            """,
+            (str(actor_id),),
+        )
+        per_minute = cur.fetchone()["n"]
+        cur.execute(
+            """
+            SELECT COUNT(*) AS n
+              FROM interview_turns t
+              JOIN interview_sessions s ON s.id = t.session_id
+             WHERE s.created_by_user_id = %s
+               AND t.created_at > NOW() - INTERVAL '1 day'
+               AND t.role = 'user'
+            """,
+            (str(actor_id),),
+        )
+        per_day = cur.fetchone()["n"]
+    if per_minute >= INTERVIEW_TURNS_PER_MINUTE:
+        logger.warning("interview rate limit hit (per-minute) user=%s", actor_id)
+        raise RateLimitError(
+            "You're sending messages too quickly. Please wait a moment and try again."
+        )
+    if per_day >= INTERVIEW_TURNS_PER_DAY:
+        logger.warning("interview rate limit hit (per-day) user=%s", actor_id)
+        raise RateLimitError(
+            "You've reached today's interview limit. Please continue tomorrow."
+        )
+
 _REFUSAL_MESSAGE = (
     "I can't provide legal advice or strategy recommendations. I've recorded "
     "your question for your attorney to review — an attorney can advise you on "
@@ -809,6 +854,7 @@ def post_turn(
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
     firm_id = UUID(str(scope.matter["firm_id"]))
     _require_flag(conn, firm_id)
+    _check_turn_rate_limit(conn, actor_id)
 
     session = _load_session_for_write(conn, matter_id, session_id)
     status = SessionStatus(str(session["status"]))
