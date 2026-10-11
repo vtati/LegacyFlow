@@ -861,7 +861,9 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
         if children:
             context["children_list"] = ", ".join(children)
         else:
-            context["children_list"] = "___"
+            # Fallback to the interview answer if household persons aren't populated
+            details = answers.get("minor_children_details", "")
+            context["children_list"] = details.strip() if details and details.strip() else "___"
         if adults:
             context["testator_name"] = adults[0]
             context["grantor_name"] = adults[0]

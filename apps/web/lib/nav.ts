@@ -47,41 +47,6 @@ export type AppSection = 'family' | 'firm' | 'admin' | 'attorney';
 /** Family navigation (§5.5). */
 export const FAMILY_NAV: NavItem[] = [
   {
-    slug: 'dashboard',
-    label: 'Dashboard',
-    href: '/family',
-    icon: LayoutDashboard,
-    blurb: 'Your matters at a glance.',
-  },
-  {
-    slug: 'intake',
-    label: 'Intake',
-    href: '/family/intake',
-    icon: ClipboardList,
-    blurb: 'Answer questions for your plan.',
-  },
-  {
-    slug: 'profile',
-    label: 'Profile',
-    href: '/family/profile',
-    icon: UserRound,
-    blurb: 'Household members and details.',
-  },
-  {
-    slug: 'dependents',
-    label: 'Dependents',
-    href: '/family/dependents',
-    icon: Baby,
-    blurb: 'Children and other minors.',
-  },
-  {
-    slug: 'guardians',
-    label: 'Guardians',
-    href: '/family/guardians',
-    icon: Shield,
-    blurb: 'Guardians and trusted roles.',
-  },
-  {
     slug: 'home',
     label: 'Home',
     href: '/family/home',
@@ -101,13 +66,6 @@ export const FAMILY_NAV: NavItem[] = [
     href: '/family/family-guardians',
     icon: Users,
     blurb: 'Household members and guardian choices.',
-  },
-  {
-    slug: 'assets-accounts',
-    label: 'Assets & Accounts',
-    href: '/family/assets-accounts',
-    icon: Wallet,
-    blurb: 'What you own and where it lives.',
   },
   {
     slug: 'assets',

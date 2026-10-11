@@ -35,6 +35,12 @@ sections:
         help: 'Why we ask: guardian nominations protect children if neither parent can care for them.'
         required: true
         maps_to: facts.has_minor_children
+      - key: minor_children_details
+        type: text
+        label: 'Please list each minor child by name and age.'
+        help: 'Why we ask: your will names each child individually.'
+        required: false
+        maps_to: facts.minor_children_details
   - id: triage
     title: 'Quick check'
     questions:

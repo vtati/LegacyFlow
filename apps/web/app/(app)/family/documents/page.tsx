@@ -52,13 +52,29 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
       // Fetch with auth (apiFetchBlob handles the token), then trigger a browser download.
       const { blob, filename } = await api.downloadDraftDocument(document.download_url);
       const url = window.URL.createObjectURL(blob);
-      const anchor = window.document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename || document.file_name;
-      window.document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      const isPdf = (filename || document.file_name).toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        // Open PDFs in a new tab for in-browser preview; fallback to download.
+        const win = window.open(url, '_blank', 'noopener');
+        if (!win) {
+          const anchor = window.document.createElement('a');
+          anchor.href = url;
+          anchor.download = filename || document.file_name;
+          window.document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+        }
+        // Revoke after a delay so the new tab can load.
+        setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      } else {
+        const anchor = window.document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename || document.file_name;
+        window.document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(url);
+      }
     } catch (err: unknown) {
       setDownloadError(
         err instanceof Error
