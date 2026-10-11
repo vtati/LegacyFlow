@@ -84,7 +84,7 @@ function LandingPage(): React.JSX.Element {
               </Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
-              <Link href="/about">How it works</Link>
+              <Link href="#how-it-works">How it works</Link>
             </Button>
           </div>
           <p className="mx-auto mt-8 max-w-xl text-xs leading-relaxed text-lf-text-subtle" role="note">
@@ -109,6 +109,96 @@ function LandingPage(): React.JSX.Element {
                 </CardHeader>
                 <CardContent>
                   <p className="text-[15px] leading-relaxed text-lf-text-muted">{pillar.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <section
+          id="how-it-works"
+          className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-16 sm:px-6 sm:pb-24 lg:px-8"
+          aria-label="How it works"
+        >
+          <div className="mb-10 text-center">
+            <h2 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text sm:text-4xl">
+              How it works
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-lg text-lf-text-muted">
+              Three steps from first question to attorney-ready documents.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              {
+                step: '1',
+                title: 'Answer the interview',
+                body: 'Our AI guide walks you through your household, guardians, assets, and wishes in plain language — no legal background needed.',
+              },
+              {
+                step: '2',
+                title: 'Review your drafts',
+                body: 'Your answers become draft documents: will, healthcare directive, power of attorney, and trust. Review every value before submitting.',
+              },
+              {
+                step: '3',
+                title: 'Attorney reviews',
+                body: 'A licensed attorney at your firm reviews everything, requests changes if needed, and releases your final documents.',
+              },
+            ].map((item) => (
+              <Card key={item.step} className="bg-white">
+                <CardHeader>
+                  <span className="flex size-11 items-center justify-center rounded-full bg-lf-primary-900 font-lf-serif text-lg font-semibold text-white">
+                    {item.step}
+                  </span>
+                  <CardTitleEditorial className="text-xl font-semibold">
+                    {item.title}
+                  </CardTitleEditorial>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-[15px] leading-relaxed text-lf-text-muted">{item.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <section
+          className="mx-auto max-w-4xl px-4 pb-16 sm:px-6 sm:pb-24 lg:px-8"
+          aria-label="Frequently asked questions"
+        >
+          <div className="mb-10 text-center">
+            <h2 className="font-lf-serif text-3xl font-semibold tracking-tight text-lf-text sm:text-4xl">
+              Common questions
+            </h2>
+          </div>
+          <div className="space-y-4">
+            {[
+              {
+                q: 'Is this legal advice?',
+                a: 'No. LegacyFlow is an intake and document preparation tool. The AI helps you organize your information, but every plan is reviewed by a licensed attorney before anything is finalized. Nothing here constitutes legal advice.',
+              },
+              {
+                q: 'Do I need to know legal terms to use this?',
+                a: 'No. The interview is in plain language, and the AI explains any legal concept — like "testator" or "codicil" — when it comes up. If you\'re unsure about anything, you can ask.',
+              },
+              {
+                q: 'Who sees my information?',
+                a: 'Your information stays within your firm. Access is controlled, audited, and limited to your household and your firm\'s attorneys and staff.',
+              },
+              {
+                q: 'What documents will I get?',
+                a: 'Depending on your plan type: Last Will and Testament, Advance Medical Directive, Durable Power of Attorney, Revocable Living Trust, and related documents — all as attorney-reviewed drafts first.',
+              },
+            ].map((faq) => (
+              <Card key={faq.q} className="bg-white">
+                <CardHeader className="pb-2">
+                  <CardTitleEditorial className="text-lg font-semibold">
+                    {faq.q}
+                  </CardTitleEditorial>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-[15px] leading-relaxed text-lf-text-muted">{faq.a}</p>
                 </CardContent>
               </Card>
             ))}
