@@ -54,7 +54,26 @@ function humanizeKey(key: string): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (typeof item === 'object' && item !== null) {
+          // Format {name, age} objects as "Name (age 7)" etc.
+          const obj = item as Record<string, unknown>;
+          const name = obj.name ?? obj.label ?? obj.value;
+          const age = obj.age;
+          if (name && age !== undefined) return `${name} (age ${age})`;
+          if (name) return String(name);
+          return Object.values(obj)
+            .filter((v) => v !== null && v !== undefined && v !== '')
+            .join(' ');
+        }
+        return String(item);
+      })
+      .join('; ');
+  }
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
