@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -56,6 +57,7 @@ export function LoginForm(): React.JSX.Element {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [magicSent, setMagicSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const magicForm = useForm<MagicLinkValues>({ resolver: zodResolver(magicLinkSchema) });
   const passwordForm = useForm<PasswordSignInValues>({ resolver: zodResolver(passwordSignInSchema) });
@@ -67,7 +69,8 @@ export function LoginForm(): React.JSX.Element {
       await getAuthAdapter().signInWithGoogle();
       if (mock) {
         // Mock adapter signs in locally — no OAuth redirect happens.
-        window.location.href = nextPath();
+        router.push(nextPath());
+        router.refresh();
       }
       // Real adapter redirects to the provider; nothing more to do here.
     } catch (err) {
@@ -92,7 +95,12 @@ export function LoginForm(): React.JSX.Element {
     setError(null);
     try {
       await getAuthAdapter().signInWithPassword(values.email, values.password);
-      window.location.href = nextPath();
+      // Use client-side navigation so the freshly-set auth cookies are
+      // visible to the middleware on the next request. A hard
+      // window.location reload can race the cookie write and bounce the
+      // user back to the marketing page.
+      router.push(nextPath());
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
