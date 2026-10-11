@@ -1,0 +1,49 @@
+# Healthcare directive question set (v1).
+# Who makes medical decisions if you cannot — the incapacity half of the plan.
+question_set:
+  id: healthcare
+  version: 1.0.0
+  title: 'Healthcare decisions'
+sections:
+  - id: agent
+    title: 'Healthcare agent'
+    questions:
+      - key: healthcare_agent_person
+        type: person
+        label: 'Who should make healthcare decisions for you if you become unable to make them yourself?'
+        help: 'Why we ask: your healthcare agent can consent to or refuse treatment, access records, and manage your care. Your attorney confirms the appointment.'
+        required: true
+        maps_to: nominations.healthcare_agent.1
+      - key: healthcare_agent_phone
+        type: text
+        label: 'What is the best phone number to reach your healthcare agent?'
+        help: 'Why we ask: hospitals need to reach your agent quickly in an emergency.'
+        required: false
+        maps_to: facts.healthcare_agent_phone
+      - key: successor_healthcare_agent_person
+        type: person
+        label: 'Who should serve as your healthcare agent if your first choice cannot?'
+        help: 'Why we ask: a backup keeps your wishes covered if circumstances change.'
+        required: false
+        maps_to: nominations.healthcare_agent.2
+  - id: living_will
+    title: 'Living will and organ donation'
+    questions:
+      - key: living_will_directives
+        type: notes
+        label: 'Do you have wishes about life-prolonging treatment? For example, under what circumstances would you want treatment withheld or continued?'
+        help: 'Why we ask: your living will guides your agent and doctors when you cannot speak for yourself.'
+        required: false
+        maps_to: facts.living_will_directives
+      - key: healthcare_agent_limitations
+        type: notes
+        label: 'Are there any limits on what your healthcare agent may decide? (optional)'
+        help: 'Why we ask: you can restrict specific treatments or decisions.'
+        required: false
+        maps_to: facts.healthcare_agent_limitations
+      - key: organ_donation_wishes
+        type: notes
+        label: 'Do you wish to donate organs, tissue, or eyes after death? If so, any specifics?'
+        help: 'Why we ask: your anatomical gift wishes go directly into the directive.'
+        required: false
+        maps_to: facts.organ_donation_wishes

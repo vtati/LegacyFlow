@@ -32,6 +32,11 @@ requirements:
     executors: '1.0.0'
     bequests: '1.0.0'
     addresses: '1.0.0'
+    healthcare: '1.0.0'
+    poa: '1.0.0'
+    trust: '1.0.0'
+    beneficiaries: '1.0.0'
+    final_wishes: '1.0.0'
 
 sources:
   - source_id: va-code-will-execution

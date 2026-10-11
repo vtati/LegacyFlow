@@ -1,0 +1,23 @@
+# Beneficiary review question set (v1).
+# Retirement accounts and life insurance pass OUTSIDE the will — stale
+# beneficiaries are one of the most common estate planning failures.
+question_set:
+  id: beneficiaries
+  version: 1.0.0
+  title: 'Beneficiary designations'
+sections:
+  - id: review
+    title: 'Are your beneficiaries current?'
+    questions:
+      - key: retirement_beneficiaries_current
+        type: notes
+        label: 'Who is currently named as beneficiary on your retirement accounts (401k, IRA)? Are these up to date?'
+        help: 'Why we ask: retirement accounts pass directly to the named beneficiary, regardless of what your will says.'
+        required: false
+        maps_to: facts.retirement_beneficiaries
+      - key: life_insurance_beneficiaries_current
+        type: notes
+        label: 'Who is currently named as beneficiary on your life insurance? Is this up to date?'
+        help: 'Why we ask: life insurance passes directly to the named beneficiary. An ex-spouse or deceased parent as beneficiary is a common — and costly — oversight.'
+        required: false
+        maps_to: facts.life_insurance_beneficiaries

@@ -866,6 +866,13 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             context["testator_name"] = adults[0]
             context["grantor_name"] = adults[0]
             context["trustee_name"] = adults[0]
+            # Other documents refer to the same person by role.
+            context.setdefault("declarant_name", adults[0])
+            context.setdefault("principal_name", adults[0])
+            context.setdefault("parent_name", adults[0])
+            # Default trust name from the family name.
+            last = adults[0].strip().split()[-1] if adults[0].strip() else "Family"
+            context.setdefault("trust_name", f"The {last} Family Revocable Trust")
             if len(adults) > 1:
                 context["spouse_name"] = adults[1]
         # Guardian names from verified interview answers
@@ -899,6 +906,68 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                 context.setdefault("testator_address", ans)
             if key == "testator_city":
                 context.setdefault("testator_city", ans)
+            # Healthcare directive answers (v1 pack)
+            if key == "healthcare_agent_person":
+                context.setdefault("healthcare_agent_name", ans)
+            if key == "healthcare_agent_phone":
+                context.setdefault("healthcare_agent_phone", ans)
+            if key == "successor_healthcare_agent_person":
+                context.setdefault("successor_healthcare_agent_name", ans)
+                context.setdefault("successor_healthcare_agent_address", "___")
+                context.setdefault("successor_healthcare_agent_phone", "___")
+            if key == "living_will_directives":
+                context.setdefault("living_will_directives", ans)
+            if key == "healthcare_agent_limitations":
+                context.setdefault("healthcare_agent_limitations", ans)
+            if key == "organ_donation_wishes":
+                context.setdefault("anatomical_gift_directions", ans)
+            # Healthcare agent name doubles as organ donation agent
+            # (the template's {{organ_donation_agent}}).
+            if key == "healthcare_agent_person":
+                context.setdefault("organ_donation_agent", ans)
+            # Power of attorney answers (v1 pack)
+            if key == "poa_agent_person":
+                context.setdefault("agent_name", ans)
+            if key == "poa_agent_address":
+                context.setdefault("agent_address", ans)
+            if key == "successor_poa_agent_person":
+                context.setdefault("successor_agent_name", ans)
+            if key == "poa_additional_powers":
+                context.setdefault("additional_powers", ans)
+            # Trust answers (v1 pack)
+            if key == "successor_trustee_person":
+                context.setdefault("successor_trustee_name", ans)
+            if key == "trust_initial_property":
+                context.setdefault("initial_property", ans)
+            if key == "trust_distribution_age":
+                context.setdefault("distribution_age", ans)
+            if key == "trust_marital_share":
+                context.setdefault("marital_share", ans)
+            # Guardianship designation extras (v1 pack)
+            if key == "guardian_relationship":
+                context.setdefault("guardian_relationship", ans)
+            if key == "children_upbringing_wishes":
+                context.setdefault("upbringing_wishes", ans)
+            if key == "children_education_wishes":
+                context.setdefault("education_wishes", ans)
+            if key == "children_religious_wishes":
+                context.setdefault("religious_wishes", ans)
+            if key == "children_financial_provisions":
+                context.setdefault("financial_provisions", ans)
+            if key == "children_extended_family":
+                context.setdefault("extended_family", ans)
+            # Declarant/principal/grantor/parent default to the testator
+            # when the interview doesn't ask separately.
+            if key == "testator_street_address":
+                context.setdefault("declarant_address", ans)
+                context.setdefault("principal_address", ans)
+                context.setdefault("grantor_address", ans)
+                context.setdefault("parent_address", ans)
+            if key == "testator_city":
+                context.setdefault("declarant_city", ans)
+                context.setdefault("principal_city", ans)
+                context.setdefault("grantor_city", ans)
+                context.setdefault("parent_city", ans)
 
     # Replace any remaining unfilled placeholders with blank lines.
     # The _flag_unfilled_placeholders step still records them for attorney review.

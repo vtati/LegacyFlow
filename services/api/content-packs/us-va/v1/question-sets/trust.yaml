@@ -1,0 +1,46 @@
+# Revocable living trust question set (v1).
+# For families who want to avoid probate and control distributions to minors.
+question_set:
+  id: trust
+  version: 1.0.0
+  title: 'Revocable living trust'
+sections:
+  - id: intent
+    title: 'Do you want a trust?'
+    questions:
+      - key: wants_revocable_trust
+        type: boolean
+        label: 'Do you want a revocable living trust to hold your assets and avoid probate?'
+        help: 'Why we ask: a trust lets your assets pass to your family without court involvement, and lets you control when children receive their inheritance.'
+        required: true
+        maps_to: facts.wants_revocable_trust
+  - id: roles
+    title: 'Trustee roles'
+    questions:
+      - key: successor_trustee_person
+        type: person
+        label: 'Who should take over managing the trust if you become unable to do so, or after your death?'
+        help: 'Why we ask: you are the initial trustee; your successor steps in when needed.'
+        required: false
+        maps_to: nominations.successor_trustee.1
+  - id: terms
+    title: 'Trust terms'
+    questions:
+      - key: trust_initial_property
+        type: notes
+        label: 'Which assets should go into the trust? (for example: your home, investment properties, bank accounts)'
+        help: 'Why we ask: only assets transferred to the trust avoid probate.'
+        required: false
+        maps_to: facts.trust_initial_property
+      - key: trust_distribution_age
+        type: text
+        label: 'At what age should your children receive their inheritance outright? (common choices: 21, 25, 30)'
+        help: 'Why we ask: before this age, their share stays in trust for health, education, and support.'
+        required: false
+        maps_to: facts.trust_distribution_age
+      - key: trust_marital_share
+        type: notes
+        label: 'What share of the trust should go to your spouse outright, if any?'
+        help: 'Why we ask: many couples leave everything to the surviving spouse first.'
+        required: false
+        maps_to: facts.trust_marital_share

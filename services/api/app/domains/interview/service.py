@@ -298,6 +298,61 @@ def _next_adaptive_question(
             return "primary_guardian_address"
         return None
 
+    if section == "healthcare":
+        if "healthcare_agent_person" not in done:
+            return "healthcare_agent_person"
+        if "healthcare_agent_phone" not in done:
+            return "healthcare_agent_phone"
+        if "successor_healthcare_agent_person" not in done:
+            return "successor_healthcare_agent_person"
+        if "living_will_directives" not in done:
+            return "living_will_directives"
+        if "organ_donation_wishes" not in done:
+            return "organ_donation_wishes"
+        return None
+
+    if section == "poa":
+        if "poa_agent_person" not in done:
+            return "poa_agent_person"
+        if "poa_agent_address" not in done:
+            return "poa_agent_address"
+        if "successor_poa_agent_person" not in done:
+            return "successor_poa_agent_person"
+        return None
+
+    if section == "trust":
+        if "wants_revocable_trust" not in done:
+            return "wants_revocable_trust"
+        if "successor_trustee_person" not in done:
+            return "successor_trustee_person"
+        if "trust_initial_property" not in done:
+            return "trust_initial_property"
+        if "trust_distribution_age" not in done:
+            return "trust_distribution_age"
+        if "trust_marital_share" not in done:
+            return "trust_marital_share"
+        return None
+
+    if section == "beneficiaries":
+        if "retirement_beneficiaries_current" not in done:
+            return "retirement_beneficiaries_current"
+        if "life_insurance_beneficiaries_current" not in done:
+            return "life_insurance_beneficiaries_current"
+        return None
+
+    if section == "final_wishes":
+        if "funeral_wishes" not in done:
+            return "funeral_wishes"
+        if "digital_asset_wishes" not in done:
+            return "digital_asset_wishes"
+        if "guardian_relationship" not in done:
+            return "guardian_relationship"
+        if "children_upbringing_wishes" not in done:
+            return "children_upbringing_wishes"
+        if "children_education_wishes" not in done:
+            return "children_education_wishes"
+        return None
+
     return None
 
 
