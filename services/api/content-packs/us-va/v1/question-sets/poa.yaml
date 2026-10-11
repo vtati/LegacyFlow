@@ -18,17 +18,17 @@ sections:
         type: text
         label: 'What city and state does your financial agent live in?'
         help: 'Why we ask: the document identifies your agent by residence.'
-        required: false
+        required: true
         maps_to: facts.poa_agent_address
       - key: successor_poa_agent_person
         type: person
         label: 'Who should serve if your first choice cannot?'
         help: 'Why we ask: a backup keeps your finances covered if circumstances change.'
-        required: false
+        required: true
         maps_to: nominations.poa_agent.2
       - key: poa_additional_powers
         type: notes
         label: 'Are there any specific financial powers you want to grant or withhold? (optional)'
         help: 'Why we ask: you can tailor the standard powers to your situation.'
-        required: false
+        required: true
         maps_to: facts.poa_additional_powers

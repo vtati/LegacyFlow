@@ -17,7 +17,7 @@ sections:
         type: notes
         label: 'Why is this person a good fit? (optional)'
         help: 'Why we ask: your reasoning helps your attorney understand your priorities.'
-        required: false
+        required: true
         maps_to: nominations.guardian.1.notes
   - id: backups
     title: 'Backup guardians'
@@ -26,11 +26,11 @@ sections:
         type: person
         label: 'Who should serve if your first choice cannot?'
         help: 'Why we ask: a backup keeps your wishes covered if circumstances change.'
-        required: false
+        required: true
         maps_to: nominations.guardian.2
       - key: missing_backup_acknowledged
         type: boolean
         label: 'I understand naming a backup is recommended'
         help: 'Why we ask: plans without backups are flagged for attorney discussion.'
-        required: false
+        required: true
         maps_to: facts.guardian_backup_acknowledged

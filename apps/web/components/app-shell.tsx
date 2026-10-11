@@ -36,9 +36,16 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
             <MobileNav section={section} />
             <Link
               href="/family/home"
-              className="rounded-lf-control font-lf-serif text-lg font-semibold tracking-tight text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+              className="flex items-center gap-2 rounded-lf-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             >
-              {PRODUCT_NAME}
+              <img
+                src="/media-generation-legacyflow-logo-0-92c76b2f-4e15-4b18-ba44-447ad745e0e3.webp"
+                alt="LegacyFlow logo"
+                className="size-8 rounded-lg"
+              />
+              <span className="font-lf-serif text-lg font-semibold tracking-tight text-lf-primary-950">
+                {PRODUCT_NAME}
+              </span>
             </Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">

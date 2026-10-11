@@ -112,7 +112,12 @@ export function LoginForm(): React.JSX.Element {
 
   return (
     <Card className="w-full max-w-md">
-      <CardHeader>
+      <CardHeader className="items-center text-center">
+        <img
+          src="/media-generation-legacyflow-logo-0-92c76b2f-4e15-4b18-ba44-447ad745e0e3.webp"
+          alt="LegacyFlow logo"
+          className="size-16 rounded-2xl"
+        />
         <CardTitle className="text-2xl">Sign in to LegacyFlow</CardTitle>
         <CardDescription>Use Google, your password, or a magic link sent to your email.</CardDescription>
       </CardHeader>

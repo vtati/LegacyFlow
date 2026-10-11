@@ -18,7 +18,7 @@ sections:
         type: text
         label: 'What is the city and state where your executor lives?'
         help: 'Why we ask: the will identifies the executor by residence.'
-        required: false
+        required: true
         maps_to: facts.executor_address
   - id: backups
     title: 'Backup executor'
@@ -27,5 +27,5 @@ sections:
         type: person
         label: 'Who should serve as executor if your first choice cannot?'
         help: 'Why we ask: a backup keeps your plan working if circumstances change.'
-        required: false
+        required: true
         maps_to: nominations.executor.2

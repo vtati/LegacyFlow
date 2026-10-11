@@ -18,13 +18,13 @@ sections:
         type: text
         label: 'What is the best phone number to reach your healthcare agent?'
         help: 'Why we ask: hospitals need to reach your agent quickly in an emergency.'
-        required: false
+        required: true
         maps_to: facts.healthcare_agent_phone
       - key: successor_healthcare_agent_person
         type: person
         label: 'Who should serve as your healthcare agent if your first choice cannot?'
         help: 'Why we ask: a backup keeps your wishes covered if circumstances change.'
-        required: false
+        required: true
         maps_to: nominations.healthcare_agent.2
   - id: living_will
     title: 'Living will and organ donation'
@@ -33,17 +33,17 @@ sections:
         type: notes
         label: 'Do you have wishes about life-prolonging treatment? For example, under what circumstances would you want treatment withheld or continued?'
         help: 'Why we ask: your living will guides your agent and doctors when you cannot speak for yourself.'
-        required: false
+        required: true
         maps_to: facts.living_will_directives
       - key: healthcare_agent_limitations
         type: notes
         label: 'Are there any limits on what your healthcare agent may decide? (optional)'
         help: 'Why we ask: you can restrict specific treatments or decisions.'
-        required: false
+        required: true
         maps_to: facts.healthcare_agent_limitations
       - key: organ_donation_wishes
         type: notes
         label: 'Do you wish to donate organs, tissue, or eyes after death? If so, any specifics?'
         help: 'Why we ask: your anatomical gift wishes go directly into the directive.'
-        required: false
+        required: true
         maps_to: facts.organ_donation_wishes

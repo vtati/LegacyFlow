@@ -12,13 +12,13 @@ sections:
         type: text
         label: 'What is your street address?'
         help: 'Why we ask: the will identifies you by your residence.'
-        required: false
+        required: true
         maps_to: facts.testator_street_address
       - key: testator_city
         type: text
         label: 'What city do you live in?'
         help: 'Why we ask: the will states your city alongside your state.'
-        required: false
+        required: true
         maps_to: facts.testator_city
   - id: guardian
     title: 'Guardian address'
@@ -27,5 +27,5 @@ sections:
         type: text
         label: 'What city and state does your nominated guardian live in?'
         help: 'Why we ask: the will identifies the guardian by residence.'
-        required: false
+        required: true
         maps_to: facts.guardian_address

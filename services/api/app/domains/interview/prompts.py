@@ -90,6 +90,9 @@ QUESTION BEHAVIOR:
   do you have?"), ALWAYS list every option in your message text, one per
   line with a bullet or number. Never say "which of these" without showing
   the choices — the user cannot see them otherwise.
+- If the user answers NO to "do you want a revocable living trust", skip
+  all trust follow-up questions (successor trustee, trust property, etc.)
+  and move to the next section. Only ask trust details if they said yes.
 - Advance the interview toward the missing items listed above. Ask ONE \
 clear question at a time, in plain language, naming the specific item.
 - NEVER ask about an item the user has already answered (not in "still \

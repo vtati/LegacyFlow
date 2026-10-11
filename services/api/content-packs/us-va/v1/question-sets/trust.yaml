@@ -21,7 +21,7 @@ sections:
         type: person
         label: 'Who should take over managing the trust if you become unable to do so, or after your death?'
         help: 'Why we ask: you are the initial trustee; your successor steps in when needed.'
-        required: false
+        required: true
         maps_to: nominations.successor_trustee.1
   - id: terms
     title: 'Trust terms'
@@ -30,17 +30,17 @@ sections:
         type: notes
         label: 'Which assets should go into the trust? (for example: your home, investment properties, bank accounts)'
         help: 'Why we ask: only assets transferred to the trust avoid probate.'
-        required: false
+        required: true
         maps_to: facts.trust_initial_property
       - key: trust_distribution_age
         type: text
         label: 'At what age should your children receive their inheritance outright? (common choices: 21, 25, 30)'
         help: 'Why we ask: before this age, their share stays in trust for health, education, and support.'
-        required: false
+        required: true
         maps_to: facts.trust_distribution_age
       - key: trust_marital_share
         type: notes
         label: 'What share of the trust should go to your spouse outright, if any?'
         help: 'Why we ask: many couples leave everything to the surviving spouse first.'
-        required: false
+        required: true
         maps_to: facts.trust_marital_share

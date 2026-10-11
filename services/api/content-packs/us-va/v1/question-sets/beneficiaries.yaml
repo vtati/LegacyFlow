@@ -13,11 +13,11 @@ sections:
         type: notes
         label: 'Who is currently named as beneficiary on your retirement accounts (401k, IRA)? Are these up to date?'
         help: 'Why we ask: retirement accounts pass directly to the named beneficiary, regardless of what your will says.'
-        required: false
+        required: true
         maps_to: facts.retirement_beneficiaries
       - key: life_insurance_beneficiaries_current
         type: notes
         label: 'Who is currently named as beneficiary on your life insurance? Is this up to date?'
         help: 'Why we ask: life insurance passes directly to the named beneficiary. An ex-spouse or deceased parent as beneficiary is a common — and costly — oversight.'
-        required: false
+        required: true
         maps_to: facts.life_insurance_beneficiaries
