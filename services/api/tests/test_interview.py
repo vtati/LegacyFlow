@@ -1901,7 +1901,10 @@ class TestDeterministicPersonFallback:
         assert result["question_key"] == "primary_guardian_person"
         assert result["value"] == "Meera Nair"
 
-    def test_name_in_sentence_creates_proposal(self) -> None:
+    def test_name_in_sentence_returns_none(self) -> None:
+        # Long descriptive answers are NOT handled by the fallback — the model's
+        # normal proposal flow handles those. The fallback only handles short
+        # name-like answers to prevent false extractions like "We Aarav Diya".
         from app.domains.interview.service import _deterministic_person_proposal
 
         result = _deterministic_person_proposal(
@@ -1910,9 +1913,7 @@ class TestDeterministicPersonFallback:
             question_sets=self._questions(),
             existing_proposal_keys=set(),
         )
-        assert result is not None
-        assert result["question_key"] == "primary_guardian_person"
-        assert "Meera Nair" in result["value"]
+        assert result is None
 
     def test_no_proposal_when_already_proposed(self) -> None:
         from app.domains.interview.service import _deterministic_person_proposal

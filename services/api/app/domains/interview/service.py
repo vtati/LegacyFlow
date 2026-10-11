@@ -215,27 +215,39 @@ def _deterministic_boolean_proposal(
 
 
 def _extract_person_name(text: str) -> str | None:
-    """Extract a person name from user message. Returns the name or None."""
+    """Extract a person name from user message. Returns the name or None.
+
+    Only triggers for short, name-like messages. Rejects sentences to avoid
+    extracting names from descriptive answers (e.g. "We have three children:
+    Aarav, Diya...").
+    """
     import re
 
-    # Remove common prefixes
-    cleaned = re.sub(
-        r"^(my (sister|brother|wife|husband|mother|father|daughter|son|friend) |i want |please )",
-        "",
-        text.strip().lower(),
-        flags=re.IGNORECASE,
-    )
-    # Find capitalized word sequences (2-3 words)
-    # Work on original text for capitalization
-    words = re.findall(r"\b[A-Z][a-z]+\b", text)
-    if len(words) >= 2 and len(words) <= 4:
-        # Take the longest capitalized sequence
-        return " ".join(words[:3])
-    # Single name or "First Last" pattern
-    match = re.search(r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b", text)
-    if match:
-        return match.group(1)
-    return None
+    stripped = text.strip().rstrip(".")
+    words = stripped.split()
+    # A name answer is short: 1-4 words. Longer text is a sentence, not a name.
+    if len(words) > 4:
+        return None
+    # All words should be capitalized (names), allowing for middle initials.
+    # Reject common non-name words.
+    non_name_words = {
+        "we", "i", "my", "the", "a", "an", "no", "yes", "not", "have",
+        "has", "had", "are", "is", "was", "were", "be", "been",
+    }
+    cleaned_words = []
+    for w in words:
+        w_clean = re.sub(r"[^A-Za-z]", "", w)
+        if not w_clean:
+            continue
+        if w_clean.lower() in non_name_words:
+            return None
+        if not w_clean[0].isupper():
+            return None
+        cleaned_words.append(w_clean)
+    if len(cleaned_words) < 1 or len(cleaned_words) > 4:
+        return None
+    # Single word is OK (first name only), but prefer 2+.
+    return " ".join(cleaned_words)
 
 
 def _deterministic_person_proposal(
