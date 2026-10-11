@@ -532,10 +532,19 @@ def render_demo_pdf(title: str, body: str, watermark_text: str | None) -> bytes:
 
 
 def render_template_content(template_body: str, context: dict[str, str]) -> str:
-    """Substitute ``{{placeholder}}`` tokens; unknown tokens are left intact."""
+    """Substitute ``{{placeholder}}`` tokens.
+
+    Known tokens are replaced from the context. Any remaining unfilled
+    tokens become ``___`` (attorney-fill blanks) so raw ``{{tokens}}``
+    never appear in generated documents.
+    """
+    import re
+
     merged = template_body
     for key, value in context.items():
         merged = merged.replace("{{" + key + "}}", value)
+    # Blank any tokens the context didn't cover.
+    merged = re.sub(r"\{\{[a-z_]+\}\}", "___", merged)
     return merged
 
 
