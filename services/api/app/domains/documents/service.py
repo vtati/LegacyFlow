@@ -870,6 +870,26 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                     context.setdefault("alternate_guardian_name", ans)
                 elif "primary" in key or "guardian_person" in key:
                     context.setdefault("guardian_name", ans)
+                if "address" in key:
+                    context.setdefault("guardian_address", ans)
+            # Executor names from verified interview answers (v1 pack)
+            if "executor" in key:
+                if "backup" in key or "alternate" in key or "successor" in key:
+                    context.setdefault("alternate_executor_name", ans)
+                elif "primary" in key or "executor_person" in key:
+                    context.setdefault("executor_name", ans)
+                if "address" in key:
+                    context.setdefault("executor_address", ans)
+            # Bequest details from verified interview answers (v1 pack)
+            if key == "residuary_beneficiaries":
+                context.setdefault("residuary_beneficiaries", ans)
+            if key == "specific_bequests":
+                context.setdefault("specific_bequests", ans)
+            # Testator address details (v1 pack)
+            if key == "testator_street_address":
+                context.setdefault("testator_address", ans)
+            if key == "testator_city":
+                context.setdefault("testator_city", ans)
 
     # Replace any remaining unfilled placeholders with blank lines.
     # The _flag_unfilled_placeholders step still records them for attorney review.

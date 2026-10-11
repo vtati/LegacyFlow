@@ -250,6 +250,57 @@ def _extract_person_name(text: str) -> str | None:
     return " ".join(cleaned_words)
 
 
+def _next_adaptive_question(
+    *,
+    answered_keys: set[str],
+    pending_keys: set[str],
+    section: str,
+) -> str | None:
+    """Adaptive interrogation: given what's answered, return the next question
+    key for a section, or None if the section is complete.
+
+    This makes the interviewer "interrogate" each section thoroughly rather
+    than asking a fixed list — follow-ups are driven by what the user already
+    provided.
+    """
+    done = answered_keys | pending_keys
+
+    if section == "executors":
+        # Primary executor first, then backup, then address.
+        if "primary_executor_person" not in done:
+            return "primary_executor_person"
+        if "backup_executor_person" not in done:
+            return "backup_executor_person"
+        if "primary_executor_address" not in done:
+            return "primary_executor_address"
+        return None
+
+    if section == "bequests":
+        # Ask if they have specific bequests; if yes, get details.
+        # Residuary is always required.
+        if "has_specific_bequests" not in done:
+            return "has_specific_bequests"
+        if "specific_bequests" not in done:
+            # Only ask for details if they said yes (True). If they said no,
+            # the details question is skipped — but we can't know the value
+            # here, so the caller checks answered_keys for the boolean.
+            return "specific_bequests"
+        if "residuary_beneficiaries" not in done:
+            return "residuary_beneficiaries"
+        return None
+
+    if section == "addresses":
+        if "testator_street_address" not in done:
+            return "testator_street_address"
+        if "testator_city" not in done:
+            return "testator_city"
+        if "primary_guardian_address" not in done:
+            return "primary_guardian_address"
+        return None
+
+    return None
+
+
 def _deterministic_person_proposal(
     *,
     user_message: str,
