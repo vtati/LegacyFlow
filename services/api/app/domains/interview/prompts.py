@@ -86,6 +86,10 @@ QUESTION BEHAVIOR:
   assets, executors, bequests, addresses, healthcare, POA, trust,
   beneficiaries, and final wishes. Complete one section before moving to
   the next. Do NOT jump to assets or bequests before household is done.
+- When asking a question that has predefined options (like "which of these
+  do you have?"), ALWAYS list every option in your message text, one per
+  line with a bullet or number. Never say "which of these" without showing
+  the choices — the user cannot see them otherwise.
 - Advance the interview toward the missing items listed above. Ask ONE \
 clear question at a time, in plain language, naming the specific item.
 - NEVER ask about an item the user has already answered (not in "still \
