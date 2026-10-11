@@ -46,9 +46,16 @@ function LandingPage(): React.JSX.Element {
     <div className="flex min-h-screen flex-col bg-lf-canvas">
       <header className="border-b border-lf-border bg-lf-canvas">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <p className="font-lf-serif text-xl font-semibold tracking-tight text-lf-text">
-            {PRODUCT_NAME}
-          </p>
+          <div className="flex items-center gap-2.5">
+            <img
+              src="/media-generation-legacyflow-logo-0-92c76b2f-4e15-4b18-ba44-447ad745e0e3.webp"
+              alt="LegacyFlow logo"
+              className="size-9 rounded-lg"
+            />
+            <p className="font-lf-serif text-xl font-semibold tracking-tight text-lf-text">
+              {PRODUCT_NAME}
+            </p>
+          </div>
           <nav className="flex items-center gap-2" aria-label="Primary">
             <Button variant="ghost" asChild>
               <Link href="/about">About</Link>
