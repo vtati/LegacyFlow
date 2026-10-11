@@ -1,9 +1,24 @@
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, FileCheck2, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitleEditorial } from '@/components/ui/card';
 import { Footer } from '@/components/footer';
 import { PRODUCT_NAME, SAFETY_LABEL } from '@/lib/constants';
+import { getServerSession } from '@/lib/auth/server';
+
+/** Public marketing page. Authenticated users go straight to their home. */
+export default async function MarketingPage() {
+  const session = await getServerSession();
+  if (session) {
+    redirect('/family/home');
+  }
+  return <MarketingContent />;
+}
+
+function MarketingContent() {
+  return <LandingPage />;
+}
 
 const PILLARS = [
   {
@@ -26,7 +41,7 @@ const PILLARS = [
 const ATTORNEY_PILLAR = PILLARS[1];
 
 /** Public landing page — placeholder marketing copy, safety-labeled. */
-export default function LandingPage(): React.JSX.Element {
+function LandingPage(): React.JSX.Element {
   return (
     <div className="flex min-h-screen flex-col bg-lf-canvas">
       <header className="border-b border-lf-border bg-lf-canvas">
