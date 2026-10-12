@@ -335,10 +335,10 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     const el = threadRef.current;
     if (!el) return;
     // Defer to the next frame so the DOM has laid out the messages.
-    // Without this, scrollHeight is stale on initial load and the
-    // chat stays stuck at the top.
+    // Use direct scrollTop assignment (not smooth behavior) — browsers
+    // cancel smooth scrolls during page load, leaving the chat stuck at top.
     const raf = requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      el.scrollTop = el.scrollHeight;
     });
     return () => cancelAnimationFrame(raf);
   }, [messages]);
