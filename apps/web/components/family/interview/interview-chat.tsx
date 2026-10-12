@@ -336,13 +336,14 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
-    // On initial load, always scroll to bottom so the user sees the latest.
-    // When the user just sent a message, always scroll (they're actively chatting).
-    // Otherwise, only auto-scroll if already near the bottom to avoid yanking
-    // the viewport when they're reading history.
-    if (!initialScrollDoneRef.current || userJustSentRef.current) {
+    // On initial load (when messages first populate), always scroll to bottom
+    // so the user sees the latest. When the user just sent a message, always
+    // scroll (they're actively chatting). Otherwise, only auto-scroll if already
+    // near the bottom to avoid yanking the viewport when reading history.
+    const isInitialLoad = !initialScrollDoneRef.current && messages.length > 0;
+    if (isInitialLoad || userJustSentRef.current) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-      initialScrollDoneRef.current = true;
+      if (isInitialLoad) initialScrollDoneRef.current = true;
       userJustSentRef.current = false;
       return;
     }
