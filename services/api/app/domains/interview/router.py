@@ -91,7 +91,13 @@ def post_turn(
     # Auto-confirm high-confidence proposals AFTER the turn transaction
     # commits, in a separate transaction with a statement timeout.
     # (Doing save_answers inside the turn transaction hung indefinitely.)
-    _auto_confirm_proposals(turn_out, claims.sub, matter_id)
+    # Best-effort: never let auto-confirm break the turn response.
+    try:
+        _auto_confirm_proposals(turn_out, claims.sub, matter_id)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Auto-confirm failed; proposals left pending for manual review"
+        )
     return turn_out
 
 
@@ -103,10 +109,14 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
     manual card confirmation.
     """
     logger = logging.getLogger(__name__)
-    candidates = [
-        p for p in (turn_out.proposals or [])
-        if p.confidence is not None and p.confidence >= 0.9 and p.status == "proposed"
-    ]
+    try:
+        candidates = [
+            p for p in (turn_out.proposals or [])
+            if p.confidence is not None and p.confidence >= 0.9 and p.status == "proposed"
+        ]
+    except Exception:
+        logger.warning("Auto-confirm: failed to extract candidates, skipping")
+        return
     if not candidates:
         return
     try:
