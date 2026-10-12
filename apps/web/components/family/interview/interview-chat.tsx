@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -331,16 +331,16 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     void bootstrap();
   }, [bootstrap]);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): runs synchronously after DOM mutations
+  // but before the browser paints. This guarantees the scroll position is
+  // correct before the user sees anything — no flash of wrong position,
+  // no race with paint. 'auto' (instant) because browsers cancel smooth
+  // scrolls during page load.
+  useLayoutEffect(() => {
     const el = threadRef.current;
-    if (!el) return;
-    // Defer to the next frame so the DOM has laid out the messages.
-    // Use direct scrollTop assignment (not smooth behavior) — browsers
-    // cancel smooth scrolls during page load, leaving the chat stuck at top.
-    const raf = requestAnimationFrame(() => {
+    if (el) {
       el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
+    }
   }, [messages]);
 
   const send = useCallback(async () => {
