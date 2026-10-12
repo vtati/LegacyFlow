@@ -1079,13 +1079,9 @@ def post_turn(
             pack_version=version,
         )
         proposal_out = _proposal_out(row)
-        # APPROACH 1: Auto-confirm high-confidence proposals.
-        # TEMPORARILY DISABLED 2026-10-11: The save_answers call hangs the
-        # turn (DB lock/timeout issue under investigation). Proposals stay
-        # pending for manual card confirmation. The no-repeat prompt
-        # directives (Approach 2) still prevent re-asking.
-        # TODO: Re-enable after fixing the hang.
-        pass  # auto-confirm disabled
+        # Auto-confirm happens in the router AFTER the turn transaction
+        # commits, in a separate transaction with a statement timeout.
+        # (Doing it here hung the turn — see ADR.)
         stored_proposals.append(proposal_out)
 
     _record_turn_audit(

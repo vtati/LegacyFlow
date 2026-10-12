@@ -7,10 +7,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 
+import logging
+
 from app.core import db
 from app.core.deps import get_current_user
 from app.core.security import Claims
+from app.domains.intake import service as intake_service
 from app.domains.interview import extraction as extraction_service
+from app.domains.interview import repository as interview_repo
 from app.domains.interview import service
 from app.domains.interview.schemas import (
     ConsistencyReviewOut,
@@ -81,9 +85,54 @@ def post_turn(
 ) -> TurnOut:
     """Send a message; get the assistant reply + proposals + citations."""
     with db.transaction() as conn:
-        return service.post_turn(
+        turn_out = service.post_turn(
             conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id, payload=payload
         )
+    # Auto-confirm high-confidence proposals AFTER the turn transaction
+    # commits, in a separate transaction with a statement timeout.
+    # (Doing save_answers inside the turn transaction hung indefinitely.)
+    _auto_confirm_proposals(turn_out, claims.sub, matter_id)
+    return turn_out
+
+
+def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) -> None:
+    """Best-effort auto-confirm of high-confidence proposals.
+
+    Runs in its own transaction with a 10s statement timeout so it can
+    never hang the interview. Failures leave proposals pending for
+    manual card confirmation.
+    """
+    logger = logging.getLogger(__name__)
+    candidates = [
+        p for p in (turn_out.proposals or [])
+        if p.confidence is not None and p.confidence >= 0.9 and p.status == "proposed"
+    ]
+    if not candidates:
+        return
+    try:
+        with db.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '10s'")
+            from app.domains.matters import service as matters_service
+            actor_id = matters_service.caller_id(actor_sub)
+            for p in candidates:
+                try:
+                    intake_service.save_answers(
+                        conn, actor_sub=actor_sub, matter_id=matter_id,
+                        answers={p.question_key: p.proposed_value},
+                    )
+                    interview_repo.decide_proposal(
+                        conn, p.id, status="confirmed", corrected_value=None,
+                        decided_by_user_id=actor_id, scrub_snippet=False,
+                    )
+                    p.status = "confirmed"  # reflect in the response
+                except Exception:
+                    logger.warning(
+                        "Auto-confirm failed for %r, leaving as pending",
+                        p.question_key,
+                    )
+    except Exception:
+        logger.warning("Auto-confirm transaction failed; proposals left pending")
 
 
 @router.get(
