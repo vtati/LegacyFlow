@@ -983,7 +983,7 @@ def post_turn(
             (m.content for m in reversed(history) if m.role == "assistant"),
             "",
         )
-        existing_keys = set(repo.open_proposal_keys(conn, session_id))
+        existing_keys = set(pending_keys)
         # Also include keys from valid_proposals (they'll become pending).
         proposed_keys = {p.question_key for p in valid_proposals}
         all_covered = existing_keys | proposed_keys
@@ -1053,11 +1053,15 @@ def post_turn(
     )
 
     stored_proposals: list[ProposalOut] = []
+    # Reuse the pending keys already fetched at the start of post_turn
+    # instead of re-querying inside the loop (N+1).
+    pending_key_set = set(pending_keys)
     for draft in valid_proposals:
         # One open proposal per (session, key): skip when the user already has
         # an undecided proposal for this key.
-        if draft.question_key in repo.open_proposal_keys(conn, session_id):
+        if draft.question_key in pending_key_set:
             continue
+        pending_key_set.add(draft.question_key)
         row = repo.insert_proposal(
             conn,
             session_id=session_id,

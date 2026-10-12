@@ -303,26 +303,14 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       setSession(started);
       const summaries = await api.listInterviewTurns(matterId, started.id);
       // API returns newest-first; reverse to chronological for display.
+      // Use summary text directly — avoids N+1 individual turn fetches.
+      // Full detail (citations) loads lazily only when user expands them.
       const recent = summaries.slice(-20).reverse();
-      const hydrated = await Promise.all(
-        recent.map(async (s) => {
-          try {
-            const detail = await api.getInterviewTurn(matterId, started.id, s.id);
-            return {
-              id: detail.id,
-              role: detail.role as 'user' | 'assistant',
-              text: detail.text,
-              citations: detail.citations,
-            } satisfies ChatMessage;
-          } catch {
-            return {
-              id: s.id,
-              role: s.role as 'user' | 'assistant',
-              text: s.summary,
-            } satisfies ChatMessage;
-          }
-        }),
-      );
+      const hydrated: ChatMessage[] = recent.map((s) => ({
+        id: s.id,
+        role: s.role as 'user' | 'assistant',
+        text: s.summary,
+      }));
       setMessages(hydrated);
       const open = await api.listInterviewProposals(matterId, started.id);
       setProposals(open);
@@ -344,7 +332,14 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   }, [bootstrap]);
 
   useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
+    const el = threadRef.current;
+    if (!el) return;
+    // Only auto-scroll if user is already near the bottom (within 100px).
+    // Don't yank the viewport when they're reading history.
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    if (nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+    }
   }, [messages]);
 
   const send = useCallback(async () => {

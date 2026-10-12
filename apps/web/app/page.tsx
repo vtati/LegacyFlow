@@ -48,7 +48,7 @@ function LandingPage(): React.JSX.Element {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2.5">
             <img
-              src="/media-generation-legacyflow-logo-0-92c76b2f-4e15-4b18-ba44-447ad745e0e3.webp"
+              src="/legacyflow-logo.webp"
               alt="LegacyFlow logo"
               className="size-9 rounded-lg"
             />

@@ -14,6 +14,7 @@ Authorization summary:
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +24,11 @@ from app.core.errors import AuthError, ValidationAppError
 
 from . import repository as repo
 from .schemas import EffectiveFlagOut, FeatureFlagOut
+
+# In-memory flag cache: (key, firm_id, pack_id) -> (is_enabled, source, timestamp).
+# Flags change rarely; 60s TTL avoids 2-3 DB roundtrips per interview turn.
+_flag_cache: dict[tuple[str, str | None, str | None], tuple[bool, str, float]] = {}
+_FLAG_CACHE_TTL = 60.0
 
 # Built-in defaults used when no row and no env override applies.
 # ``document_assembly`` fails closed: assembly must be explicitly enabled.
@@ -77,22 +83,37 @@ def resolve_flag(
 
     ``source`` is one of ``env`` | ``firm`` | ``jurisdiction`` |
     ``environment`` | ``default``. Unknown keys fail closed (``False``).
+
+    Results are cached in-process for 60s to avoid 2-3 DB roundtrips on
+    every interview turn. Env overrides bypass the cache.
     """
     override = env_override(key)
     if override is not None:
         return override, "env"
+    cache_key = (key, str(firm_id) if firm_id else None, pack_id)
+    now = time.monotonic()
+    cached = _flag_cache.get(cache_key)
+    if cached is not None and now - cached[2] < _FLAG_CACHE_TTL:
+        return cached[0], cached[1]
     if firm_id is not None:
         row = repo.get_flag(conn, key=key, scope="firm", scope_ref=str(firm_id))
         if row is not None:
-            return bool(row["is_enabled"]), "firm"
+            result = (bool(row["is_enabled"]), "firm")
+            _flag_cache[cache_key] = (*result, now)
+            return result
     if pack_id is not None:
         row = repo.get_flag(conn, key=key, scope="jurisdiction", scope_ref=pack_id)
         if row is not None:
-            return bool(row["is_enabled"]), "jurisdiction"
+            result = (bool(row["is_enabled"]), "jurisdiction")
+            _flag_cache[cache_key] = (*result, now)
+            return result
     row = repo.get_flag(conn, key=key, scope="environment", scope_ref="")
     if row is not None:
-        return bool(row["is_enabled"]), "environment"
-    return KNOWN_FLAG_DEFAULTS.get(key, False), "default"
+        result = (bool(row["is_enabled"]), "environment")
+    else:
+        result = (KNOWN_FLAG_DEFAULTS.get(key, False), "default")
+    _flag_cache[cache_key] = (*result, now)
+    return result
 
 
 def is_enabled(
@@ -140,6 +161,8 @@ def set_firm_flag(conn: Any, *, actor_sub: str, key: str, is_enabled: bool) -> F
         is_enabled=is_enabled,
         created_by_user_id=actor_id,
     )
+    # Invalidate cached resolutions for this flag+firm.
+    _flag_cache.pop((key, str(firm_id), None), None)
     record_audit_event(
         conn,
         action="feature_flags.updated",

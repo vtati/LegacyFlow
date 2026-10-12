@@ -23,10 +23,24 @@ from typing import Any, Protocol
 from app.core.errors import ConfigurationError, ProviderError
 from app.domains.ai.schemas import Citation
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 _DETERMINISTIC_DEV = "deterministic_dev"
 _PRODUCTION = "production"
+
+# Shared HTTP client with connection pooling — reuses TCP/TLS connections
+# to api.openai.com across turns instead of a fresh handshake every time.
+_http_client: httpx.Client | None = None
+
+
+def get_http_client() -> httpx.Client:
+    """Return the shared httpx client, creating it on first use."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=60.0)
+    return _http_client
 
 
 @dataclass(frozen=True)
@@ -335,8 +349,6 @@ class OpenAIChatProvider:
         messages: list[ChatMessage],
         context: InterviewContext,
     ) -> InterviewTurnResponse:
-        import httpx
-
         # The retrieved approved excerpts travel with the system prompt so the
         # model's grounding instruction ("ground every factual claim in the
         # approved educational excerpts provided with this turn") refers to
@@ -356,11 +368,10 @@ class OpenAIChatProvider:
             "temperature": 0.2,
         }
         try:
-            response = httpx.post(
+            response = get_http_client().post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 json=payload,
-                timeout=60.0,
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -464,13 +475,11 @@ class WhisperSTTProvider:
         self._model = model
 
     def transcribe(self, audio: bytes, *, filename: str, language: str | None = None) -> str:
-        import httpx
-
         data: dict[str, str] = {"model": self._model}
         if language:
             data["language"] = language
         try:
-            response = httpx.post(
+            response = get_http_client().post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 data=data,

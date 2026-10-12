@@ -114,7 +114,7 @@ export function LoginForm(): React.JSX.Element {
     <Card className="w-full max-w-md">
       <CardHeader className="items-center text-center">
         <img
-          src="/media-generation-legacyflow-logo-0-92c76b2f-4e15-4b18-ba44-447ad745e0e3.webp"
+          src="/legacyflow-logo.webp"
           alt="LegacyFlow logo"
           className="size-16 rounded-2xl"
         />

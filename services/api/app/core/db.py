@@ -2,11 +2,10 @@
 
 Conventions (§6.4):
   * Repositories own SQL; services never touch connections directly.
-  * ``get_connection()`` opens a short-lived connection with the
-    ``dict_row`` factory. Longer-lived pooling is a later-slice concern;
-    the seam (this module) is where it will land.
-  * ``transaction()`` yields a connection inside an explicit transaction
-    block for multi-statement service operations.
+  * ``get_connection()`` checks out a pooled connection with the
+    ``dict_row`` factory.
+  * ``transaction()`` yields a pooled connection inside an explicit
+    transaction block for multi-statement service operations.
 """
 
 from __future__ import annotations
@@ -15,11 +14,14 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from app.core.config import get_settings
 from app.core.errors import ConfigurationError
+
+
+_pool: ConnectionPool | None = None
 
 
 def database_url_or_raise() -> str:
@@ -30,27 +32,37 @@ def database_url_or_raise() -> str:
     return settings.DATABASE_URL
 
 
+def get_pool() -> ConnectionPool:
+    """Return the process-wide connection pool, creating it on first use."""
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            database_url_or_raise(),
+            min_size=4,
+            max_size=20,
+            kwargs={"row_factory": dict_row, "prepare_threshold": None},
+            # prepare_threshold=None: app connects through Supabase pooler;
+            # auto-prepared statements collide across pooled server
+            # connections (DuplicatePreparedStatement).
+            open=True,
+        )
+    return _pool
+
+
 def get_connection() -> Any:
-    """Open a new psycopg connection with dict rows.
+    """Check out a pooled connection with dict rows.
 
-    Caller owns the connection (use as a context manager).
-
-    ``prepare_threshold=None`` disables server-side prepared statements.
-    The app connects through a transaction-pooling proxy (Supabase pooler);
-    psycopg's auto-prepared statements (``_pg3_N``) collide across pooled
-    server connections and raise ``DuplicatePreparedStatement`` once any
-    query repeats ~5 times on one connection (e.g. feature-flag listing).
-    Disabling prepares trades a little plan-caching for correctness.
+    Caller owns the checkout (use as a context manager to return it).
     """
-    return psycopg.connect(database_url_or_raise(), row_factory=dict_row, prepare_threshold=None)
+    return get_pool().connection()
 
 
 @contextmanager
 def transaction() -> Iterator[Any]:
-    """Yield a connection inside an explicit transaction.
+    """Yield a pooled connection inside an explicit transaction.
 
     Commits on clean exit, rolls back on exception.
     """
-    with get_connection() as conn:
+    with get_pool().connection() as conn:
         with conn.transaction():
             yield conn
