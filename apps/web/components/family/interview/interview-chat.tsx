@@ -265,8 +265,6 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const [review, setReview] = useState<ConsistencyReview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
-  const initialScrollDoneRef = useRef(false);
-  const userJustSentRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -334,23 +332,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   }, [bootstrap]);
 
   useEffect(() => {
-    const el = threadRef.current;
-    if (!el) return;
-    // On initial load (when messages first populate), always scroll to bottom
-    // so the user sees the latest. When the user just sent a message, always
-    // scroll (they're actively chatting). Otherwise, only auto-scroll if already
-    // near the bottom to avoid yanking the viewport when reading history.
-    const isInitialLoad = !initialScrollDoneRef.current && messages.length > 0;
-    if (isInitialLoad || userJustSentRef.current) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-      if (isInitialLoad) initialScrollDoneRef.current = true;
-      userJustSentRef.current = false;
-      return;
-    }
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-    if (nearBottom) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-    }
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
   const send = useCallback(async () => {
@@ -370,7 +352,6 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    userJustSentRef.current = true;
     try {
       const idempotencyKey =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
