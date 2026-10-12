@@ -1080,33 +1080,12 @@ def post_turn(
         )
         proposal_out = _proposal_out(row)
         # APPROACH 1: Auto-confirm high-confidence proposals.
-        # When the AI extracts a value with high confidence (>= 0.9) directly
-        # from the user's answer, confirm it immediately instead of requiring
-        # a card tap. This prevents the "I answered but it asked again" loop.
-        # The user can still correct via the UI if the extraction was wrong.
-        if draft.confidence is not None and draft.confidence >= 0.9:
-            try:
-                intake_service.save_answers(
-                    conn, actor_sub=actor_sub, matter_id=matter_id,
-                    answers={draft.question_key: draft.value},
-                )
-                repo.decide_proposal(
-                    conn,
-                    UUID(str(row["id"])),
-                    status="confirmed",
-                    corrected_value=None,
-                    decided_by_user_id=actor_id,
-                    scrub_snippet=False,
-                )
-                # Mark as decided so it doesn't appear as a pending card
-                proposal_out = _proposal_out({**row, "status": "confirmed"})
-            except Exception:
-                # If auto-confirm fails (e.g. validation), leave as pending
-                # for manual review — don't break the turn.
-                logger.warning(
-                    "Auto-confirm failed for %r, leaving as pending",
-                    draft.question_key,
-                )
+        # TEMPORARILY DISABLED 2026-10-11: The save_answers call hangs the
+        # turn (DB lock/timeout issue under investigation). Proposals stay
+        # pending for manual card confirmation. The no-repeat prompt
+        # directives (Approach 2) still prevent re-asking.
+        # TODO: Re-enable after fixing the hang.
+        pass  # auto-confirm disabled
         stored_proposals.append(proposal_out)
 
     _record_turn_audit(
