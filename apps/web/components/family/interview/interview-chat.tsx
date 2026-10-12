@@ -265,6 +265,8 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const [review, setReview] = useState<ConsistencyReview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const initialScrollDoneRef = useRef(false);
+  const userJustSentRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -334,8 +336,16 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
-    // Only auto-scroll if user is already near the bottom (within 100px).
-    // Don't yank the viewport when they're reading history.
+    // On initial load, always scroll to bottom so the user sees the latest.
+    // When the user just sent a message, always scroll (they're actively chatting).
+    // Otherwise, only auto-scroll if already near the bottom to avoid yanking
+    // the viewport when they're reading history.
+    if (!initialScrollDoneRef.current || userJustSentRef.current) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+      initialScrollDoneRef.current = true;
+      userJustSentRef.current = false;
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     if (nearBottom) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
@@ -359,6 +369,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+    userJustSentRef.current = true;
     try {
       const idempotencyKey =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
