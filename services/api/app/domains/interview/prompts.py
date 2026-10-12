@@ -20,6 +20,7 @@ def build_system_prompt(
     answered_required: int,
     total_required: int,
     pending_proposal_keys: list[str] | None = None,
+    answered_keys: list[str] | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     missing = ", ".join(missing_required_keys[:12])
@@ -33,6 +34,10 @@ def build_system_prompt(
     still_more = f" (+{len(still_needed) - 12} more)" if len(still_needed) > 12 else ""
     pending_str = ", ".join(pending[:12]) if pending else "none"
     pending_more = f" (+{len(pending) - 12} more)" if len(pending) > 12 else ""
+    # APPROACH 2: Explicitly list answered keys so the model NEVER re-asks.
+    answered = answered_keys or []
+    answered_str = ", ".join(answered[:20]) if answered else "none"
+    answered_more = f" (+{len(answered) - 20} more)" if len(answered) > 20 else ""
     return f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \
@@ -90,6 +95,15 @@ INTERVIEW STATE:
 - Still needed: {still_needed_str}{still_more}.
 - Awaiting user confirmation (do NOT re-ask about these — the user sees \
 them as review cards): {pending_str}{pending_more}.
+- ALREADY ANSWERED (NEVER re-ask about these under any circumstances): \
+{answered_str}{answered_more}.
+
+CRITICAL — NEVER REPEAT QUESTIONS:
+- If a question key appears in "ALREADY ANSWERED" or "Awaiting user \
+confirmation", DO NOT ask it again. Not in different words. Not as a \
+follow-up. NEVER.
+- If the user says "I already answered this", apologize briefly and move to \
+the next item in "Still needed". Do NOT ask them to repeat the answer.
 
 QUESTION BEHAVIOR:
 - Follow the pack's section order: start with household, then guardians,
