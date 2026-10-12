@@ -302,7 +302,8 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       const started = await api.startInterviewSession(matterId, setIds[0]);
       setSession(started);
       const summaries = await api.listInterviewTurns(matterId, started.id);
-      const recent = summaries.slice(-20);
+      // API returns newest-first; reverse to chronological for display.
+      const recent = summaries.slice(-20).reverse();
       const hydrated = await Promise.all(
         recent.map(async (s) => {
           try {
