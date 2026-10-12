@@ -34,3 +34,10 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* iOS Safari auto-zoom prevention: Safari zooms the page when focusing any
+   input/textarea/select with font-size < 16px, breaking the mobile layout.
+   Force 16px minimum on all form controls. */
+input, textarea, select {
+  font-size: 16px !important;
+}
