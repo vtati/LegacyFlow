@@ -332,7 +332,15 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   }, [bootstrap]);
 
   useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
+    const el = threadRef.current;
+    if (!el) return;
+    // Defer to the next frame so the DOM has laid out the messages.
+    // Without this, scrollHeight is stale on initial load and the
+    // chat stays stuck at the top.
+    const raf = requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages]);
 
   const send = useCallback(async () => {
