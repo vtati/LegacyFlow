@@ -215,7 +215,7 @@ export default function FirmReportsPage(): React.JSX.Element {
               <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
                 <table className="w-full text-left text-sm tabular-nums md:min-w-[320px]">
                   <caption className="sr-only">Matters by jurisdiction</caption>
-                  <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+                  <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                     <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                       <th scope="col" className="px-4 py-3 font-semibold">
                         Jurisdiction
@@ -227,7 +227,7 @@ export default function FirmReportsPage(): React.JSX.Element {
                   </thead>
                   <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                     {stats.jurisdictions.map(([code, count]) => (
-                      <tr key={code} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                      <tr key={code} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
                         <td data-th="Jurisdiction" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>{code}</td>
                         <td data-th="Matters" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>{count}</td>
                       </tr>

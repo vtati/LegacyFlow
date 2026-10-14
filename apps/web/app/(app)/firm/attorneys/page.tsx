@@ -254,7 +254,7 @@ export default function FirmAttorneysPage(): React.JSX.Element {
             Approving grants the attorney role immediately.
           </p>
         </div>
-        <div className="flex gap-1 rounded-lf-control border border-lf-border bg-white p-1">
+        <div className="flex gap-1 rounded-lf-control border border-lf-border bg-lf-canvas-elevated p-1">
           {(['pending', 'all'] as const).map((f) => (
             <button
               key={f}
@@ -263,7 +263,7 @@ export default function FirmAttorneysPage(): React.JSX.Element {
               className={cn(
                 'rounded-lf-control px-3 py-1.5 text-sm font-medium capitalize transition-colors',
                 filter === f
-                  ? 'bg-lf-primary-600 text-white'
+                  ? 'bg-lf-primary-600 text-white dark:text-lf-primary-950'
                   : 'text-lf-text-muted hover:text-lf-text',
               )}
             >

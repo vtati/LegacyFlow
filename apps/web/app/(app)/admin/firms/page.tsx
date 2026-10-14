@@ -67,7 +67,7 @@ function FirmProfileCard({ firm }: { firm: FirmProfile }) {
 
 function MemberRow({ member }: { member: FirmMember }) {
   return (
-    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
       <td data-th="Name / email" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <p className="font-medium text-lf-text">{member.display_name ?? '—'}</p>
         <p className="mt-0.5 text-sm text-lf-text-muted">{member.email ?? '—'}</p>
@@ -161,7 +161,7 @@ export default function AdminFirmsPage(): React.JSX.Element {
                 <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
                   <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
                     <caption className="sr-only">Firm member roster</caption>
-                    <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+                    <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                       <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                         <th scope="col" className="px-4 py-3 font-semibold">
                           Name / email
@@ -261,7 +261,7 @@ function CreateFirmForm({ onCreated }: { onCreated: () => void }): React.JSX.Ele
       <button
         type="submit"
         disabled={saving || !legalName.trim() || !displayName.trim()}
-        className="rounded-md bg-lf-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className="rounded-md bg-lf-primary-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
         {saving ? 'Creating…' : 'Create firm'}
       </button>

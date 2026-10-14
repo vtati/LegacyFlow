@@ -65,7 +65,7 @@ export function AssignAttorney({
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
           disabled={loading || saving}
-          className="flex min-w-[200px] rounded-lf-control border border-lf-border bg-white px-3 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 disabled:opacity-60"
+          className="flex min-w-[200px] rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500 disabled:opacity-60"
         >
           <option value="">Unassigned</option>
           {attorneys.map((a) => (

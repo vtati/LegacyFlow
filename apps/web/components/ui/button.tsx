@@ -8,12 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-lf-primary-900 text-lf-primary-foreground hover:bg-lf-primary-800',
-        secondary: 'bg-lf-accent-600/10 text-lf-primary-900 hover:bg-lf-accent-600/20',
-        accent: 'bg-lf-accent-600 text-lf-primary-foreground hover:bg-lf-accent-700',
-        destructive: 'bg-lf-error-600 text-lf-primary-foreground hover:bg-lf-error-700',
+        default: 'bg-lf-primary-900 text-lf-primary-foreground hover:bg-lf-primary-800 dark:hover:text-lf-primary-950',
+        secondary: 'bg-lf-accent-600/10 text-lf-text hover:bg-lf-accent-600/20',
+        accent: 'bg-lf-accent-600 text-lf-accent-foreground hover:bg-lf-accent-700',
+        destructive: 'bg-lf-error-600 text-lf-primary-foreground hover:bg-lf-error-700 dark:text-lf-error-foreground',
         outline:
-          'border border-lf-border bg-white text-lf-text hover:border-lf-border-strong hover:bg-lf-canvas',
+          'border border-lf-border bg-lf-canvas-elevated text-lf-text hover:border-lf-border-strong hover:bg-lf-canvas',
         ghost: 'text-lf-text hover:bg-lf-accent-600/10',
         link: 'text-lf-accent-700 underline-offset-4 hover:underline',
       },

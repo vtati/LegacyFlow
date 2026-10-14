@@ -207,7 +207,7 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
                 action={
                   <Link
                     href="/family/dependents"
-                    className="inline-flex min-h-11 items-center rounded-lf-control bg-lf-primary-700 px-4 py-2 text-sm font-medium text-white hover:bg-lf-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                    className="inline-flex min-h-11 items-center rounded-lf-control bg-lf-primary-700 px-4 py-2 text-sm font-medium text-white hover:bg-lf-primary-800 dark:text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
                   >
                     Add people
                   </Link>

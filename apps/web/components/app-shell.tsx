@@ -8,6 +8,7 @@ import type { AuthUser } from '@/lib/auth/adapter';
 import { AccountMenu } from '@/components/account-menu';
 import { MobileNav } from '@/components/mobile-nav';
 import { SaveIndicator } from '@/components/save-indicator';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { SectionNav } from '@/components/section-nav';
 import { Footer } from '@/components/footer';
 
@@ -51,6 +52,7 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Real save state: reflects actual persistence via the save-status bus. */}
             <SaveIndicator />
+            <ThemeToggle />
             <AccountMenu user={user} />
           </div>
         </div>

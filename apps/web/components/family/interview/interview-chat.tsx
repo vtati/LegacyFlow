@@ -115,7 +115,7 @@ function ProposalCard({
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <Card className="lf-proposal border-lf-border bg-white shadow-none">
+    <Card className="lf-proposal border-lf-border bg-lf-canvas-elevated shadow-none">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-lf-text">{humanizeKey(proposal.question_key)}</p>
@@ -219,7 +219,7 @@ function ProposalActions({
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {editing ? (
         <>
-          <Button size="sm" disabled={busy != null} onClick={() => void run('correct')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 sm:h-8">
+          <Button size="sm" disabled={busy != null} onClick={() => void run('correct')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 dark:hover:text-lf-primary-950 sm:h-8">
             <Check className="size-4" aria-hidden="true" /> Save correction
           </Button>
           <Button size="sm" variant="outline" disabled={busy != null} onClick={onToggleEdit} className="h-11 sm:h-8">
@@ -228,7 +228,7 @@ function ProposalActions({
         </>
       ) : (
         <>
-          <Button size="sm" disabled={busy != null} onClick={() => void run('confirm')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 sm:h-8">
+          <Button size="sm" disabled={busy != null} onClick={() => void run('confirm')} className="h-11 bg-lf-primary-900 text-white hover:bg-lf-primary-800 dark:hover:text-lf-primary-950 sm:h-8">
             <Check className="size-4" aria-hidden="true" />
             {busy === 'confirm' ? 'Confirming…' : 'Confirm'}
           </Button>
@@ -685,7 +685,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
               <Label htmlFor="interview-composer" className="sr-only">
                 Message the intake assistant
               </Label>
-              <div className="lf-composer flex items-end gap-1 rounded-2xl border border-lf-border bg-white p-2 shadow-[0_8px_24px_rgb(15_23_42/0.08)]">
+              <div className="lf-composer flex items-end gap-1 rounded-2xl border border-lf-border bg-lf-canvas-elevated p-2 shadow-[0_8px_24px_rgb(15_23_42/0.08)]">
                 <Button
                   type="button"
                   variant="ghost"
@@ -731,7 +731,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                   type="button"
                   disabled={sending || done || paused || !input.trim()}
                   onClick={() => void send()}
-                  className="size-11 shrink-0 bg-lf-primary-900 text-white hover:bg-lf-primary-800"
+                  className="size-11 shrink-0 bg-lf-primary-900 text-white hover:bg-lf-primary-800 dark:hover:text-lf-primary-950"
                 >
                   <Send className="size-4" aria-hidden="true" />
                   <span className="sr-only">Send</span>

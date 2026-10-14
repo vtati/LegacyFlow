@@ -4,6 +4,7 @@ import { ArrowRight, FileCheck2, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitleEditorial } from '@/components/ui/card';
 import { Footer } from '@/components/footer';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { PRODUCT_NAME, SAFETY_LABEL } from '@/lib/constants';
 import { getServerSession } from '@/lib/auth/server';
 
@@ -57,6 +58,7 @@ function LandingPage(): React.JSX.Element {
             </p>
           </div>
           <nav className="flex items-center gap-2" aria-label="Primary">
+            <ThemeToggle />
             <Button variant="ghost" asChild>
               <Link href="/about">About</Link>
             </Button>
@@ -98,7 +100,7 @@ function LandingPage(): React.JSX.Element {
         >
           <div className="grid gap-6 md:grid-cols-3">
             {PILLARS.map((pillar) => (
-              <Card key={pillar.title} className="bg-white">
+              <Card key={pillar.title} className="bg-lf-canvas-elevated">
                 <CardHeader>
                   <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-accent-600/10 text-lf-accent-700">
                     <pillar.icon className="size-5" aria-hidden="true" />
@@ -146,7 +148,7 @@ function LandingPage(): React.JSX.Element {
                 body: 'A licensed attorney at your firm reviews everything, requests changes if needed, and releases your final documents.',
               },
             ].map((item) => (
-              <Card key={item.step} className="bg-white">
+              <Card key={item.step} className="bg-lf-canvas-elevated">
                 <CardHeader>
                   <span className="flex size-11 items-center justify-center rounded-full bg-lf-primary-900 font-lf-serif text-lg font-semibold text-white">
                     {item.step}
@@ -191,7 +193,7 @@ function LandingPage(): React.JSX.Element {
                 a: 'Depending on your plan type: Last Will and Testament, Advance Medical Directive, Durable Power of Attorney, Revocable Living Trust, and related documents — all as attorney-reviewed drafts first.',
               },
             ].map((faq) => (
-              <Card key={faq.q} className="bg-white">
+              <Card key={faq.q} className="bg-lf-canvas-elevated">
                 <CardHeader className="pb-2">
                   <CardTitleEditorial className="text-lg font-semibold">
                     {faq.q}

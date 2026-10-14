@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legacyflowPreset, tokens } from '../index';
+import { darkTokens, legacyflowPreset, tokens } from '../index';
 
 describe('design tokens — Atelier Light / Lumen Ink', () => {
   it('exports the token object with the expected scales', () => {
@@ -70,5 +70,39 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(radius['lf-control']).toBe('var(--lf-radius-control)');
     expect(fonts['lf-sans']).toBe('var(--lf-font-sans)');
     expect(fonts['lf-serif']).toBe('var(--lf-font-serif)');
+  });
+});
+
+describe('dark tokens — Noir Desk / Mission Graphite (Direction C)', () => {
+  it('exports the dark token overrides with the expected values', () => {
+    // Surfaces — C spec: canvas / panel / raised
+    expect(darkTokens.colors.canvas.DEFAULT).toBe('#0A0E13');
+    expect(darkTokens.colors.canvas.subtle).toBe('#11161D');
+    expect(darkTokens.colors.canvas.elevated).toBe('#1A212B');
+    // Text — C spec
+    expect(darkTokens.colors.text.DEFAULT).toBe('#ECEFF3');
+    expect(darkTokens.colors.text.muted).toBe('#98A4B3');
+    expect(darkTokens.colors.text.subtle).toBe('#8494A7');
+    // Jewel — dispatch cyan, with dark foreground for filled actions
+    expect(darkTokens.colors.accent[600]).toBe('#4CC3FF');
+    expect(darkTokens.colors.accent[500]).toBe('#4CC3FF');
+    expect(darkTokens.colors.accent[100]).toBe('#0C2431');
+    expect(darkTokens.colors.accent.foreground).toBe('#06222E');
+    // Primary rotates for text steps but 900/950 stay dark surfaces (buttons/bands keep white text)
+    expect(darkTokens.colors.primary[800]).toBe('#C4D9EC');
+    expect(darkTokens.colors.primary[900]).toBe('#16283E');
+    expect(darkTokens.colors.primary[950]).toBe('#0F1D2E');
+    expect(darkTokens.colors.primary.foreground).toBe('#FFFFFF');
+    // Hairlines — white at low alpha, as hex
+    expect(darkTokens.colors.border.DEFAULT).toBe('#272C34');
+    expect(darkTokens.colors.border.strong).toBe('#363B42');
+    // Alert red from C spec lives in the error ramp
+    expect(darkTokens.colors.error[500]).toBe('#FF5C47');
+    // Radius + fonts are shared with light (not overridden)
+    expect('radius' in darkTokens).toBe(false);
+  });
+
+  it('preset enables class-based dark mode', () => {
+    expect(legacyflowPreset.darkMode).toBe('class');
   });
 });

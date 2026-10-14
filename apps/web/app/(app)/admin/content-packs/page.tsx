@@ -123,7 +123,7 @@ function PackRow({
 }) {
   const targets = nextStates(pack.status);
   return (
-    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
       <td data-th="Pack" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <p className="font-medium text-lf-text">{pack.display_name}</p>
         <p className="mt-0.5 font-mono text-xs text-lf-text-muted">{pack.pack_id}</p>
@@ -404,7 +404,7 @@ export default function AdminContentPacksPage(): React.JSX.Element {
           <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
             <table className="w-full text-left text-sm tabular-nums md:min-w-[760px]">
               <caption className="sr-only">Content packs and lifecycle actions</caption>
-              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Pack

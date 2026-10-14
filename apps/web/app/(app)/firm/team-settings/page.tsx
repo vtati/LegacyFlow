@@ -82,7 +82,7 @@ function MemberRoster({ members }: { members: FirmMember[] }) {
           <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
             <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Firm members</caption>
-              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Name
@@ -100,7 +100,7 @@ function MemberRoster({ members }: { members: FirmMember[] }) {
               </thead>
               <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {members.map((member) => (
-                  <tr key={member.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                  <tr key={member.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
                     <td data-th="Name" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>
                       {member.display_name ?? '—'}
                     </td>
@@ -229,7 +229,7 @@ function InvitationsManager() {
           <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
             <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Firm invitations</caption>
-              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Email
@@ -247,7 +247,7 @@ function InvitationsManager() {
               </thead>
               <tbody className="max-md:block max-md:space-y-3 max-md:bg-lf-canvas-subtle max-md:p-4">
                 {invitations.map((invitation) => (
-                  <tr key={invitation.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+                  <tr key={invitation.id} className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
                     <td data-th="Email" className={`px-4 py-3 font-medium text-lf-text ${MOBILE_TABLE_CELL}`}>{invitation.email}</td>
                     <td data-th="Role" className={`px-4 py-3 text-sm text-lf-text-muted ${MOBILE_TABLE_CELL}`}>
                       {formatStatus(invitation.role)}
@@ -350,7 +350,7 @@ function FeatureFlags() {
                     flag.is_enabled ? 'justify-end bg-lf-success-600' : 'justify-start bg-lf-canvas-subtle',
                   )}
                 >
-                  <span className="flex size-6 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-lf-text shadow">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-lf-text shadow dark:text-lf-primary-950">
                     {flag.is_enabled ? 'On' : 'Off'}
                   </span>
                 </button>

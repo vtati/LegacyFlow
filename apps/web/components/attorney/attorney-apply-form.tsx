@@ -219,8 +219,8 @@ export function AttorneyApplyForm(): React.JSX.Element {
                       key={j.code}
                       className={`lf-pressable cursor-pointer rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${
                         jurisdictions.includes(j.code)
-                          ? 'border-lf-primary-600 bg-lf-primary-600 text-white'
-                          : 'border-lf-border bg-white text-lf-text-muted hover:border-lf-primary-400'
+                          ? 'border-lf-primary-600 bg-lf-primary-600 text-white dark:text-lf-primary-950'
+                          : 'border-lf-border bg-lf-canvas-elevated text-lf-text-muted hover:border-lf-primary-400'
                       }`}
                     >
                       <input

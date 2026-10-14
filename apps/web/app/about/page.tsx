@@ -46,7 +46,7 @@ export default function AboutPage(): React.JSX.Element {
           behind them is not.
         </p>
 
-        <Card className="mt-10 bg-white">
+        <Card className="mt-10 bg-lf-canvas-elevated">
           <CardHeader>
             <div className="flex items-center gap-3">
               <span className="flex size-11 items-center justify-center rounded-lf-control bg-lf-accent-600/10 text-lf-accent-700">

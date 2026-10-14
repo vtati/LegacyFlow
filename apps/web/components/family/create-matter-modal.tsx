@@ -126,7 +126,7 @@ export function CreateMatterModal({
             value={jurisdiction}
             onChange={(e) => setJurisdiction(e.target.value)}
             disabled={submitting}
-            className="w-full rounded-lf-control border border-lf-border bg-white px-3 py-2.5 text-sm text-lf-text focus:border-lf-primary-500 focus:outline-none focus:ring-2 focus:ring-lf-primary-500/20"
+            className="w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2.5 text-sm text-lf-text focus:border-lf-primary-500 focus:outline-none focus:ring-2 focus:ring-lf-primary-500/20"
           >
             {JURISDICTIONS.map((j) => (
               <option key={j.code} value={j.code}>
@@ -142,7 +142,7 @@ export function CreateMatterModal({
             value={planType}
             onChange={(e) => setPlanType(e.target.value)}
             disabled={submitting}
-            className="w-full rounded-lf-control border border-lf-border bg-white px-3 py-2.5 text-sm text-lf-text focus:border-lf-primary-500 focus:outline-none focus:ring-2 focus:ring-lf-primary-500/20"
+            className="w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2.5 text-sm text-lf-text focus:border-lf-primary-500 focus:outline-none focus:ring-2 focus:ring-lf-primary-500/20"
           >
             {PLAN_TYPES.map((p) => (
               <option key={p.value} value={p.value}>

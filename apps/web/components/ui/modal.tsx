@@ -91,7 +91,7 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
     <>
       <style>{`@keyframes lf-scrim-in{from{opacity:0}to{opacity:1}}@keyframes lf-modal-in{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
       <div
-        className="fixed inset-0 z-50 flex animate-[lf-scrim-in_200ms_ease-out] items-center justify-center overflow-y-auto bg-[rgb(28_25_23/0.4)] p-4"
+        className="fixed inset-0 z-50 flex animate-[lf-scrim-in_200ms_ease-out] items-center justify-center overflow-y-auto bg-[rgb(6_12_22/0.45)] p-4"
         onClick={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
@@ -102,7 +102,7 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
           aria-modal="true"
           aria-labelledby={titleId}
           className={cn(
-            'w-full max-w-lg animate-[lf-modal-in_200ms_ease-out] rounded-lf-lg border border-lf-border bg-white shadow-[0_8px_24px_rgb(28_25_23/0.08)]',
+            'w-full max-w-lg animate-[lf-modal-in_200ms_ease-out] rounded-lf-lg border border-lf-border bg-lf-canvas-elevated shadow-lf-card',
           )}
         >
           <CardHeader className="flex flex-row items-start justify-between gap-4">

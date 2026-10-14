@@ -262,7 +262,7 @@ export default function FamilyProfilePage(): React.JSX.Element {
                     id="add-relationship-role"
                     value={relationshipRole}
                     onChange={(event) => setRelationshipRole(event.target.value)}
-                    className="flex min-h-11 w-full rounded-lf-control border border-lf-border bg-white px-4 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500"
+                    className="flex min-h-11 w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500"
                   >
                     <option value="dependent">Dependent (child or other dependent)</option>
                     <option value="collaborator">Collaborator (spouse or partner)</option>

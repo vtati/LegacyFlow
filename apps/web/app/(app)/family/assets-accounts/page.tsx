@@ -154,7 +154,7 @@ function HouseholdSection({ snapshot }: { snapshot: HouseholdSnapshot }) {
                 </p>
                 <Link
                   href="/family/assets"
-                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 dark:text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
                 >
                   Add assets
                 </Link>
@@ -201,7 +201,7 @@ function HouseholdSection({ snapshot }: { snapshot: HouseholdSnapshot }) {
                 </p>
                 <Link
                   href="/family/assets"
-                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                  className="mt-3 inline-flex min-h-11 items-center justify-center rounded-lf-control bg-lf-primary-600 px-4 text-sm font-semibold text-white hover:bg-lf-primary-700 dark:text-lf-primary-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
                 >
                   Add liabilities
                 </Link>

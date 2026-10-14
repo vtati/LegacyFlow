@@ -150,7 +150,7 @@ export function AssistantPanel({ ask, panelId = 'ai-assistant' }: AssistantPanel
           {messages.map((message) =>
             message.role === 'user' ? (
               <div key={message.id} className="flex justify-end">
-                <p className="max-w-[85%] rounded-lf-card bg-lf-primary-800 px-4 py-2.5 text-sm text-lf-primary-foreground">
+                <p className="max-w-[85%] rounded-lf-card bg-lf-primary-800 px-4 py-2.5 text-sm text-lf-primary-foreground dark:text-lf-primary-950">
                   {message.text}
                 </p>
               </div>

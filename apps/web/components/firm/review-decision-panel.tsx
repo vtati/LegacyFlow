@@ -141,7 +141,7 @@ export function ReviewDecisionPanel({
             rows={2}
             maxLength={2000}
             placeholder="Context for the record…"
-            className="flex w-full rounded-lf-control border border-lf-border bg-white px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+            className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
           />
         </div>
 
@@ -155,7 +155,7 @@ export function ReviewDecisionPanel({
               rows={3}
               maxLength={2000}
               placeholder="What do you need the family to clarify?"
-              className="flex w-full rounded-lf-control border border-lf-border bg-white px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+              className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             />
             <div className="flex gap-2">
               <Button

@@ -27,13 +27,23 @@ export const metadata: Metadata = {
     'LegacyFlow helps families organize their estate plan with attorney guidance. Attorney review pending.',
 };
 
+/**
+ * Pre-paint theme init: applies the `.dark` class (Noir Desk tokens) before
+ * first render so there is no light-flash for dark-mode users. Resolution:
+ * stored `lf-theme` choice → OS preference → light (Atelier Light default).
+ */
+const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('lf-theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lf-control focus:bg-lf-primary-800 focus:px-4 focus:py-2 focus:text-lf-primary-foreground"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lf-control focus:bg-lf-primary-800 dark:focus:text-lf-primary-950 focus:px-4 focus:py-2 focus:text-lf-primary-foreground"
         >
           Skip to content
         </a>

@@ -300,7 +300,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                       'flex w-full items-center gap-3 rounded-lf-control border px-3 py-2.5 text-left text-sm transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',
                       isActive
-                        ? 'border-lf-primary-700 bg-lf-primary-50 font-semibold text-lf-primary-900'
+                        ? 'border-lf-primary-700 bg-lf-primary-50 font-semibold text-lf-primary-800'
                         : 'border-lf-border bg-lf-canvas-elevated text-lf-text-muted hover:bg-lf-canvas-subtle',
                     )}
                   >
@@ -308,7 +308,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                       className={cn(
                         'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
                         isActive
-                          ? 'bg-lf-primary-700 text-lf-primary-foreground'
+                          ? 'bg-lf-primary-700 text-lf-primary-foreground dark:text-lf-primary-950'
                           : 'bg-lf-canvas-subtle text-lf-text-muted',
                       )}
                       aria-hidden="true"

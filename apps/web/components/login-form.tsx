@@ -185,7 +185,7 @@ export function LoginForm(): React.JSX.Element {
               className={cn(
                 'rounded-lf-control px-3 py-2 text-sm font-medium transition-colors',
                 tab === t.id
-                  ? 'bg-white text-lf-text shadow-sm'
+                  ? 'bg-lf-canvas-elevated text-lf-text shadow-sm'
                   : 'text-lf-text-muted hover:text-lf-text',
               )}
             >

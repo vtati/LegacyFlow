@@ -7,6 +7,7 @@ import type { Config } from 'tailwindcss';
  * track the tokens at runtime.
  */
 export const legacyflowPreset: Partial<Config> = {
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {

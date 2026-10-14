@@ -343,7 +343,7 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
           <Label htmlFor="amendment-text">Describe what changed</Label>
           <textarea
             id="amendment-text"
-            className="w-full rounded-md border border-lf-border bg-white p-3 text-sm"
+            className="w-full rounded-md border border-lf-border bg-lf-canvas-elevated p-3 text-sm"
             rows={3}
             placeholder="e.g. We bought a new house at 123 Oak St. Please add it to the trust."
             value={amendmentText}

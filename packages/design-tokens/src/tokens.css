@@ -115,6 +115,97 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Dark mode — "Noir Desk / Mission Graphite" (Direction C, 2026-10-14) */
+/* Activated by the `.dark` class on <html>. Values mirror              */
+/* `darkTokens` in src/tokens.ts. Ramps are role-rotated: tint steps    */
+/* become deep surfaces, text steps become light, primary 900/950 stay  */
+/* dark surfaces (components pair them with white text).                */
+/* ------------------------------------------------------------------ */
+
+.dark {
+  color-scheme: dark;
+
+  --lf-primary-50: #131e2c;
+  --lf-primary-100: #182635;
+  --lf-primary-200: #1f3049;
+  --lf-primary-300: #2c4562;
+  --lf-primary-400: #41648c;
+  --lf-primary-500: #5b82ab;
+  --lf-primary-600: #84a7c9;
+  --lf-primary-700: #adc6de;
+  --lf-primary-800: #c4d9ec;
+  --lf-primary-900: #16283e;
+  --lf-primary-950: #0f1d2e;
+  --lf-primary-foreground: #ffffff;
+
+  --lf-success-50: #0a1f18;
+  --lf-success-100: #0d2b20;
+  --lf-success-200: #123a2c;
+  --lf-success-300: #1b5440;
+  --lf-success-400: #2e8f6b;
+  --lf-success-500: #3ab98a;
+  --lf-success-600: #34c98e;
+  --lf-success-700: #5ed3a5;
+  --lf-success-800: #93e4c3;
+  --lf-success-900: #c9f2e0;
+  --lf-success-950: #ecf9f4;
+  --lf-success-foreground: #052e1f;
+
+  --lf-accent-50: #081a24;
+  --lf-accent-100: #0c2431;
+  --lf-accent-200: #10303f;
+  --lf-accent-300: #17506b;
+  --lf-accent-400: #22d3ee;
+  --lf-accent-500: #4cc3ff;
+  --lf-accent-600: #4cc3ff;
+  --lf-accent-700: #7bd8f0;
+  --lf-accent-800: #a5e7f5;
+  --lf-accent-900: #d7f3fa;
+  --lf-accent-950: #eefafd;
+  --lf-accent-foreground: #06222e;
+
+  --lf-error-50: #2a1210;
+  --lf-error-100: #381714;
+  --lf-error-200: #4a1d18;
+  --lf-error-300: #6e2a20;
+  --lf-error-400: #c24a38;
+  --lf-error-500: #ff5c47;
+  --lf-error-600: #f87171;
+  --lf-error-700: #fca5a5;
+  --lf-error-800: #fecaca;
+  --lf-error-900: #fee2e2;
+  --lf-error-950: #fef2f2;
+  --lf-error-foreground: #2a0a06;
+
+  --lf-warning-50: #261a05;
+  --lf-warning-100: #33230a;
+  --lf-warning-200: #45300e;
+  --lf-warning-300: #6b4a12;
+  --lf-warning-400: #a87416;
+  --lf-warning-500: #f59e0b;
+  --lf-warning-600: #fbbf24;
+  --lf-warning-700: #fcd34d;
+  --lf-warning-foreground: #2a1a02;
+
+  --lf-canvas: #0a0e13;
+  --lf-canvas-subtle: #11161d;
+  --lf-canvas-elevated: #1a212b;
+
+  --lf-text: #eceff3;
+  --lf-text-muted: #98a4b3;
+  --lf-text-subtle: #8494a7;
+  --lf-text-inverse: #0b1526;
+
+  --lf-border: #272c34;
+  --lf-border-strong: #363b42;
+
+  --lf-gold: #4cc3ff;
+
+  --lf-shadow-subtle: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --lf-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+}
+
+/* ------------------------------------------------------------------ */
 /* Atelier Light motion system — keyframes + utilities                 */
 /* ------------------------------------------------------------------ */
 

@@ -46,7 +46,7 @@ function ToggleSwitch({
       <span
         aria-hidden="true"
         className={cn(
-          'flex size-9 items-center justify-center rounded-full bg-white text-xs font-semibold shadow',
+          'flex size-9 items-center justify-center rounded-full bg-lf-canvas-elevated text-xs font-semibold shadow',
           saving ? 'text-lf-text-subtle' : checked ? 'text-lf-success-700' : 'text-lf-text-subtle',
         )}
       >
@@ -68,7 +68,7 @@ function FlagRow({
   onToggle: () => void;
 }) {
   return (
-    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-white max-md:p-4">
+    <tr className="border-t border-lf-border transition-colors hover:bg-lf-canvas-subtle max-md:block max-md:rounded-lf-card max-md:border max-md:border-lf-border max-md:bg-lf-canvas-elevated max-md:p-4">
       <td data-th="Flag" className={`px-4 py-3 ${MOBILE_TABLE_CELL}`}>
         <code className="rounded-lf-control bg-lf-canvas-subtle px-2 py-1 text-xs text-lf-text">
           {flag.key}
@@ -187,7 +187,7 @@ export default function AdminFeatureFlagsPage(): React.JSX.Element {
           <div className="overflow-x-auto md:max-h-[75vh] md:overflow-y-auto">
             <table className="w-full text-left text-sm tabular-nums md:min-w-[560px]">
               <caption className="sr-only">Feature flags</caption>
-              <thead className="max-md:hidden md:sticky md:top-0 md:bg-white">
+              <thead className="max-md:hidden md:sticky md:top-0 md:bg-lf-canvas-elevated">
                 <tr className="border-b border-lf-border text-xs uppercase tracking-wide text-lf-text-muted">
                   <th scope="col" className="px-4 py-3 font-semibold">
                     Flag
