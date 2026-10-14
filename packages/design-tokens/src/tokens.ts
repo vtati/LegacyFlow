@@ -1,9 +1,11 @@
 /**
  * LegacyFlow design tokens — TypeScript source of truth.
  *
- * Heritage Editorial palette: warm ivory canvas, warm-charcoal ink primary,
- * terracotta accent, sage success, warm red error, warm amber warning.
- * Fraunces (display serif) + Inter (UI sans).
+ * Atelier Light / Lumen Ink palette (selected 2026-10-14, replacing Heritage
+ * Editorial): cool porcelain canvas, ink-navy ink, Lumen cyan accent used as
+ * jewelry (deep #0E7C9C for actions; bright #22D3EE for progress/glow only),
+ * modern emerald success, red error, amber warning.
+ * Geist (display + UI) + Geist Mono (indices, kickers, numerals).
  * The same values are published as CSS variables in `tokens.css` and mapped to
  * Tailwind utilities in `tailwind-preset.ts`.
  */
@@ -36,41 +38,44 @@ export interface WarningScale {
 
 export interface Tokens {
   colors: {
-    /** Primary brand: warm charcoal ramp — 900 is ink, CTAs are near-black with ivory text. */
+    /** Primary brand: ink-navy ramp — 900 is the brand ink, used as text/sidebar ink, never as wallpaper. */
     primary: ColorScale & { foreground: string };
-    /** Success/support: sage family. */
+    /** Success/support: modern emerald family. */
     success: ColorScale & { foreground: string };
-    /** Action accent: terracotta family — the ONE signature accent. */
+    /** Action accent: Lumen cyan family — the ONE signature accent, spent sparingly. */
     accent: ColorScale & { foreground: string };
-    /** Error: warm red — never the only communication channel. */
+    /** Error: modern red — never the only communication channel. */
     error: ColorScale & { foreground: string };
-    /** Warning: warm amber family (50–700). */
+    /** Warning: modern amber family (50–700). */
     warning: WarningScale & { foreground: string };
-    /** Canvas: warm ivory surfaces. */
+    /** Canvas: cool porcelain surfaces. */
     canvas: { DEFAULT: string; subtle: string; elevated: string };
-    /** Text: warm ink. */
+    /** Text: ink-navy family. */
     text: { DEFAULT: string; muted: string; subtle: string; inverse: string };
-    /** Borders: warm hairlines. */
+    /** Borders: cool hairlines (ink at low alpha). */
     border: { DEFAULT: string; strong: string };
-    /** Gold: reserved for landing-page flourishes + "plan complete" moments only. */
+    /**
+     * Legacy token name kept for compatibility: now the Lumen cyan (accent-500 depth, visible on light surfaces),
+     * reserved for progress/glow flourishes + "plan complete" moments only.
+     */
     gold: string;
   };
-  /** 14px cards; 8–10px controls. */
+  /** 16px cards; 10px controls. */
   radius: {
     none: string;
     sm: string;
     /** Controls (10px). */
     control: string;
     md: string;
-    /** Cards (14px). */
+    /** Cards (16px). */
     card: string;
     lg: string;
     full: string;
   };
   font: {
-    /** Inter via next/font (§5.2); system fallbacks keep rendering deterministic. */
+    /** Geist via next/font; system fallbacks keep rendering deterministic. */
     sans: string[];
-    /** Fraunces display serif via next/font — headlines, page titles, empty states. */
+    /** Display slot — Geist (Fraunces retired 2026-10-14); kept under the legacy `serif` key so existing `font-lf-serif` utilities render the modern display face. */
     serif: string[];
     mono: string[];
     size: {
@@ -84,66 +89,66 @@ export interface Tokens {
     };
     weight: { regular: number; medium: number; semibold: number; bold: number };
   };
-  /** Thin warm borders do the work; one soft warm shadow for overlays. */
+  /** Cool hairlines do the work; tinted two-layer soft shadows for elevation. */
   shadow: { none: string; subtle: string; card: string };
 }
 
 export const tokens: Tokens = {
   colors: {
     primary: {
-      50: '#F5F2EA',
-      100: '#EAE4D3',
-      200: '#D9D1BE',
-      300: '#B8AC93',
-      400: '#8A7D65',
-      500: '#6B5F4B',
-      600: '#4A4234',
-      700: '#353026',
-      800: '#26221B',
-      900: '#1C1917',
-      950: '#12100D',
-      foreground: '#FAF7F1',
+      50: '#F2F6F9',
+      100: '#E3EBF1',
+      200: '#C7D5E0',
+      300: '#9FB4C7',
+      400: '#6E8AA3',
+      500: '#476A87',
+      600: '#2E4E68',
+      700: '#1E3A52',
+      800: '#132A42',
+      900: '#0B1526',
+      950: '#060C16',
+      foreground: '#FFFFFF',
     },
     success: {
-      50: '#F0F5F2',
-      100: '#E4EFE9',
-      200: '#C9DDD3',
-      300: '#A3C2B4',
-      400: '#7AA392',
-      500: '#5E8A78',
-      600: '#4D7C6B',
-      700: '#3D6659',
-      800: '#33544A',
-      900: '#2A443C',
-      950: '#162825',
+      50: '#ECF9F4',
+      100: '#D1F2E3',
+      200: '#A5E4CB',
+      300: '#6ED0AB',
+      400: '#3AB98A',
+      500: '#1F9D74',
+      600: '#17805E',
+      700: '#14664C',
+      800: '#12523E',
+      900: '#0F4333',
+      950: '#07271E',
       foreground: '#FFFFFF',
     },
     accent: {
-      50: '#FBF1EA',
-      100: '#F7E3D7',
-      200: '#F0CDB8',
-      300: '#E5A985',
-      400: '#D47F56',
-      500: '#C15F3C',
-      600: '#A94F31',
-      700: '#8A3E26',
-      800: '#6E3220',
-      900: '#57281B',
-      950: '#3A1A12',
+      50: '#EEFAFD',
+      100: '#D7F3FA',
+      200: '#B0E7F5',
+      300: '#7BD8F0',
+      400: '#22D3EE',
+      500: '#0E9BBF',
+      600: '#0E7C9C',
+      700: '#0C6883',
+      800: '#0E546B',
+      900: '#0F475A',
+      950: '#082F3D',
       foreground: '#FFFFFF',
     },
     error: {
-      50: '#FBEAE4',
-      100: '#F8D9CC',
-      200: '#F0B49E',
-      300: '#E58A6B',
-      400: '#D9613F',
-      500: '#C9501F',
-      600: '#A93E12',
-      700: '#8A3210',
-      800: '#6E2A12',
-      900: '#571F0F',
-      950: '#3A140A',
+      50: '#FEF2F2',
+      100: '#FEE2E2',
+      200: '#FECACA',
+      300: '#FCA5A5',
+      400: '#F87171',
+      500: '#EF4444',
+      600: '#DC2626',
+      700: '#B91C1C',
+      800: '#991B1B',
+      900: '#7F1D1D',
+      950: '#450A0A',
       foreground: '#FFFFFF',
     },
     warning: {
@@ -158,35 +163,35 @@ export const tokens: Tokens = {
       foreground: '#FFFFFF',
     },
     canvas: {
-      DEFAULT: '#FAF7F1',
-      subtle: '#F3EEE3',
+      DEFAULT: '#F7F9FA',
+      subtle: '#EEF2F4',
       elevated: '#FFFFFF',
     },
     text: {
-      DEFAULT: '#1C1917',
-      muted: '#57534E',
-      subtle: '#78716C',
-      inverse: '#FAF7F1',
+      DEFAULT: '#0B1526',
+      muted: '#5A6B7D',
+      subtle: '#556B80',
+      inverse: '#FFFFFF',
     },
     border: {
-      DEFAULT: '#E8E2D5',
-      strong: '#D9D1BE',
+      DEFAULT: '#DEE6EC',
+      strong: '#C3D0DB',
     },
-    gold: '#A98A3D',
+    gold: '#0E9BBF',
   },
   radius: {
     none: '0px',
     sm: '6px',
     control: '10px',
     md: '12px',
-    card: '14px',
-    lg: '20px',
+    card: '16px',
+    lg: '24px',
     full: '9999px',
   },
   font: {
-    sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-    serif: ['var(--font-fraunces)', 'Georgia', 'serif'],
-    mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+    sans: ['var(--font-geist)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+    serif: ['var(--font-geist)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+    mono: ['var(--font-geist-mono)', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
     size: {
       xs: '0.75rem',
       sm: '0.875rem',
@@ -200,8 +205,8 @@ export const tokens: Tokens = {
   },
   shadow: {
     none: 'none',
-    subtle: '0 1px 2px 0 rgb(28 25 23 / 0.06)',
-    card: '0 8px 24px rgb(28 25 23 / 0.08)',
+    subtle: '0 1px 2px 0 rgb(11 21 38 / 0.05)',
+    card: '0 1px 2px rgb(11 21 38 / 0.05), 0 8px 24px -8px rgb(11 21 38 / 0.12)',
   },
 };
 

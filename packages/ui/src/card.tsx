@@ -31,8 +31,8 @@ export function CardTitle({
 }
 
 /**
- * Editorial card title — Fraunces serif, for editorial headers only.
- * `CardTitle` (Inter) stays the default; opt into this explicitly.
+ * Display card title — Geist, for display headers only.
+ * `CardTitle` stays the default; opt into this explicitly.
  */
 export function CardTitleEditorial({
   className,

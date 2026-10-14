@@ -1,20 +1,20 @@
 import type { Metadata } from 'next';
-import { Fraunces, Inter } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 import '@legacyflow/design-tokens/tokens.css';
 import './globals.css';
 import { PRODUCT_NAME } from '@/lib/constants';
 
-const inter = Inter({
+const geist = Geist({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
-  variable: '--font-inter',
+  variable: '--font-geist',
   display: 'swap',
 });
 
-const fraunces = Fraunces({
+const geistMono = Geist_Mono({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
-  variable: '--font-fraunces',
+  variable: '--font-geist-mono',
   display: 'swap',
 });
 
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
       <body>
         <a
           href="#main-content"

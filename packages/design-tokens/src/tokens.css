@@ -2,69 +2,69 @@
  * LegacyFlow design tokens as CSS custom properties (`--lf-*`).
  * Values mirror `src/tokens.ts`; this file is imported by apps (e.g. `app/globals.css`).
  *
- * Heritage Editorial palette: warm ivory canvas, warm-charcoal ink primary,
- * terracotta accent, sage success, warm red error, warm amber warning.
- * Fraunces (display serif) + Inter (UI sans).
+ * Atelier Light / Lumen Ink palette (2026-10-14): cool porcelain canvas,
+ * ink-navy ink, Lumen cyan accent as jewelry, modern emerald/amber/red.
+ * Geist (display + UI) + Geist Mono.
  */
 
 :root {
-  /* Primary — warm charcoal (900 = ink; CTAs are near-black with ivory text) */
-  --lf-primary-50: #f5f2ea;
-  --lf-primary-100: #eae4d3;
-  --lf-primary-200: #d9d1be;
-  --lf-primary-300: #b8ac93;
-  --lf-primary-400: #8a7d65;
-  --lf-primary-500: #6b5f4b;
-  --lf-primary-600: #4a4234;
-  --lf-primary-700: #353026;
-  --lf-primary-800: #26221b;
-  --lf-primary-900: #1c1917;
-  --lf-primary-950: #12100d;
-  --lf-primary-foreground: #faf7f1;
+  /* Primary — ink-navy (900 = brand ink; text/sidebar ink, never wallpaper) */
+  --lf-primary-50: #f2f6f9;
+  --lf-primary-100: #e3ebf1;
+  --lf-primary-200: #c7d5e0;
+  --lf-primary-300: #9fb4c7;
+  --lf-primary-400: #6e8aa3;
+  --lf-primary-500: #476a87;
+  --lf-primary-600: #2e4e68;
+  --lf-primary-700: #1e3a52;
+  --lf-primary-800: #132a42;
+  --lf-primary-900: #0b1526;
+  --lf-primary-950: #060c16;
+  --lf-primary-foreground: #ffffff;
 
-  /* Success — sage */
-  --lf-success-50: #f0f5f2;
-  --lf-success-100: #e4efe9;
-  --lf-success-200: #c9ddd3;
-  --lf-success-300: #a3c2b4;
-  --lf-success-400: #7aa392;
-  --lf-success-500: #5e8a78;
-  --lf-success-600: #4d7c6b;
-  --lf-success-700: #3d6659;
-  --lf-success-800: #33544a;
-  --lf-success-900: #2a443c;
-  --lf-success-950: #162825;
+  /* Success — modern emerald */
+  --lf-success-50: #ecf9f4;
+  --lf-success-100: #d1f2e3;
+  --lf-success-200: #a5e4cb;
+  --lf-success-300: #6ed0ab;
+  --lf-success-400: #3ab98a;
+  --lf-success-500: #1f9d74;
+  --lf-success-600: #17805e;
+  --lf-success-700: #14664c;
+  --lf-success-800: #12523e;
+  --lf-success-900: #0f4333;
+  --lf-success-950: #07271e;
   --lf-success-foreground: #ffffff;
 
-  /* Accent — terracotta (the ONE signature accent) */
-  --lf-accent-50: #fbf1ea;
-  --lf-accent-100: #f7e3d7;
-  --lf-accent-200: #f0cdb8;
-  --lf-accent-300: #e5a985;
-  --lf-accent-400: #d47f56;
-  --lf-accent-500: #c15f3c;
-  --lf-accent-600: #a94f31;
-  --lf-accent-700: #8a3e26;
-  --lf-accent-800: #6e3220;
-  --lf-accent-900: #57281b;
-  --lf-accent-950: #3a1a12;
+  /* Accent — Lumen cyan (the ONE signature accent; 600 = action, 400 = glow/progress only) */
+  --lf-accent-50: #eefafd;
+  --lf-accent-100: #d7f3fa;
+  --lf-accent-200: #b0e7f5;
+  --lf-accent-300: #7bd8f0;
+  --lf-accent-400: #22d3ee;
+  --lf-accent-500: #0e9bbf;
+  --lf-accent-600: #0e7c9c;
+  --lf-accent-700: #0c6883;
+  --lf-accent-800: #0e546b;
+  --lf-accent-900: #0f475a;
+  --lf-accent-950: #082f3d;
   --lf-accent-foreground: #ffffff;
 
-  /* Error — warm red */
-  --lf-error-50: #fbeae4;
-  --lf-error-100: #f8d9cc;
-  --lf-error-200: #f0b49e;
-  --lf-error-300: #e58a6b;
-  --lf-error-400: #d9613f;
-  --lf-error-500: #c9501f;
-  --lf-error-600: #a93e12;
-  --lf-error-700: #8a3210;
-  --lf-error-800: #6e2a12;
-  --lf-error-900: #571f0f;
-  --lf-error-950: #3a140a;
+  /* Error — modern red */
+  --lf-error-50: #fef2f2;
+  --lf-error-100: #fee2e2;
+  --lf-error-200: #fecaca;
+  --lf-error-300: #fca5a5;
+  --lf-error-400: #f87171;
+  --lf-error-500: #ef4444;
+  --lf-error-600: #dc2626;
+  --lf-error-700: #b91c1c;
+  --lf-error-800: #991b1b;
+  --lf-error-900: #7f1d1d;
+  --lf-error-950: #450a0a;
   --lf-error-foreground: #ffffff;
 
-  /* Warning — warm amber (50–700 scale) */
+  /* Warning — modern amber (50–700 scale) */
   --lf-warning-50: #fffbeb;
   --lf-warning-100: #fef3c7;
   --lf-warning-200: #fde68a;
@@ -75,46 +75,47 @@
   --lf-warning-700: #92400e;
   --lf-warning-foreground: #ffffff;
 
-  /* Canvas — warm ivory */
-  --lf-canvas: #faf7f1;
-  --lf-canvas-subtle: #f3eee3;
+  /* Canvas — cool porcelain */
+  --lf-canvas: #f7f9fa;
+  --lf-canvas-subtle: #eef2f4;
   --lf-canvas-elevated: #ffffff;
 
-  /* Text — warm ink */
-  --lf-text: #1c1917;
-  --lf-text-muted: #57534e;
-  --lf-text-subtle: #78716c;
-  --lf-text-inverse: #faf7f1;
+  /* Text — ink-navy family */
+  --lf-text: #0b1526;
+  --lf-text-muted: #5a6b7d;
+  --lf-text-subtle: #556b80;
+  --lf-text-inverse: #ffffff;
 
-  /* Borders — warm hairlines */
-  --lf-border: #e8e2d5;
-  --lf-border-strong: #d9d1be;
+  /* Borders — cool hairlines */
+  --lf-border: #dee6ec;
+  --lf-border-strong: #c3d0db;
 
-  /* Gold — landing flourishes + "plan complete" moments ONLY */
-  --lf-gold: #a98a3d;
+  /* Legacy name: the Lumen cyan — progress/glow flourishes + "plan complete" moments ONLY */
+  --lf-gold: #0e9bbf;
 
-  /* Radius — 14px cards; 10px controls */
+  /* Radius — 16px cards; 10px controls */
   --lf-radius-none: 0px;
   --lf-radius-sm: 6px;
   --lf-radius-control: 10px;
   --lf-radius-md: 12px;
-  --lf-radius-card: 14px;
-  --lf-radius-lg: 20px;
+  --lf-radius-card: 16px;
+  --lf-radius-lg: 24px;
   --lf-radius-full: 9999px;
 
-  /* Typography — Fraunces (display serif) + Inter (UI sans);
-     the `--font-*` variables are set on <html> via next/font. */
-  --lf-font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --lf-font-serif: var(--font-fraunces), Georgia, serif;
-  --lf-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Typography — Geist (display + UI) + Geist Mono;
+     the `--font-*` variables are set on <html> via next/font.
+     `--lf-font-serif` is the legacy display slot and now resolves to Geist. */
+  --lf-font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --lf-font-serif: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --lf-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Elevation — thin warm borders do the work; one soft warm shadow for overlays */
-  --lf-shadow-subtle: 0 1px 2px 0 rgb(28 25 23 / 0.06);
-  --lf-shadow-card: 0 8px 24px rgb(28 25 23 / 0.08);
+  /* Elevation — cool hairlines do the work; tinted two-layer soft shadows */
+  --lf-shadow-subtle: 0 1px 2px 0 rgb(11 21 38 / 0.05);
+  --lf-shadow-card: 0 1px 2px rgb(11 21 38 / 0.05), 0 8px 24px -8px rgb(11 21 38 / 0.12);
 }
 
 /* ------------------------------------------------------------------ */
-/* Heritage Editorial motion system — keyframes + utilities            */
+/* Atelier Light motion system — keyframes + utilities                 */
 /* ------------------------------------------------------------------ */
 
 @keyframes lf-slide-in {
@@ -133,9 +134,16 @@
 }
 
 @keyframes lf-pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgb(169 79 49 / 0.25); }
-  70% { box-shadow: 0 0 0 8px rgb(169 79 49 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(169 79 49 / 0); }
+  0% { box-shadow: 0 0 0 0 rgb(14 124 156 / 0.25); }
+  70% { box-shadow: 0 0 0 8px rgb(14 124 156 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(14 124 156 / 0); }
+}
+
+/* Lumen Sweep — the signature motion: a bright cyan sheen that travels
+   across a filled progress surface (interview progress, plan generation). */
+@keyframes lf-lumen-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
 }
 
 /* Message entrance */
@@ -160,22 +168,38 @@
 
 /* Card hover lift */
 .lf-lift { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, border-color 0.2s ease-out; }
-.lf-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgb(28 25 23 / 0.1); }
+.lf-lift:hover { transform: translateY(-2px); box-shadow: var(--lf-shadow-card); }
 
 /* Progress bar fill */
 .lf-progress-fill { transition: width 0.5s ease; }
 
+/* Lumen progress fill — gradient fill with a travelling bright sheen.
+   Apply to a progress fill element inside an overflow-hidden track. */
+.lf-lumen-fill {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--lf-accent-600), var(--lf-accent-500));
+}
+.lf-lumen-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.55), transparent);
+  animation: lf-lumen-sweep 2.4s ease-in-out 3;
+}
+
 /* Composer focus glow */
 .lf-composer:focus-within {
   border-color: var(--lf-accent-600);
-  box-shadow: 0 0 0 3px rgb(169 79 49 / 0.12);
+  box-shadow: 0 0 0 3px rgb(14 124 156 / 0.14);
 }
 
 /* Proposal card hover glow */
 .lf-proposal { transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.2s ease-out; }
 .lf-proposal:hover {
   border-color: var(--lf-accent-400);
-  box-shadow: 0 8px 20px rgb(169 79 49 / 0.12);
+  box-shadow: 0 8px 20px rgb(14 124 156 / 0.14);
   transform: translateY(-2px);
 }
 
@@ -187,6 +211,7 @@
   .lf-typing-dot {
     animation: none;
   }
+  .lf-lumen-fill::after { animation: none; display: none; }
   .lf-pressable:active { transform: none; }
   .lf-lift:hover, .lf-proposal:hover { transform: none; }
   .lf-progress-fill { transition: none; }
