@@ -166,10 +166,10 @@ def perform_file_scan(
         return {"scanned": 0, "status": status}
 
     try:
-        file_bytes = _download_stored_header(str(row["stored_path"]))
+        header_bytes = _download_stored_header(str(row["stored_path"]))
     except FileNotFoundError:
         return {"scanned": 0, "status": "missing"}
-    result = (scanner or DevScanner()).scan(file_bytes, str(row["mime_type"] or ""))
+    result = (scanner or DevScanner()).scan(header_bytes, str(row["mime_type"] or ""))
     new_status = "clean" if result.clean else "quarantined"
     with conn.cursor() as cur:
         cur.execute(

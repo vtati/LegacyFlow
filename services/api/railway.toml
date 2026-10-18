@@ -2,14 +2,16 @@
 # Service root directory in Railway: services/api
 
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 
 [deploy]
-# Start via `python -m uvicorn` with the Nixpacks venv on PATH: the Oct 16
-# 2026 deployment crash-looped with `uvicorn: command not found` because the
-# current Nixpacks Python plan installs deps into .venv without putting its
-# bin dir on PATH for custom start commands (the same commit deployed fine
-# on Oct 12). Keep this string in sync with the Railway service config —
+# Start via `python -m uvicorn` with the Railpack venv on PATH. Root cause
+# of the Oct 16 2026 crash-loop (`uvicorn: command not found`): Railway
+# migrated this service from Nixpacks to Railpack, and Railpack installed
+# NO dependencies at all for a bare pyproject.toml project (the Oct 12
+# Nixpacks build of the same commit worked). Fixed by adding
+# requirements.txt (Railpack's detection key) + this module-form start
+# command. Keep this string in sync with the Railway service config —
 # the platform value wins at deploy time.
 startCommand = "export PATH=\"$PWD/.venv/bin:$PATH\" && exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4"
 healthcheckPath = "/healthz"

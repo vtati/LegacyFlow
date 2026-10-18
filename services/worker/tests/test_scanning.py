@@ -198,3 +198,74 @@ def test_download_stored_header_missing_file(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError):
         _download_stored_header(str(tmp_path / "nope.pdf"))
+
+
+def test_download_stored_header_supabase_stream_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production path (STORAGE_BACKEND=supabase): the response must be
+    stream-capped at the header size, never read in full."""
+    import io
+    import types
+    import urllib.request
+
+    import worker.scanning as scanning
+
+    fake_settings = types.SimpleNamespace(
+        STORAGE_BACKEND="supabase",
+        SUPABASE_URL="https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY="svc-key",
+        STORAGE_DIR="/tmp/legacyflow-uploads",
+    )
+    monkeypatch.setattr(scanning, "get_worker_settings", lambda: fake_settings)
+
+    body = b"%PDF-1.7\n" + b"y" * 5000
+    read_sizes: list[int] = []
+
+    class _Resp(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:  # noqa: A002 - mirroring HTTPResponse
+            read_sizes.append(size)
+            return super().read(size)
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            self.close()
+            return False
+
+    def _fake_urlopen(req: object, timeout: int = 0) -> _Resp:
+        return _Resp(body)
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    header = scanning._download_stored_header("client-uploads/docs/big.pdf")
+    assert header == body[:16]
+    assert read_sizes == [16]
+
+
+def test_perform_file_scan_empty_file_quarantined(uploads_dsn: str, tmp_path: Path) -> None:
+    """A 0-byte upload stays fail-closed (quarantined) after the
+    header-only change: an empty header is not 'missing'."""
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from worker.scanning import perform_file_scan
+
+    empty = tmp_path / "empty.pdf"
+    empty.write_bytes(b"")
+    with psycopg.connect(uploads_dsn, row_factory=dict_row) as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO file_uploads
+                      (firm_id, household_id, uploader_user_id, original_filename,
+                       stored_path, mime_type)
+                    VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(),
+                            'empty.pdf', %s, 'application/pdf')
+                    RETURNING id
+                    """,
+                    (str(empty),),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                upload_id = row["id"]
+            assert perform_file_scan(conn, upload_id) == {"scanned": 1, "status": "quarantined"}

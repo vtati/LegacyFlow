@@ -4,13 +4,15 @@
 # DATABASE_URL (same Postgres as the API).
 
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 
 [deploy]
 # Two memory/cost controls live in this command (Railway audit, 2026-10-17):
-# 1. PATH hardening, same as the API: current Nixpacks Python builds install
-#    into .venv without exposing its bin dir to custom start commands
-#    (`dramatiq: command not found` on the next deploy otherwise).
+# 1. PATH hardening, same as the API: Railway migrated the builder from
+#    Nixpacks to Railpack, whose builds install dependencies into a venv
+#    that custom start commands must put on PATH themselves (and which
+#    only exists at all because requirements.txt is present — see the API
+#    railway.toml note; without it the image has no deps installed).
 # 2. --processes 2 --threads 4: Dramatiq otherwise defaults to one process
 #    per host CPU (dozens on Railway) at ~50 MB RSS each, which held the
 #    worker baseline at ~1-1.5 GB for a workload peaking at 0.055 vCPU.
