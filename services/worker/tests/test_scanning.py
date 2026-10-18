@@ -170,3 +170,31 @@ def test_scan_pending_uploads_batch(uploads_dsn: str, tmp_path: Path) -> None:
     finally:
         settings.DATABASE_URL = original
     assert ledger == {"scanned": 3, "clean": 2, "quarantined": 1}
+
+
+def test_download_stored_header_reads_only_header_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scanner needs 16 magic bytes; it must never load a whole file.
+
+    Regression guard for the worker-memory audit (2026-10-17): the old
+    implementation downloaded every upload in full before slicing the
+    header, so batch scans spiked worker RAM by the total file size.
+    """
+    from worker.scanning import _download_stored_header
+
+    big = tmp_path / "big.pdf"
+    big.write_bytes(b"%PDF-1.7\n" + b"x" * 1_000_000)
+
+    def _forbidden_read_bytes(self: Path, *args: Any, **kwargs: Any) -> bytes:
+        raise AssertionError("read_bytes() loads the whole file; header reads must stream")
+
+    monkeypatch.setattr(Path, "read_bytes", _forbidden_read_bytes)
+    header = _download_stored_header(str(big))
+    assert header == b"%PDF-1.7\n" + b"x" * 7
+    assert len(header) == 16
+
+
+def test_download_stored_header_missing_file(tmp_path: Path) -> None:
+    from worker.scanning import _download_stored_header
+
+    with pytest.raises(FileNotFoundError):
+        _download_stored_header(str(tmp_path / "nope.pdf"))

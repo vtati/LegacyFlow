@@ -7,6 +7,16 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "dramatiq worker.actors"
+# Two memory/cost controls live in this command (Railway audit, 2026-10-17):
+# 1. PATH hardening, same as the API: current Nixpacks Python builds install
+#    into .venv without exposing its bin dir to custom start commands
+#    (`dramatiq: command not found` on the next deploy otherwise).
+# 2. --processes 2 --threads 4: Dramatiq otherwise defaults to one process
+#    per host CPU (dozens on Railway) at ~50 MB RSS each, which held the
+#    worker baseline at ~1-1.5 GB for a workload peaking at 0.055 vCPU.
+#    Two processes keep a consumer alive while one restarts.
+# Keep this string in sync with the Railway service config — the platform
+# value wins at deploy time.
+startCommand = "export PATH=\"$PWD/.venv/bin:$PATH\" && exec dramatiq worker.actors --processes 2 --threads 4"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

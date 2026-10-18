@@ -48,9 +48,12 @@ MIME_MAGIC: dict[str, tuple[bytes, ...]] = {
 _HEADER_READ_BYTES = 16
 
 
-def _download_stored_bytes(stored_path: str) -> bytes:
-    """Download file bytes via the configured storage backend.
+def _download_stored_header(stored_path: str) -> bytes:
+    """Read only the first ``_HEADER_READ_BYTES`` of a stored file.
 
+    The scanner checks magic bytes and nothing else, so it must never pull
+    a whole upload into memory (worker-memory audit, 2026-10-17: full-file
+    downloads made batch scans spike RAM by the total bytes scanned).
     Supports ``<bucket>/<key>`` Supabase paths (via Storage REST API) and
     legacy local-disk paths. Raises FileNotFoundError when missing.
     """
@@ -71,7 +74,9 @@ def _download_stored_bytes(stored_path: str) -> bytes:
                 )
                 try:
                     with urllib.request.urlopen(req, timeout=30) as resp:
-                        return resp.read()
+                        # Stream-capped read: at most the header bytes are
+                        # pulled off the socket; the rest is never buffered.
+                        return resp.read(_HEADER_READ_BYTES)
                 except urllib.error.HTTPError as exc:
                     if exc.code == 404:
                         raise FileNotFoundError(f"File not found: {stored_path}")
@@ -82,7 +87,8 @@ def _download_stored_bytes(stored_path: str) -> bytes:
             root = _Path(str(getattr(settings, "STORAGE_DIR", "/tmp/legacyflow-uploads") or "/tmp/legacyflow-uploads"))
             candidate = (root / bucket / key).resolve()
             if candidate.is_file():
-                return candidate.read_bytes()
+                with candidate.open("rb") as fh:
+                    return fh.read(_HEADER_READ_BYTES)
             raise FileNotFoundError(f"File not found: {stored_path}")
 
     # Legacy absolute local path.
@@ -90,7 +96,8 @@ def _download_stored_bytes(stored_path: str) -> bytes:
 
     p = _Path(stored_path)
     if p.is_file():
-        return p.read_bytes()
+        with p.open("rb") as fh:
+            return fh.read(_HEADER_READ_BYTES)
     raise FileNotFoundError(f"File not found: {stored_path}")
 
 
@@ -159,7 +166,7 @@ def perform_file_scan(
         return {"scanned": 0, "status": status}
 
     try:
-        file_bytes = _download_stored_bytes(str(row["stored_path"]))
+        file_bytes = _download_stored_header(str(row["stored_path"]))
     except FileNotFoundError:
         return {"scanned": 0, "status": "missing"}
     result = (scanner or DevScanner()).scan(file_bytes, str(row["mime_type"] or ""))

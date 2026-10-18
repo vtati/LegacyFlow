@@ -5,7 +5,13 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4"
+# Start via `python -m uvicorn` with the Nixpacks venv on PATH: the Oct 16
+# 2026 deployment crash-looped with `uvicorn: command not found` because the
+# current Nixpacks Python plan installs deps into .venv without putting its
+# bin dir on PATH for custom start commands (the same commit deployed fine
+# on Oct 12). Keep this string in sync with the Railway service config —
+# the platform value wins at deploy time.
+startCommand = "export PATH=\"$PWD/.venv/bin:$PATH\" && exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4"
 healthcheckPath = "/healthz"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
