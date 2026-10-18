@@ -1,0 +1,11 @@
+# Runtime dependencies for the LegacyFlow worker.
+# Mirrors [project.dependencies] in pyproject.toml — keep the two in sync.
+# This file exists for the Railway builder (Railpack): without a
+# requirements.txt (or lock file) Railpack does not install Python
+# dependencies at all, which broke deploys on 2026-10-16
+# ("uvicorn: command not found" on the API; same gap here).
+dramatiq>=1.18
+redis>=5.0
+psycopg[binary]>=3.1
+pydantic>=2.7
+pydantic-settings>=2.4
