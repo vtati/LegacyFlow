@@ -22,19 +22,47 @@
   --lf-primary-950: #060c16;
   --lf-primary-foreground: #ffffff;
 
-  /* Success — modern emerald */
-  --lf-success-50: #ecf9f4;
-  --lf-success-100: #d1f2e3;
-  --lf-success-200: #a5e4cb;
-  --lf-success-300: #6ed0ab;
-  --lf-success-400: #3ab98a;
-  --lf-success-500: #1f9d74;
-  --lf-success-600: #17805e;
-  --lf-success-700: #14664c;
-  --lf-success-800: #12523e;
-  --lf-success-900: #0f4333;
-  --lf-success-950: #07271e;
+  /* Success — mint family (Lumen Aurora refresh, 2026-10-24) */
+  --lf-success-50: #edfbf5;
+  --lf-success-100: #d3f6e6;
+  --lf-success-200: #a9edcf;
+  --lf-success-300: #6edcb2;
+  --lf-success-400: #38c492;
+  --lf-success-500: #0ea47a;
+  --lf-success-600: #0b8663;
+  --lf-success-700: #0a6b51;
+  --lf-success-800: #095642;
+  --lf-success-900: #084736;
+  --lf-success-950: #052a20;
   --lf-success-foreground: #ffffff;
+
+  /* Sky — information (Lumen Aurora, 2026-10-24) */
+  --lf-sky-50: #eff8fe;
+  --lf-sky-100: #e7f5fe;
+  --lf-sky-200: #c9eafd;
+  --lf-sky-300: #93d9fb;
+  --lf-sky-400: #38bdf8;
+  --lf-sky-500: #1899d6;
+  --lf-sky-600: #0e77ae;
+  --lf-sky-700: #0d6594;
+  --lf-sky-800: #0e547a;
+  --lf-sky-900: #0f4564;
+  --lf-sky-950: #0a2e44;
+  --lf-sky-foreground: #ffffff;
+
+  /* Violet — the AI color (Lumen Aurora, 2026-10-24) */
+  --lf-violet-50: #f3f1fe;
+  --lf-violet-100: #efedfe;
+  --lf-violet-200: #dcd6fc;
+  --lf-violet-300: #bdb0f8;
+  --lf-violet-400: #9d8df3;
+  --lf-violet-500: #7c6cf0;
+  --lf-violet-600: #6553e3;
+  --lf-violet-700: #5b4bd6;
+  --lf-violet-800: #4a3cae;
+  --lf-violet-900: #3d3289;
+  --lf-violet-950: #241d54;
+  --lf-violet-foreground: #ffffff;
 
   /* Accent — Lumen cyan (the ONE signature accent; 600 = action, 400 = glow/progress only) */
   --lf-accent-50: #eefafd;
@@ -75,10 +103,23 @@
   --lf-warning-700: #92400e;
   --lf-warning-foreground: #ffffff;
 
-  /* Canvas — cool porcelain */
-  --lf-canvas: #f7f9fa;
-  --lf-canvas-subtle: #eef2f4;
+  /* Canvas — cool porcelain (Aurora-tuned) */
+  --lf-canvas: #f4f9fc;
+  --lf-canvas-subtle: #eaf3f8;
   --lf-canvas-elevated: #ffffff;
+
+  /* Jewel panel tints — soft colored surfaces (Lumen Aurora) */
+  --lf-panel-cyan: #e3f5fa;
+  --lf-panel-sky: #e7f5fe;
+  --lf-panel-violet: #efedfe;
+  --lf-panel-mint: #e4f6ef;
+  --lf-panel-amber: #fdf3e0;
+  --lf-panel-rose: #fcebf1;
+
+  /* Signature gradients (Lumen Aurora) */
+  --lf-gradient-primary: linear-gradient(115deg, #22d3ee 0%, #0e9bbf 45%, #7c6cf0 100%);
+  --lf-gradient-aurora: radial-gradient(720px 380px at 108% -10%, rgb(56 189 248 / 0.16), transparent 60%), radial-gradient(640px 360px at -12% 112%, rgb(124 108 240 / 0.12), transparent 60%), radial-gradient(520px 300px at 88% 118%, rgb(34 211 238 / 0.12), transparent 60%);
+  --lf-gradient-action: linear-gradient(115deg, #0e7c9c 0%, #6553e3 100%);
 
   /* Text — ink-navy family */
   --lf-text: #0b1526;
@@ -87,8 +128,8 @@
   --lf-text-inverse: #ffffff;
 
   /* Borders — cool hairlines */
-  --lf-border: #dee6ec;
-  --lf-border-strong: #c3d0db;
+  --lf-border: #dfebf2;
+  --lf-border-strong: #cbe0ec;
 
   /* Legacy name: the Lumen cyan — progress/glow flourishes + "plan complete" moments ONLY */
   --lf-gold: #0e9bbf;
@@ -98,7 +139,8 @@
   --lf-radius-sm: 6px;
   --lf-radius-control: 10px;
   --lf-radius-md: 12px;
-  --lf-radius-card: 16px;
+  --lf-radius-card: 18px;
+  --lf-radius-hero: 20px;
   --lf-radius-lg: 24px;
   --lf-radius-full: 9999px;
 
@@ -109,9 +151,10 @@
   --lf-font-serif: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   --lf-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Elevation — cool hairlines do the work; tinted two-layer soft shadows */
+  /* Elevation — tinted two-layer soft shadows + the Aurora glow */
   --lf-shadow-subtle: 0 1px 2px 0 rgb(11 21 38 / 0.05);
-  --lf-shadow-card: 0 1px 2px rgb(11 21 38 / 0.05), 0 8px 24px -8px rgb(11 21 38 / 0.12);
+  --lf-shadow-card: 0 1px 2px rgb(11 60 90 / 0.06), 0 10px 30px -10px rgb(11 60 90 / 0.14);
+  --lf-shadow-glow: 0 10px 30px -6px rgb(14 155 191 / 0.45);
 }
 
 /* ------------------------------------------------------------------ */
@@ -164,6 +207,32 @@
   --lf-accent-950: #eefafd;
   --lf-accent-foreground: #06222e;
 
+  --lf-sky-50: #0a1e2c;
+  --lf-sky-100: #0c2739;
+  --lf-sky-200: #10334a;
+  --lf-sky-300: #17506b;
+  --lf-sky-400: #38bdf8;
+  --lf-sky-500: #38bdf8;
+  --lf-sky-600: #7bd0fb;
+  --lf-sky-700: #a5e0fc;
+  --lf-sky-800: #c9eafd;
+  --lf-sky-900: #e7f5fe;
+  --lf-sky-950: #eff8fe;
+  --lf-sky-foreground: #06222e;
+
+  --lf-violet-50: #171233;
+  --lf-violet-100: #1d1840;
+  --lf-violet-200: #271f52;
+  --lf-violet-300: #372b73;
+  --lf-violet-400: #7c6cf0;
+  --lf-violet-500: #9d8df3;
+  --lf-violet-600: #bdb0f8;
+  --lf-violet-700: #dcd6fc;
+  --lf-violet-800: #e4e0fd;
+  --lf-violet-900: #efedfe;
+  --lf-violet-950: #f3f1fe;
+  --lf-violet-foreground: #1b1440;
+
   --lf-error-50: #2a1210;
   --lf-error-100: #381714;
   --lf-error-200: #4a1d18;
@@ -199,11 +268,32 @@
   --lf-border: #272c34;
   --lf-border-strong: #363b42;
 
+  --lf-panel-cyan: #0c2431;
+  --lf-panel-sky: #0c2739;
+  --lf-panel-violet: #1d1840;
+  --lf-panel-mint: #0d2b20;
+  --lf-panel-amber: #33230a;
+  --lf-panel-rose: #381714;
+
+  --lf-gradient-primary: linear-gradient(115deg, #22d3ee 0%, #0e9bbf 45%, #7c6cf0 100%);
+  --lf-gradient-aurora: radial-gradient(720px 380px at 108% -10%, rgb(56 189 248 / 0.22), transparent 60%), radial-gradient(640px 360px at -12% 112%, rgb(124 108 240 / 0.18), transparent 60%), radial-gradient(520px 300px at 88% 118%, rgb(34 211 238 / 0.18), transparent 60%);
+  --lf-gradient-action: linear-gradient(115deg, #0e7c9c 0%, #6553e3 100%);
+
   --lf-gold: #4cc3ff;
 
   --lf-shadow-subtle: 0 1px 2px 0 rgb(0 0 0 / 0.4);
   --lf-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+  --lf-shadow-glow: 0 10px 30px -6px rgb(76 195 255 / 0.35);
 }
+
+/* ------------------------------------------------------------------ */
+/* Lumen Aurora surface utilities                                      */
+/* ------------------------------------------------------------------ */
+
+/* Signature gradient fill (buttons, logo tile, progress, rings). */
+.lf-gradient { background-image: var(--lf-gradient-primary); }
+/* Aurora field layer — apply to a positioned parent or as a body wash. */
+.lf-aurora { background-image: var(--lf-gradient-aurora); }
 
 /* ------------------------------------------------------------------ */
 /* Atelier Light motion system — keyframes + utilities                 */

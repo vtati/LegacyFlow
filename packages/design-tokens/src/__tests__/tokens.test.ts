@@ -10,10 +10,10 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(tokens.colors.primary[600]).toBe('#2E4E68');
     expect(tokens.colors.primary.foreground).toBe('#FFFFFF');
     // Success — modern emerald (#1F9D74 at 500)
-    expect(tokens.colors.success[700]).toBe('#14664C');
-    expect(tokens.colors.success[600]).toBe('#17805E');
-    expect(tokens.colors.success[500]).toBe('#1F9D74');
-    expect(tokens.colors.success[100]).toBe('#D1F2E3');
+    expect(tokens.colors.success[700]).toBe('#0A6B51');
+    expect(tokens.colors.success[600]).toBe('#0B8663');
+    expect(tokens.colors.success[500]).toBe('#0EA47A');
+    expect(tokens.colors.success[100]).toBe('#D3F6E6');
     // Accent — Lumen cyan (600 = primary action #0E7C9C; 400 = bright #22D3EE, glow/progress only)
     expect(tokens.colors.accent[600]).toBe('#0E7C9C');
     expect(tokens.colors.accent[500]).toBe('#0E9BBF');
@@ -31,8 +31,8 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(tokens.colors.warning[700]).toBe('#92400E');
     expect(tokens.colors.warning.foreground).toBe('#FFFFFF');
     // Canvas — cool porcelain (NOT warm ivory)
-    expect(tokens.colors.canvas.DEFAULT).toBe('#F7F9FA');
-    expect(tokens.colors.canvas.subtle).toBe('#EEF2F4');
+    expect(tokens.colors.canvas.DEFAULT).toBe('#F4F9FC');
+    expect(tokens.colors.canvas.subtle).toBe('#EAF3F8');
     expect(tokens.colors.canvas.elevated).toBe('#FFFFFF');
     // Text — ink-navy family
     expect(tokens.colors.text.DEFAULT).toBe('#0B1526');
@@ -40,12 +40,12 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(tokens.colors.text.subtle).toBe('#556B80');
     expect(tokens.colors.text.inverse).toBe('#FFFFFF');
     // Borders — cool hairlines (ink at low alpha, as hex)
-    expect(tokens.colors.border.DEFAULT).toBe('#DEE6EC');
-    expect(tokens.colors.border.strong).toBe('#C3D0DB');
+    expect(tokens.colors.border.DEFAULT).toBe('#DFEBF2');
+    expect(tokens.colors.border.strong).toBe('#CBE0EC');
     // Gold token repurposed as the Lumen bright (legacy name kept for compatibility)
     expect(tokens.colors.gold).toBe('#0E9BBF');
     // Radius — 16px cards per Direction A (--radius scale 0.75rem family)
-    expect(tokens.radius.card).toBe('16px');
+    expect(tokens.radius.card).toBe('18px');
     expect(tokens.radius.control).toBe('10px');
     // Type — Geist system; the display ("serif") slot also resolves to Geist
     expect(tokens.font.sans[0]).toBe('var(--font-geist)');
@@ -101,6 +101,77 @@ describe('dark tokens — Noir Desk / Mission Graphite (Direction C)', () => {
     // Radius + fonts are shared with light (not overridden)
     expect('radius' in darkTokens).toBe(false);
   });
+
+describe('design tokens — Lumen Aurora additions (2026-10-24)', () => {
+  it('adds sky and violet ramps with the deck values', () => {
+    // Sky — information (400 = #38BDF8 deck sky; 500 = #1899D6 working step)
+    expect(tokens.colors.sky[400]).toBe('#38BDF8');
+    expect(tokens.colors.sky[500]).toBe('#1899D6');
+    expect(tokens.colors.sky[100]).toBe('#E7F5FE');
+    expect(tokens.colors.sky[700]).toBe('#0D6594');
+    expect(tokens.colors.sky.foreground).toBe('#FFFFFF');
+    // Violet — the AI color (500 = #7C6CF0 deck violet; 700 = #5B4BD6 AA text step)
+    expect(tokens.colors.violet[500]).toBe('#7C6CF0');
+    expect(tokens.colors.violet[700]).toBe('#5B4BD6');
+    expect(tokens.colors.violet[100]).toBe('#EFEDFE');
+    expect(tokens.colors.violet[400]).toBe('#9D8DF3');
+    expect(tokens.colors.violet.foreground).toBe('#FFFFFF');
+  });
+
+  it('adds jewel panel tints (deck soft surfaces)', () => {
+    expect(tokens.colors.panel.cyan).toBe('#E3F5FA');
+    expect(tokens.colors.panel.sky).toBe('#E7F5FE');
+    expect(tokens.colors.panel.violet).toBe('#EFEDFE');
+    expect(tokens.colors.panel.mint).toBe('#E4F6EF');
+    expect(tokens.colors.panel.amber).toBe('#FDF3E0');
+    expect(tokens.colors.panel.rose).toBe('#FCEBF1');
+  });
+
+  it('adds the signature gradients', () => {
+    expect(tokens.gradient.primary).toBe(
+      'linear-gradient(115deg, #22D3EE 0%, #0E9BBF 45%, #7C6CF0 100%)',
+    );
+    expect(tokens.gradient.aurora).toContain('radial-gradient');
+    expect(tokens.gradient.aurora).toContain('56 189 248');
+    expect(tokens.gradient.aurora).toContain('124 108 240');
+    expect(tokens.gradient.aurora).toContain('34 211 238');
+    // Action gradient (white-text-safe at every blend point, AA report 2026-10-24)
+    expect(tokens.gradient.action).toBe('linear-gradient(115deg, #0E7C9C 0%, #6553E3 100%)');
+    expect(tokens.colors.sky[600]).toBe('#0E77AE');
+  });
+
+  it('adds hero radius and glow shadow', () => {
+    expect(tokens.radius.hero).toBe('20px');
+    expect(tokens.shadow.glow).toContain('14 155 191');
+  });
+
+  it('maps the new tokens in the tailwind preset', () => {
+    const colors = (legacyflowPreset.theme?.extend?.colors ?? {}) as Record<string, unknown>;
+    const bg = (legacyflowPreset.theme?.extend?.backgroundImage ?? {}) as Record<string, string>;
+    const radius = (legacyflowPreset.theme?.extend?.borderRadius ?? {}) as Record<string, string>;
+    const shadows = (legacyflowPreset.theme?.extend?.boxShadow ?? {}) as Record<string, string>;
+    const sky = colors['lf-sky'] as Record<string, string>;
+    const violet = colors['lf-violet'] as Record<string, string>;
+    const panel = colors['lf-panel'] as Record<string, string>;
+    expect(sky[500]).toBe('var(--lf-sky-500)');
+    expect(violet[700]).toBe('var(--lf-violet-700)');
+    expect(panel.violet).toBe('var(--lf-panel-violet)');
+    expect(bg['lf-gradient']).toBe('var(--lf-gradient-primary)');
+    expect(bg['lf-gradient-action']).toBe('var(--lf-gradient-action)');
+    expect(bg['lf-aurora']).toBe('var(--lf-gradient-aurora)');
+    expect(radius['lf-hero']).toBe('var(--lf-radius-hero)');
+    expect(shadows['lf-glow']).toBe('var(--lf-shadow-glow)');
+  });
+
+  it('dark tokens carry sky/violet/panel parity (role-rotated)', () => {
+    expect(darkTokens.colors.sky[400]).toBe('#38BDF8');
+    expect(darkTokens.colors.violet[400]).toBe('#7C6CF0');
+    expect(darkTokens.colors.panel.violet).toBe('#1D1840');
+    expect(darkTokens.colors.panel.cyan).toBe('#0C2431');
+    expect(darkTokens.gradient.primary).toBe(tokens.gradient.primary);
+    expect(darkTokens.shadow.glow).toContain('76 195 255');
+  });
+});
 
   it('preset enables class-based dark mode', () => {
     expect(legacyflowPreset.darkMode).toBe('class');

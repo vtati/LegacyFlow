@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitleEditorial } from '@/components/ui/card';
 import { Footer } from '@/components/footer';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { LogoMark } from '@/components/logo-mark';
 import { PRODUCT_NAME, SAFETY_LABEL } from '@/lib/constants';
 import { getServerSession } from '@/lib/auth/server';
 
@@ -48,11 +49,7 @@ function LandingPage(): React.JSX.Element {
       <header className="border-b border-lf-border bg-lf-canvas">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2.5">
-            <img
-              src="/legacyflow-logo.webp"
-              alt="LegacyFlow logo"
-              className="size-9 rounded-lg"
-            />
+            <LogoMark className="size-9" />
             <p className="font-lf-serif text-xl font-semibold tracking-tight text-lf-text">
               {PRODUCT_NAME}
             </p>

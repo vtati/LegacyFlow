@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AlertTriangle, FlaskConical, Loader2, MailCheck } from 'lucide-react';
+import { LogoMark } from '@/components/logo-mark';
 import { getAuthAdapter, isMockAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,11 +114,7 @@ export function LoginForm(): React.JSX.Element {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="items-center text-center">
-        <img
-          src="/legacyflow-logo.webp"
-          alt="LegacyFlow logo"
-          className="size-16 rounded-2xl"
-        />
+        <LogoMark className="size-16" />
         <CardTitle className="text-2xl">Sign in to LegacyFlow</CardTitle>
         <CardDescription>Use Google, your password, or a magic link sent to your email.</CardDescription>
       </CardHeader>

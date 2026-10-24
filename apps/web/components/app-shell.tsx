@@ -8,6 +8,7 @@ import type { AuthUser } from '@/lib/auth/adapter';
 import { AccountMenu } from '@/components/account-menu';
 import { MobileNav } from '@/components/mobile-nav';
 import { SaveIndicator } from '@/components/save-indicator';
+import { LogoMark } from '@/components/logo-mark';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { SectionNav } from '@/components/section-nav';
 import { Footer } from '@/components/footer';
@@ -39,11 +40,7 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
               href="/family/home"
               className="flex items-center gap-2 rounded-lf-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             >
-              <img
-                src="/legacyflow-logo.webp"
-                alt="LegacyFlow logo"
-                className="size-8 rounded-lg"
-              />
+              <LogoMark className="size-8" />
               <span className="font-lf-serif text-lg font-semibold tracking-tight text-lf-primary-950">
                 {PRODUCT_NAME}
               </span>
