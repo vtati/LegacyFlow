@@ -90,7 +90,15 @@ turn.
 listed above, or for another field the user EXPLICITLY states a value \
 for in their message. Never carry a topic from this message into a \
 later cluster's field (for example, do not record trust fields from a \
-message about assets or guardians)."""
+message about assets or guardians).
+- EXTRACTION FIRST: before composing your reply text, call \
+propose_field_values for EVERY still-needed field the user's message \
+answers. A reply that only summarizes or acknowledges — proposing \
+nothing the user just stated — is a failure.
+- ROLE DISCIPLINE: assign each named person ONLY to the role(s) the \
+user named them for in their own words. Never map a person into a \
+different open role (an agent is not thereby a guardian or executor), \
+even when that other role is still unanswered."""
         if (
             signed_in_name
             and cluster_gap["cluster"] == "identity"
