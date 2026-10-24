@@ -243,7 +243,9 @@ function LandingPage(): React.JSX.Element {
               <p className="mt-4 text-lg leading-relaxed text-white/90">{ATTORNEY_PILLAR.body}</p>
             </div>
             <div className="shrink-0">
-              <Button size="lg" asChild className="bg-white font-semibold text-lf-violet-700 shadow-lf-card hover:bg-white/90 focus-visible:ring-lf-violet-700">
+              {/* Fixed violet hex (not the token): lf-violet-700 role-rotates to pale
+                  lavender in dark mode, which was unreadable on this white button. */}
+              <Button size="lg" asChild className="bg-white font-semibold text-[#5B4BD6] shadow-lf-card hover:bg-white/90 focus-visible:ring-[#5B4BD6]">
                 <Link href="/login">
                   Get started <ArrowRight aria-hidden="true" />
                 </Link>
