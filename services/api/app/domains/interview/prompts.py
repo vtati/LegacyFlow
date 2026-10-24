@@ -85,7 +85,12 @@ language — not a list of separate questions.
 {field_lines}
 - The user may answer several fields at once: record every value they \
 state for these fields. Do NOT ask about fields outside this list this \
-turn."""
+turn.
+- EXTRACTION SCOPE: in this reply, propose values ONLY for the fields \
+listed above, or for another field the user EXPLICITLY states a value \
+for in their message. Never carry a topic from this message into a \
+later cluster's field (for example, do not record trust fields from a \
+message about assets or guardians)."""
         if (
             signed_in_name
             and cluster_gap["cluster"] == "identity"

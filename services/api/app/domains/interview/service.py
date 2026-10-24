@@ -757,11 +757,19 @@ def _is_whole_message_copy(
         w
         for w in re.findall(r"\w+", question_label.lower())
         if len(w) > 3
-        and w not in {"what", "does", "your", "with", "have", "this", "that"}
+        and w not in {
+            "what", "does", "your", "with", "have", "this", "that",
+            "should", "would", "could", "their", "about", "under",
+            "until", "since", "while", "being", "after", "before",
+            "which", "there", "these", "those", "other",
+        }
     ]
-    asked = (
-        sum(1 for w in label_words if w in last_assistant_text.lower()) >= 2
-    )
+    matched = [w for w in label_words if w in last_assistant_text.lower()]
+    # "Asked" needs real topical overlap: at least two label words, one
+    # of them distinctive (6+ letters) — generic-word coincidences
+    # ("should" + "spouse" in an acknowledgment) kept a garbage copy
+    # alive in A/B run 2.
+    asked = len(matched) >= 2 and any(len(w) >= 6 for w in matched)
     return not asked
 
 

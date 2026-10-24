@@ -801,3 +801,30 @@ class TestWholeMessageCopyGuard:
             last_assistant_text="Who should care for your minor children?",
             question_label="What share of the trust should go to your spouse?",
         ) is False
+
+    def test_generic_word_overlap_does_not_count_as_asked(self):
+        # A/B run 2 regression: an acknowledgment containing "should"
+        # and "spouse" made the old >=2-generic-words test treat an
+        # un-asked key as asked, keeping a whole-message copy alive.
+        from app.domains.interview.service import _is_whole_message_copy
+
+        message = (
+            "My brother Amit Sharma should be the guardian for our "
+            "children because he is trusted and he is close to the "
+            "children and he shares our values completely and if he "
+            "cannot serve then Neha Kapoor is the backup guardian for "
+            "the children in every respect that matters to us both"
+        )
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=message,
+            user_message=message,
+            last_assistant_text=(
+                "Thanks. Should your spouse Priya be listed anywhere "
+                "else for the will signing?"
+            ),
+            question_label=(
+                "What share of the trust should go to your spouse "
+                "outright, if any?"
+            ),
+        )
