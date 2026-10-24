@@ -260,3 +260,161 @@ def test_sync_noop_without_name_answer(monkeypatch):
     )
     intake_service._sync_testator_name(_Conn(), household_id=uuid4(), answers={})
     assert called == []
+
+
+# --- presentation gating: a verdict requires a PRIOR presentation -----------
+# Live Part 3 drive (2026-10-24): the address bundle filled on the very
+# turn it first became pending — the user's "Yes" answered the PREVIOUS
+# visible question (children), because the no-text provider fallback had
+# asked a different question than the prompt intended. An offer may only
+# consume a yes/no verdict once it has been presented in an earlier turn.
+
+from app.domains.interview import repository as interview_repo  # noqa: E402
+from app.domains.interview import service as interview_service  # noqa: E402
+
+
+def _offer_for(state, monkeypatch):
+    monkeypatch.setattr(
+        interview_repo, "get_session_state", lambda c, sid: dict(state)
+    )
+    answers = dict(BASE, primary_executor_person="Priya Sharma")
+    return interview_service._bundle_offer_for_turn(
+        _Conn(),
+        session_id=uuid4(),
+        pack=get_pack("US-VA", "2.0.0"),
+        answers=answers,
+        question_labels={},
+    )
+
+
+def test_first_presentation_is_not_verdict_ready(monkeypatch):
+    offer, state = _offer_for({}, monkeypatch)
+    assert offer is not None
+    assert offer["presented_before"] is False
+    assert state["bundles_offered"]["primary:priya sharma"] == 1
+
+
+def test_second_presentation_is_verdict_ready(monkeypatch):
+    offer, state = _offer_for(
+        {"bundles_offered": {"primary:priya sharma": 1}}, monkeypatch
+    )
+    assert offer is not None
+    assert offer["presented_before"] is True
+    assert state["bundles_offered"]["primary:priya sharma"] == 2
+
+
+def test_offer_suppressed_after_two_presentations(monkeypatch):
+    offer, _state = _offer_for(
+        {"bundles_offered": {"primary:priya sharma": 2}}, monkeypatch
+    )
+    assert offer is None
+
+
+# --- provider no-text fallback must ask the turn's actual focus -------------
+
+import json as _json  # noqa: E402
+
+from app.domains.ai import provider as ai_provider  # noqa: E402
+
+
+class _FakeResp:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "propose_field_values",
+                                    "arguments": _json.dumps(
+                                        {
+                                            "proposals": [
+                                                {
+                                                    "question_key": "marital_status",
+                                                    "value": "married",
+                                                    "confidence": 0.95,
+                                                    "source_snippet": "I'm married",
+                                                }
+                                            ]
+                                        }
+                                    ),
+                                }
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {},
+        }
+
+
+class _FakeClient:
+    def post(self, *a, **k):
+        return _FakeResp()
+
+
+def _chat_with_context(monkeypatch, context):
+    monkeypatch.setattr(ai_provider, "get_http_client", lambda: _FakeClient())
+    provider = ai_provider.OpenAIChatProvider(api_key="test", model="gpt-test")
+    return provider.chat(
+        system_prompt="SYS",
+        messages=[ai_provider.ChatMessage(role="user", content="I'm married")],
+        context=context,
+    )
+
+
+def test_fallback_reply_uses_focus_question_text(monkeypatch):
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["primary_guardian_person"],
+        question_labels={"primary_guardian_person": "Who should care for your minor children?"},
+        focus_question_text="Should your executor also use your address (123 Main Street, Austin, Texas)?",
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    assert "Should your executor also use your address" in resp.reply
+    assert "Who should care" not in resp.reply
+
+
+def test_fallback_reply_prefers_focus_keys(monkeypatch):
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["has_minor_children", "asset_categories_present"],
+        question_labels={
+            "has_minor_children": "Do you have minor children?",
+            "asset_categories_present": "Which assets do you have?",
+        },
+        focus_keys=["asset_categories_present"],
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    assert "Which assets do you have?" in resp.reply
+
+
+def test_fallback_reply_never_escapes_the_focus(monkeypatch):
+    # Review I-1: focus set + every focus key just proposed -> the reply
+    # points at the review cards instead of asking a pack-order question
+    # from another cluster (the visible-question divergence shape).
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["primary_guardian_person", "marital_status"],
+        question_labels={
+            "primary_guardian_person": "Who should care for your minor children?",
+            "marital_status": "What best describes your household?",
+        },
+        focus_keys=["marital_status"],
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    assert "Who should care" not in resp.reply
+    assert "review the proposed values" in resp.reply

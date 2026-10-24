@@ -204,6 +204,13 @@ class InterviewContext:
     total_required: int = 0
     pending_proposal_keys: list[str] = field(default_factory=list)
     question_labels: dict[str, str] = field(default_factory=dict)
+    # Interview v2 focus for THIS turn: when set, the no-text fallback
+    # reply asks about the focus (cluster gap keys, or the bundle
+    # question verbatim) instead of the pack-order missing list — the
+    # visible question must match what the prompt intended, because the
+    # user's next answer is interpreted against this turn's focus.
+    focus_keys: list[str] = field(default_factory=list)
+    focus_question_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -426,12 +433,41 @@ class OpenAIChatProvider:
             pending_set = set(context.pending_proposal_keys or [])
             just_proposed = {pr.question_key for pr in valid_proposals}
             skip = pending_set | just_proposed
-            next_key = next(
-                (k for k in context.missing_required_keys
-                 if k not in skip and k in labels),
-                None,
-            )
-            if next_key:
+            # A verbatim focus question (a bundle offer) outranks the
+            # generic next-item composition entirely.
+            focus_text_used = bool(context.focus_question_text)
+            if focus_text_used:
+                reply = (
+                    f"Thanks — I've recorded {recorded}. "
+                    f"{context.focus_question_text}"
+                )
+                next_key = None
+            elif context.focus_keys:
+                # A focus is set (this turn's cluster): ask ONLY within
+                # it. If every focus key was just proposed or is pending,
+                # fall through to the review-cards reply — never escape
+                # to a pack-order question outside the focus (the visible
+                # question must match the turn's intent; review I-1).
+                next_key = next(
+                    (
+                        k
+                        for k in context.focus_keys
+                        if k not in skip and k in labels
+                    ),
+                    None,
+                )
+            else:
+                next_key = next(
+                    (
+                        k
+                        for k in context.missing_required_keys
+                        if k not in skip and k in labels
+                    ),
+                    None,
+                )
+            if focus_text_used:
+                pass  # reply already composed above
+            elif next_key:
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
                     f"Next: {labels[next_key]}"

@@ -983,14 +983,58 @@ def _bundle_offer_for_turn(
     if offer is None:
         return None, state
     offered = dict(state.get("bundles_offered") or {})
-    if int(offered.get(offer["decline_key"], 0)) >= MAX_BUNDLE_OFFERS:
+    presentations = int(offered.get(offer["decline_key"], 0))
+    if presentations >= MAX_BUNDLE_OFFERS:
         return None, state
-    offered[offer["decline_key"]] = int(offered.get(offer["decline_key"], 0)) + 1
+    # A yes/no verdict may only be consumed once the offer was presented
+    # in an EARLIER turn: on its first presentation the user's message is
+    # still answering the previous visible question (live Part 3 drive:
+    # an address bundle filled on a "Yes" that answered the children
+    # question, because the visible question had diverged from the
+    # prompt's intent).
+    offer["presented_before"] = presentations >= 1
+    offered[offer["decline_key"]] = presentations + 1
     state["bundles_offered"] = offered
     offer["fill_labels"] = [
         question_labels.get(k, k) for k in offer["fill_keys"]
     ]
     return offer, state
+
+
+#: Short role names for composing the visible bundle question.
+_BUNDLE_ROLE_NAMES: dict[str, str] = {
+    "primary_executor_person": "your executor",
+    "poa_agent_person": "your financial power of attorney agent",
+    "healthcare_agent_person": "your healthcare agent",
+    "backup_executor_person": "your backup executor",
+    "successor_poa_agent_person": "your successor financial agent",
+    "successor_healthcare_agent_person": "your successor healthcare agent",
+    "successor_trustee_person": "your successor trustee",
+    "primary_executor_address": "your executor",
+    "poa_agent_address": "your financial agent",
+    "primary_guardian_address": "your children's guardian",
+    "healthcare_agent_address": "your healthcare agent",
+    "successor_healthcare_agent_address": "your successor healthcare agent",
+}
+
+
+def _bundle_question_text(offer: dict[str, Any]) -> str:
+    """The grouped yes/no question for an offer, in plain language. Used
+    verbatim by the provider's no-text fallback so the VISIBLE question
+    always matches the offer the server will interpret the reply
+    against."""
+    roles = ", ".join(
+        _BUNDLE_ROLE_NAMES.get(k, k) for k in offer["fill_keys"]
+    )
+    if offer["bundle"] == "address":
+        return (
+            f"Quick question: should {roles} also use your address "
+            f"({offer['anchor_name']})?"
+        )
+    return (
+        f"Quick question: would you like {offer['anchor_name']} to also "
+        f"serve as {roles}?"
+    )
 
 
 def _signed_in_name(conn: Any, household_id: Any) -> str | None:
@@ -1469,31 +1513,11 @@ def post_turn(
         str(question.get("key")): str(question.get("label") or question.get("key"))
         for _, _, question in qs.iter_questions(pack.question_sets)
     }
-    docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
-    retrieved = [
-        RetrievedDocument(
-            content_id=str(doc.get("content_id", "")),
-            title=str(doc.get("title", "")),
-            section=doc.get("section"),
-            body_markdown=str(doc.get("body_markdown", "")),
-        )
-        for doc in docs
-    ]
-    context = InterviewContext(
-        pack_id=pack.manifest.pack_id,
-        jurisdiction_code=pack.manifest.jurisdiction_code,
-        pack_version=version,
-        documents=retrieved,
-        missing_required_keys=missing,
-        answered_required=answered_required,
-        total_required=total_required,
-        pending_proposal_keys=pending_keys,
-        question_labels=question_labels,
-    )
-    history = _history_messages(conn, session_id)
     # Interview v2 (flag on): a pending bundle offer outranks the cluster
     # gap; otherwise the prompt focuses on ONE cluster's gap. Flag off:
-    # the v5 path runs byte-for-byte (including its trace label).
+    # the v5 path runs byte-for-byte (including its trace label). The
+    # focus is computed BEFORE the provider context so the provider's
+    # no-text fallback asks the same question the prompt intends.
     cluster_gap = None
     bundle_offer = None
     bundle_state: dict[str, Any] = {}
@@ -1517,6 +1541,37 @@ def post_turn(
                 signed_in_name = _signed_in_name(
                     conn, scope.matter.get("household_id")
                 )
+    focus_keys: list[str] = []
+    focus_question_text: str | None = None
+    if bundle_offer is not None:
+        focus_keys = list(bundle_offer["fill_keys"])
+        focus_question_text = _bundle_question_text(bundle_offer)
+    elif cluster_gap is not None:
+        focus_keys = [str(q["key"]) for q in cluster_gap["questions"]]
+    docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
+    retrieved = [
+        RetrievedDocument(
+            content_id=str(doc.get("content_id", "")),
+            title=str(doc.get("title", "")),
+            section=doc.get("section"),
+            body_markdown=str(doc.get("body_markdown", "")),
+        )
+        for doc in docs
+    ]
+    context = InterviewContext(
+        pack_id=pack.manifest.pack_id,
+        jurisdiction_code=pack.manifest.jurisdiction_code,
+        pack_version=version,
+        documents=retrieved,
+        missing_required_keys=missing,
+        answered_required=answered_required,
+        total_required=total_required,
+        pending_proposal_keys=pending_keys,
+        question_labels=question_labels,
+        focus_keys=focus_keys,
+        focus_question_text=focus_question_text,
+    )
+    history = _history_messages(conn, session_id)
     prompt_version = (
         prompts.PROMPT_TEMPLATE_VERSION
         if (cluster_gap is not None or bundle_offer is not None)
@@ -1692,7 +1747,10 @@ def post_turn(
     # confidence 1.0) fill the sibling roles through the normal
     # confirm/auto-confirm path. NO → the decline is recorded and the
     # offer never repeats for that anchor. Anything else defers.
-    if bundle_offer is not None:
+    # The verdict is only consumed when the offer was presented in an
+    # earlier turn (presented_before) — on first presentation this
+    # message still answers the previous visible question.
+    if bundle_offer is not None and bundle_offer.get("presented_before"):
         verdict = _parse_yes_no(message)
         if verdict is True:
             # Fresh read at fill time (review I-1): never stack a bundle

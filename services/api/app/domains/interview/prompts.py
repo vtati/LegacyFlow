@@ -59,7 +59,8 @@ def build_system_prompt(
     elif cluster_gap is not None:
         # v6: the state section lists ONLY the focus cluster's missing
         # questions — the model asks one bundled question about these and
-        # nothing else this turn.
+        # nothing else this turn. (With a bundle offer, it lists only the
+        # offer's fill keys — see the bundle_offer branch above.)
         gap_keys = [str(q["key"]) for q in cluster_gap["questions"]]
         still_needed = [k for k in gap_keys if k not in pending_set]
     else:
