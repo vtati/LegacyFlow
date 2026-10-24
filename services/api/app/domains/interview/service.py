@@ -965,7 +965,8 @@ def _signed_in_name(conn: Any, household_id: Any) -> str | None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT p.full_name FROM household_members hm
+                SELECT p.display_name, p.first_name, p.last_name
+                FROM household_members hm
                 JOIN profiles p ON p.id = hm.user_id
                 WHERE hm.household_id = %s
                   AND hm.relationship_role = 'primary_client'
@@ -974,8 +975,20 @@ def _signed_in_name(conn: Any, household_id: Any) -> str | None:
                 (str(household_id),),
             )
             row = cur.fetchone()
-        if row and row.get("full_name"):
-            return str(row["full_name"])
+        if row:
+            display = str(row.get("display_name") or "").strip()
+            if display:
+                return display
+            composed = " ".join(
+                part
+                for part in (
+                    str(row.get("first_name") or "").strip(),
+                    str(row.get("last_name") or "").strip(),
+                )
+                if part
+            )
+            if composed:
+                return composed
     except Exception:
         logger.warning("signed-in name lookup failed", exc_info=True)
     return None
