@@ -100,25 +100,25 @@ function LandingPage(): React.JSX.Element {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8" aria-label="Product preview">
+        <section className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8" aria-label="Product preview and key figures">
           <Reveal><ProductMock /></Reveal>
           <div className="grid gap-8 pb-16 pt-14 text-center sm:grid-cols-3 sm:pb-24">
             {[
-              { end: 76, suffix: '%', fallback: '76%', label: 'of U.S. adults have no will' },
-              { end: 84, prefix: '$', suffix: 'T', fallback: '$84T', label: 'of wealth passes to families by 2045' },
-              { end: 100, suffix: '%', fallback: '100%', label: 'of plans reviewed by a licensed attorney' },
+              { end: 76, suffix: '%', fallback: '76%', label: 'of U.S. adults have no will', source: 'Caring.com 2025 Wills & Estate Planning Study' },
+              { end: 84, prefix: '$', suffix: 'T', fallback: '$84T', label: 'in generational wealth transfers by 2045', source: 'Cerulli Associates' },
+              { end: 100, suffix: '%', fallback: '100%', label: 'of plans reviewed by a licensed attorney', source: undefined },
             ].map((stat) => (
               <div key={stat.label}>
                 <p className="font-lf-serif text-[40px] font-bold leading-none tracking-tight text-lf-text">
                   <CountUp end={stat.end} prefix={stat.prefix ?? ''} suffix={stat.suffix} fallback={stat.fallback} />
                 </p>
                 <p className="mx-auto mt-2 max-w-[240px] text-sm leading-relaxed text-lf-text-muted">{stat.label}</p>
+                {stat.source ? (
+                  <p className="mt-1 text-[11px] text-lf-text-subtle">Source: {stat.source}</p>
+                ) : null}
               </div>
             ))}
           </div>
-          <p className="-mt-8 pb-14 text-center text-[11px] text-lf-text-subtle sm:-mt-14">
-            Sources: Caring.com 2025 Wills &amp; Estate Planning Study; Cerulli Associates.
-          </p>
         </section>
 
         <section
@@ -243,7 +243,7 @@ function LandingPage(): React.JSX.Element {
               <p className="mt-4 text-lg leading-relaxed text-white/90">{ATTORNEY_PILLAR.body}</p>
             </div>
             <div className="shrink-0">
-              <Button size="lg" asChild className="bg-white font-semibold text-lf-violet-700 shadow-lf-card hover:bg-white/90">
+              <Button size="lg" asChild className="bg-white font-semibold text-lf-violet-700 shadow-lf-card hover:bg-white/90 focus-visible:ring-lf-violet-700">
                 <Link href="/login">
                   Get started <ArrowRight aria-hidden="true" />
                 </Link>

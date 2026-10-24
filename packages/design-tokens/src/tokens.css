@@ -298,6 +298,7 @@
 /* Glass surface — translucent elevated color + blur, for sticky headers
    floating over the aurora canvas (Lumen Aurora Phase 2). */
 .lf-glass {
+  background: var(--lf-canvas-elevated);
   background: color-mix(in srgb, var(--lf-canvas-elevated) 78%, transparent);
   -webkit-backdrop-filter: blur(14px) saturate(1.5);
   backdrop-filter: blur(14px) saturate(1.5);
