@@ -543,7 +543,7 @@ def _openai_chat_factory() -> LLMProvider:
     settings = get_settings()
     if not settings.OPENAI_API_KEY:
         raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
-    return OpenAIChatProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_CHAT_MODEL)
+    return OpenAIChatProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_INTERVIEW_MODEL)
 
 
 def _whisper_factory() -> STTProvider:

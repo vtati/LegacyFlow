@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     AI_STT_PROVIDER: str = "deterministic_dev"
     OPENAI_API_KEY: str | None = None
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    # Interview v2 model split: the conductor + document extractor need
+    # the stronger model for extraction/tool discipline; cheap
+    # classification (consistency) stays on OPENAI_CHAT_MODEL.
+    OPENAI_INTERVIEW_MODEL: str = "gpt-4o"
     OPENAI_WHISPER_MODEL: str = "whisper-1"
     # Fernet key (base64, 32 bytes) for interview turn-body encryption (ADR-002).
     # Unset fails closed: the interviewer refuses to start a session rather

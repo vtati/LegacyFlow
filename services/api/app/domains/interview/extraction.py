@@ -271,12 +271,12 @@ def run_extraction(
             raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
         raw_items, usage = _extract_via_openai(
             api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_CHAT_MODEL,
+            model=settings.OPENAI_INTERVIEW_MODEL,
             document_text=document.full_text,
             field_schema=field_schema,
             ocr_used=document.ocr_used,
         )
-        model_id = settings.OPENAI_CHAT_MODEL
+        model_id = settings.OPENAI_INTERVIEW_MODEL
         repo.insert_ai_trace(
             conn,
             firm_id=firm_id,

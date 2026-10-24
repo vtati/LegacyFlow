@@ -1700,7 +1700,7 @@ def post_turn(
         matter_id=matter_id,
         turn_id=UUID(str(assistant_turn["id"])),
         provider=provider.name,
-        model_id=settings.OPENAI_CHAT_MODEL if provider.name == "openai" else provider.name,
+        model_id=settings.OPENAI_INTERVIEW_MODEL if provider.name == "openai" else provider.name,
         model_version=None,
         prompt_template=prompts.PROMPT_TEMPLATE_NAME,
         prompt_version=prompt_version,
