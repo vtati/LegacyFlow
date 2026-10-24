@@ -727,6 +727,7 @@ def _is_whole_message_copy(
     user_message: str,
     last_assistant_text: str,
     question_label: str,
+    prior_assistant_text: str = "",
 ) -> bool:
     """True when a text/notes proposal merely copies the user's whole
     (long, multi-topic) message into a field the assistant did not just
@@ -770,6 +771,18 @@ def _is_whole_message_copy(
     # ("should" + "spouse" in an acknowledgment) kept a garbage copy
     # alive in A/B run 2.
     asked = len(matched) >= 2 and any(len(w) >= 6 for w in matched)
+    if not asked and prior_assistant_text:
+        # Drift answers (guard reviewer, ca4c8fa): the user answers the
+        # question from TWO turns ago with a long faithful text while
+        # the last assistant message already moved on. Treat the key as
+        # asked only on STRONG evidence in the older message — two
+        # distinctive label words — so the wider window cannot resurrect
+        # generic-overlap false-keeps.
+        prior_matched = [
+            w for w in label_words
+            if len(w) >= 6 and w in prior_assistant_text.lower()
+        ]
+        asked = len(prior_matched) >= 2
     return not asked
 
 
@@ -1658,9 +1671,9 @@ def post_turn(
         str(question.get("key")): str(question.get("type") or "")
         for _, _, question in qs.iter_questions(pack.question_sets)
     }
-    last_assistant_text = next(
-        (m.content for m in reversed(history) if m.role == "assistant"), ""
-    )
+    _assistant_texts = [m.content for m in history if m.role == "assistant"]
+    last_assistant_text = _assistant_texts[-1] if _assistant_texts else ""
+    prior_assistant_text = _assistant_texts[-2] if len(_assistant_texts) >= 2 else ""
     valid_proposals = []
     for draft in response.proposals:
         if draft.question_key not in known_keys:
@@ -1683,6 +1696,7 @@ def post_turn(
             user_message=message,
             last_assistant_text=last_assistant_text,
             question_label=question_labels.get(draft.question_key, ""),
+            prior_assistant_text=prior_assistant_text,
         ):
             logger.warning(
                 "Dropping whole-message copy proposal for %r (session %s)",

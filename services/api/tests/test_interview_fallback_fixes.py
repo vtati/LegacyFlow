@@ -828,3 +828,62 @@ class TestWholeMessageCopyGuard:
                 "outright, if any?"
             ),
         )
+
+    def test_drift_answer_to_two_turns_ago_question_is_kept(self):
+        # Guard reviewer (ca4c8fa): the assistant asked about the living
+        # will two turns ago, then moved to funeral wishes; the user's
+        # long reply answers the LIVING WILL question faithfully. The
+        # older message carries two distinctive label words
+        # (prolonging/treatment) -> treated as asked -> kept.
+        from app.domains.interview.service import _is_whole_message_copy
+
+        message = (
+            "About the life-prolonging treatment question from before: "
+            "if I am terminally ill or permanently unconscious then "
+            "withhold life-sustaining treatment and keep me on comfort "
+            "care only because that is what I would want for myself "
+            "and for my family at that time in every circumstance"
+        )
+        assert not _is_whole_message_copy(
+            question_type="notes",
+            value=message,
+            user_message=message,
+            last_assistant_text=(
+                "Thank you. Do you have any funeral or burial wishes "
+                "you would like recorded?"
+            ),
+            prior_assistant_text=(
+                "What are your wishes about life-prolonging treatment, "
+                "for example under what conditions should treatment be "
+                "withheld?"
+            ),
+            question_label=(
+                "What are your wishes about life-prolonging treatment, "
+                "for example under what conditions?"
+            ),
+        )
+
+    def test_prior_window_needs_two_distinctive_words(self):
+        # One distinctive word in the older message is not enough.
+        from app.domains.interview.service import _is_whole_message_copy
+
+        message = (
+            "My brother Amit Sharma should be the guardian for our "
+            "children because he is trusted and he is close to the "
+            "children and he shares our values completely and if he "
+            "cannot serve then Neha Kapoor is the backup guardian for "
+            "the children in every respect that matters to us both"
+        )
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=message,
+            user_message=message,
+            last_assistant_text="Do you have significant debts?",
+            prior_assistant_text=(
+                "Earlier we mentioned your spouse. Anything else?"
+            ),
+            question_label=(
+                "What share of the trust should go to your spouse "
+                "outright, if any?"
+            ),
+        )
