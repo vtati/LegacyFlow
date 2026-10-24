@@ -93,6 +93,25 @@ def compute_progress(
     return per_set, overall, missing
 
 
+def build_overall_progress(
+    per_set: dict[str, QuestionSetProgress], completeness_pct: float
+) -> QuestionSetProgress:
+    """Aggregate per-set progress into the overall row.
+
+    ``percent_complete`` is the REQUIRED-answered share (the same number
+    as ``completeness_pct`` and the interview's coverage), so every
+    surface — My Plan, checkup, the wizard — shows one consistent
+    completeness figure instead of mixing definitions.
+    """
+    return QuestionSetProgress(
+        total_questions=sum(s.total_questions for s in per_set.values()),
+        answered=sum(s.answered for s in per_set.values()),
+        required_total=sum(s.required_total for s in per_set.values()),
+        required_answered=sum(s.required_answered for s in per_set.values()),
+        percent_complete=completeness_pct,
+    )
+
+
 def build_facts(
     question_sets: dict[str, dict[str, Any]],
     answers: dict[str, Any],

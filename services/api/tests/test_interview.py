@@ -1664,9 +1664,10 @@ class TestInterviewAgentContextFixes:
 
     def test_prompt_version_bumped(self) -> None:
         from app.domains.interview.prompts import PROMPT_TEMPLATE_VERSION
-        # v4 (2026-10-24): state lists are no longer truncated — the
+        # v5 (2026-10-24): state lists un-truncated (v4) + the model may only
+        # claim it recorded a value it actually proposed this response (v5).
         # first-12 window hid late-pack sections from the model.
-        assert PROMPT_TEMPLATE_VERSION == "v4"
+        assert PROMPT_TEMPLATE_VERSION == "v5"
 
     def test_prompt_pending_lists_all_keys(self) -> None:
         # CHANGED 2026-10-24: pending keys are listed in full — the old

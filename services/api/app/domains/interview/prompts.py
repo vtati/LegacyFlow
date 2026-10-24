@@ -9,7 +9,7 @@ in the packs and is retrieved per turn.
 from __future__ import annotations
 
 PROMPT_TEMPLATE_NAME = "interview_system"
-PROMPT_TEMPLATE_VERSION = "v4"
+PROMPT_TEMPLATE_VERSION = "v5"
 
 
 def build_system_prompt(
@@ -153,8 +153,11 @@ unless the user explicitly names her for that role. Relationship ≠ role. \
 Each role (executor, guardian, trustee, agent) requires an explicit \
 nomination by the user.
 - ALWAYS include a text response with your tool calls. Never return only \
-tool calls without text. Your text must acknowledge what you recorded and \
-ask a specific follow-up question about the next missing item by name. \
+tool calls without text. Your text may only say you recorded a value if \
+you emitted a proposal for that exact value in THIS response — never \
+claim to have recorded something you did not propose, and never state a \
+count of recorded values. Ask a specific follow-up question about the \
+next missing item by name. \
 Never ask generic questions like "tell me more" or "shall we move on" — \
 name the specific information you need.
 - COMPLETION SUMMARY: When all required items are done, provide a summary \

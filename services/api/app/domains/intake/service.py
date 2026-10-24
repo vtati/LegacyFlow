@@ -120,8 +120,19 @@ def _sync_nominations_from_answers(
             if not isinstance(value, str) or not value.strip():
                 continue
             try:
+                # A SAVEPOINT per answer: a failing insert (e.g. a pack
+                # binding whose nomination type violates the table CHECK)
+                # otherwise poisons the whole transaction — Postgres
+                # aborts it, the Python-level "best-effort" catch cannot
+                # save the answer write, and the save dies with a 500.
+                # That is exactly how the poa/trustee bindings broke
+                # confirms in the 2026-10-24 proof re-run.
+                with conn.cursor() as cur:
+                    cur.execute("SAVEPOINT lf_nom_sync")
                 person = _ensure_person_for_name(conn, household_id, value)
                 if person is None:
+                    with conn.cursor() as cur:
+                        cur.execute("RELEASE SAVEPOINT lf_nom_sync")
                     continue
                 person_id = UUID(str(person["id"]))
                 # Skip if an identical nomination already exists.
@@ -131,6 +142,8 @@ def _sync_nominations_from_answers(
                     and str(n.get("person_id")) == str(person_id)
                     for n in existing
                 ):
+                    with conn.cursor() as cur:
+                        cur.execute("RELEASE SAVEPOINT lf_nom_sync")
                     continue
                 nom_repo.insert_nomination(
                     conn,
@@ -146,8 +159,16 @@ def _sync_nominations_from_answers(
                     value,
                     matter_id,
                 )
+                with conn.cursor() as cur:
+                    cur.execute("RELEASE SAVEPOINT lf_nom_sync")
             except Exception as e:
                 # Per-answer failures are best-effort; don't fail the save.
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("ROLLBACK TO SAVEPOINT lf_nom_sync")
+                        cur.execute("RELEASE SAVEPOINT lf_nom_sync")
+                except Exception:
+                    pass
                 logger.error("Failed to auto-create nomination for %s: %s", key, e)
     except Exception as e:
         # Sync is best-effort; never fail the answer save.
@@ -308,4 +329,8 @@ def get_progress(conn: Any, *, actor_sub: str, matter_id: UUID) -> IntakeProgres
     # migration): round once here so the persisted value and the response agree.
     overall = float(int(round(overall)))
     matters_repo.update_completeness(conn, matter_id, overall)
-    return IntakeProgressOut(sets=per_set, completeness_pct=overall)
+    return IntakeProgressOut(
+        sets=per_set,
+        completeness_pct=overall,
+        overall=qs.build_overall_progress(per_set, overall),
+    )

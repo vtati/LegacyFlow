@@ -271,6 +271,7 @@ export interface SetProgress {
 export interface IntakeProgressResponse {
   sets: Record<string, SetProgress>;
   overall: SetProgress;
+  completeness_pct: number;
 }
 
 /* AI interviewer: document extraction (Phase 2) */

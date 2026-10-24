@@ -44,3 +44,4 @@ class IntakeProgressOut(BaseModel):
 
     sets: dict[str, QuestionSetProgress]
     completeness_pct: float
+    overall: QuestionSetProgress

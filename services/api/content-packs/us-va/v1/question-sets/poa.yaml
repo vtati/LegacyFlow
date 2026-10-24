@@ -13,7 +13,7 @@ sections:
         label: 'Who should handle your financial affairs — bank accounts, property, taxes — if you become unable to do so yourself?'
         help: 'Why we ask: your agent can pay bills, manage accounts, and protect your assets during incapacity. This power ends at death.'
         required: true
-        maps_to: nominations.poa_agent.1
+        maps_to: nominations.financial_agent.1
       - key: poa_agent_address
         type: text
         label: 'What city and state does your financial agent live in?'
@@ -25,7 +25,7 @@ sections:
         label: 'Who should serve if your first choice cannot?'
         help: 'Why we ask: a backup keeps your finances covered if circumstances change.'
         required: true
-        maps_to: nominations.poa_agent.2
+        maps_to: nominations.financial_agent.2
       - key: poa_additional_powers
         type: notes
         label: 'Are there any specific financial powers you want to grant or withhold? (optional)'

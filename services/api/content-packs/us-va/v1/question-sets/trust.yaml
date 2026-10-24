@@ -22,7 +22,7 @@ sections:
         label: 'Who should take over managing the trust if you become unable to do so, or after your death?'
         help: 'Why we ask: you are the initial trustee; your successor steps in when needed.'
         required: true
-        maps_to: nominations.successor_trustee.1
+        maps_to: nominations.trustee.1
   - id: terms
     title: 'Trust terms'
     questions:

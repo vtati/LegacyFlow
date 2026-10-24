@@ -442,3 +442,164 @@ class TestExtractorBlocklistRound2:
             _extract_person_name("My wife Mary Jane Watson should be executor.")
             == "Mary Jane Watson"
         )
+
+
+# ---------------------------------------------------------------------------
+# Round 3 — proof re-run findings (2026-10-24, matter 01439f8a)
+# ---------------------------------------------------------------------------
+
+
+class TestPackNominationBindings:
+    def test_all_nomination_bindings_use_db_allowed_types(self) -> None:
+        """The nominations table CHECK allows only guardian / trustee /
+        executor / financial_agent / healthcare_agent. The us-va pack
+        bound poa_agent.* and successor_trustee.* — every save touching
+        those keys died with a 500 (the insert error poisoned the
+        transaction even though the sync swallowed the exception)."""
+        from app.domains.legal_content.pack_loader import get_pack
+
+        pack = get_pack("US-VA")
+        allowed = {"guardian", "trustee", "executor", "financial_agent", "healthcare_agent"}
+        bad = []
+        from app.domains.intake import question_sets as qs
+
+        for _, _, q in qs.iter_questions(pack.question_sets):
+            maps_to = q.get("maps_to") or ""
+            if isinstance(maps_to, str) and maps_to.startswith("nominations."):
+                parts = maps_to.split(".")
+                if len(parts) == 3 and parts[1] not in allowed:
+                    bad.append((q.get("key"), maps_to))
+        assert bad == []
+
+
+class TestNominationSyncSavepoint:
+    def test_failed_insert_cannot_poison_the_save(self, monkeypatch) -> None:
+        """A nomination insert that raises must roll back to a savepoint
+        so the surrounding answer-save transaction stays usable, and the
+        sync must continue with the next answer."""
+        from app.domains.intake import service as intake_service
+
+        statements: list[str] = []
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                statements.append(str(sql))
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+        monkeypatch.setattr(
+            intake_service, "_ensure_person_for_name",
+            lambda conn, household_id, name: {"id": "11111111-1111-1111-1111-111111111111"},
+        )
+        import app.domains.nominations.repository as nom_repo
+
+        monkeypatch.setattr(nom_repo, "list_nominations", lambda conn, mid: [])
+        inserted: list[str] = []
+
+        def fake_insert(conn, **kw):
+            inserted.append(kw["nomination_type"])
+            if kw["nomination_type"] == "trustee":
+                raise RuntimeError("check constraint violated")
+
+        monkeypatch.setattr(nom_repo, "insert_nomination", fake_insert)
+
+        class FakePack:
+            question_sets = {
+                "s": {"sections": [{"questions": [
+                    {"key": "successor_trustee_person", "type": "person",
+                     "maps_to": "nominations.trustee.1"},
+                    {"key": "primary_guardian_person", "type": "person",
+                     "maps_to": "nominations.guardian.1"},
+                ]}]}
+            }
+
+        from uuid import uuid4
+
+        intake_service._sync_nominations_from_answers(
+            FakeConn(),
+            matter_id=uuid4(), household_id=uuid4(), firm_id=uuid4(),
+            actor_id=uuid4(),
+            answers={
+                "successor_trustee_person": "Amit Sharma",
+                "primary_guardian_person": "Amit Sharma",
+            },
+            pack=FakePack(),
+        )
+        # Both inserts were attempted (failure did not abort the loop)…
+        assert inserted == ["trustee", "guardian"]
+        # …and the failed one was rolled back to a savepoint.
+        assert any("ROLLBACK TO SAVEPOINT" in s for s in statements)
+
+
+class TestOverallProgress:
+    def test_overall_sums_sets_and_uses_required_pct(self) -> None:
+        from app.domains.intake.question_sets import (
+            QuestionSetProgress,
+            build_overall_progress,
+        )
+
+        per_set = {
+            "a": QuestionSetProgress(total_questions=10, answered=5, required_total=8, required_answered=4, percent_complete=50.0),
+            "b": QuestionSetProgress(total_questions=4, answered=4, required_total=4, required_answered=4, percent_complete=100.0),
+        }
+        overall = build_overall_progress(per_set, 66.67)
+        assert overall.total_questions == 14
+        assert overall.answered == 9
+        assert overall.required_total == 12
+        assert overall.required_answered == 8
+        assert overall.percent_complete == 66.67
+
+
+class TestSelfDescribingAnswers:
+    def test_user_message_naming_the_role_drives_person_fallback(self) -> None:
+        """Misaligned turn (the assistant's last message was about
+        bequests): the user's own words name the backup-executor role,
+        and the nominee is the span before the 'if … cannot' clause."""
+        from app.domains.interview.service import _deterministic_person_proposal
+
+        qs = _questions()
+        qs["household"]["sections"][0]["questions"].append(
+            {"key": "backup_executor_person", "type": "person",
+             "label": "Who should serve as executor if your first choice cannot?"}
+        )
+        result = _deterministic_person_proposal(
+            user_message=(
+                "Amit Sharma, my brother, should serve as backup executor "
+                "if Priya Sharma cannot serve."
+            ),
+            assistant_reply=(
+                "Thanks — I've recorded that. Next: Do you have any specific "
+                "bequests you'd like to make?"
+            ),
+            question_sets=qs,
+            existing_proposal_keys={"primary_executor_person"},
+        )
+        assert result is not None
+        assert result["question_key"] == "backup_executor_person"
+        assert result["value"] == "Amit Sharma"
+
+    def test_user_message_naming_the_topic_drives_boolean_fallback(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        qs = _questions()
+        qs["household"]["sections"][0]["questions"].append(
+            {"key": "has_specific_bequests", "type": "boolean",
+             "label": "Do you have any specific bequests?"}
+        )
+        result = _deterministic_boolean_proposal(
+            user_message="No, we do not have any specific bequests.",
+            assistant_reply="Who are the residuary beneficiaries?",
+            question_sets=qs,
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "has_specific_bequests"
+        assert result["value"] is False

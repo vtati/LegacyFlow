@@ -128,8 +128,14 @@ function buildNextSteps(
 function MatterPlanCard({ plan }: { plan: MatterPlan }) {
   const { matter } = plan;
   const required = plan.progress?.overall;
+  // The API's completeness_pct is the required-answered share — the same
+  // figure the interview and firm views show. (progress.overall was
+  // missing from the API response entirely until 2026-10-24, which is
+  // why this card silently fell back to the stale stored column.)
   const displayPct =
-    required != null ? Math.round(required.percent_complete) : matter.completeness_pct;
+    plan.progress != null
+      ? Math.round(plan.progress.completeness_pct)
+      : matter.completeness_pct;
 
   return (
     <Card>

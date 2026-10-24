@@ -248,27 +248,34 @@ def _deterministic_boolean_proposal(
     # can match: the fallback fires only when exactly ONE undecided boolean
     # question matches — attribution by coin flip fabricated values in the
     # 2026-10-24 E2E run.
-    reply_lower = assistant_reply.lower()
-    candidates: list[str] = []
-    for _, _, question in qs.iter_questions(question_sets):
-        if question.get("type") != "boolean":
-            continue
-        key = str(question["key"])
-        if key in existing_proposal_keys:
-            continue
-        label = str(question.get("label") or "")
-        # Match on significant words from the label (skip stopwords).
-        label_words = [
-            w for w in re.findall(r"\w+", label.lower())
-            if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
-        ]
-        if not label_words:
-            continue
-        # Require at least 2 significant words to match (avoid false positives).
-        matches = sum(1 for w in label_words if w in reply_lower)
-        if matches >= 2 and matches >= len(label_words) * 0.5:
-            candidates.append(key)
+    def _candidates(context_lower: str) -> list[str]:
+        found: list[str] = []
+        for _, _, question in qs.iter_questions(question_sets):
+            if question.get("type") != "boolean":
+                continue
+            key = str(question["key"])
+            if key in existing_proposal_keys:
+                continue
+            label = str(question.get("label") or "")
+            # Match on significant words from the label (skip stopwords).
+            label_words = [
+                w for w in re.findall(r"\w+", label.lower())
+                if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
+            ]
+            if not label_words:
+                continue
+            # Require at least 2 significant words to match (avoid false positives).
+            matches = sum(1 for w in label_words if w in context_lower)
+            if matches >= 2 and matches >= len(label_words) * 0.5:
+                found.append(key)
+        return found
 
+    candidates = _candidates(assistant_reply.lower())
+    if len(candidates) != 1:
+        # Second channel: the user's own words name the topic ("No, we do
+        # not have any specific bequests") — vital when turns drift out of
+        # alignment and the last assistant message was about another item.
+        candidates = _candidates(user_message.lower())
     if len(candidates) != 1:
         return None
     asked_key = candidates[0]
@@ -373,6 +380,27 @@ def _extract_person_name(text: str) -> str | None:
             "executor", "trustee", "agent", "should be", "will be",
         )
     )
+    if nomination_hint and re.search(r"\sif\s", stripped, flags=re.IGNORECASE):
+        # "Amit Sharma, my brother, should serve as backup executor if
+        # Priya Sharma cannot." names two people; the nominee is the
+        # name span in the main clause, before the conditional. This
+        # runs before the comma guard below on purpose: the appositive
+        # comma in such answers is not a descriptive list.
+        head = re.split(r"\s+if\s+", stripped, maxsplit=1, flags=re.IGNORECASE)[0]
+        head_spans: list[str] = []
+        run = []
+        for w in head.split():
+            cw = _clean(w)
+            if _is_name_word(cw):
+                run.append(cw)
+            else:
+                if 2 <= len(run) <= 3:
+                    head_spans.append(" ".join(run))
+                run = []
+        if 2 <= len(run) <= 3:
+            head_spans.append(" ".join(run))
+        if len(head_spans) == 1:
+            return head_spans[0]
     if not nomination_hint or "," in stripped or ":" in stripped:
         return None
     spans: list[str] = []
@@ -520,58 +548,59 @@ def _deterministic_person_proposal(
 
     from app.domains.intake import question_sets as qs
 
-    reply_lower = assistant_reply.lower()
     roles = ("guardian", "executor", "trustee", "agent")
-    # The assistant's message typically ACKNOWLEDGES the previous topic
-    # and then ASKS the next question in the final sentence. Role and
-    # qualifier words are therefore scoped to the tail sentence whenever
-    # it names a role: "backup" in an executor acknowledgement must not
-    # select the backup GUARDIAN for a primary-guardian question.
-    sentences = [seg for seg in re.split(r"[.!?]+", reply_lower) if seg.strip()]
-    tail = sentences[-1] if sentences else reply_lower
-    tail_roles = {r for r in roles if r in tail}
-    if tail_roles:
-        reply_roles = tail_roles
-        qualified_reply = any(
-            q in tail for q in ("backup", "alternate", "successor", "secondary")
-        )
-    else:
-        reply_roles = {r for r in roles if r in reply_lower}
-        qualified_reply = any(
-            q in reply_lower for q in ("backup", "alternate", "successor", "secondary")
-        )
 
-    candidates: list[str] = []
-    for _, _, question in qs.iter_questions(question_sets):
-        if question.get("type") != "person":
-            continue
-        key = str(question.get("key", ""))
-        if key in existing_proposal_keys:
-            continue
-        label = str(question.get("label") or "")
-        key_words = [w for w in key.split("_") if len(w) > 3]
-        label_words = [
-            w for w in re.findall(r"\w+", label.lower())
-            if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that", "who"}
+    def _candidates_for(context_text: str) -> list[str]:
+        ctx = context_text.lower()
+        sentences = [seg for seg in re.split(r"[.!?]+", ctx) if seg.strip()]
+        tail = sentences[-1] if sentences else ctx
+        tail_roles = {r for r in roles if r in tail}
+        if tail_roles:
+            ctx_roles = tail_roles
+            qualified_ctx = any(
+                q in tail for q in ("backup", "alternate", "successor", "secondary")
+            )
+        else:
+            ctx_roles = {r for r in roles if r in ctx}
+            qualified_ctx = any(
+                q in ctx for q in ("backup", "alternate", "successor", "secondary")
+            )
+        found: list[str] = []
+        for _, _, question in qs.iter_questions(question_sets):
+            if question.get("type") != "person":
+                continue
+            key = str(question.get("key", ""))
+            if key in existing_proposal_keys:
+                continue
+            label = str(question.get("label") or "")
+            key_words = [w for w in key.split("_") if len(w) > 3]
+            label_words = [
+                w for w in re.findall(r"\w+", label.lower())
+                if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that", "who"}
+            ]
+            key_matches = sum(1 for w in key_words if w in ctx)
+            label_matches = sum(1 for w in label_words if w in ctx)
+            key_roles = {r for r in roles if r in key}
+            role_match = bool(key_roles & ctx_roles)
+            if role_match or label_matches >= 2 or (key_matches >= 1 and label_matches >= 2):
+                found.append(key)
+        qualified = [
+            k for k in found
+            if any(q in k for q in ("backup", "alternate", "successor", "secondary"))
         ]
-        key_matches = sum(1 for w in key_words if w in reply_lower)
-        label_matches = sum(1 for w in label_words if w in reply_lower)
-        key_roles = {r for r in roles if r in key}
-        role_match = bool(key_roles & reply_roles)
-        if role_match or label_matches >= 2 or (key_matches >= 1 and label_matches >= 1):
-            candidates.append(key)
+        primary = [k for k in found if k not in qualified]
+        if qualified_ctx and qualified:
+            found = qualified
+        elif not qualified_ctx and primary:
+            found = primary
+        return found
 
-    # Primary vs backup: the qualifier in the message decides.
-    qualified = [
-        k for k in candidates
-        if any(q in k for q in ("backup", "alternate", "successor", "secondary"))
-    ]
-    primary = [k for k in candidates if k not in qualified]
-    if qualified_reply and qualified:
-        candidates = qualified
-    elif not qualified_reply and primary:
-        candidates = primary
-
+    candidates = _candidates_for(assistant_reply)
+    if len(candidates) != 1:
+        # Second channel: the user's own words name the role — vital when
+        # turns drift out of alignment and the last assistant message was
+        # about another item entirely.
+        candidates = _candidates_for(user_message)
     if len(candidates) != 1:
         return None
     asked_key = candidates[0]
@@ -619,25 +648,29 @@ def _deterministic_text_proposal(
     }:
         return None
 
-    reply_lower = assistant_reply.lower()
-    candidates: list[str] = []
-    for _, _, question in qs.iter_questions(question_sets):
-        if question.get("type") not in {"text", "notes"}:
-            continue
-        key = str(question["key"])
-        if key in existing_proposal_keys:
-            continue
-        label = str(question.get("label") or "")
-        label_words = [
-            w for w in re.findall(r"\w+", label.lower())
-            if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
-        ]
-        if not label_words:
-            continue
-        matches = sum(1 for w in label_words if w in reply_lower)
-        if matches >= 2 and matches >= len(label_words) * 0.5:
-            candidates.append(key)
+    def _candidates(context_lower: str) -> list[str]:
+        found: list[str] = []
+        for _, _, question in qs.iter_questions(question_sets):
+            if question.get("type") not in {"text", "notes"}:
+                continue
+            key = str(question["key"])
+            if key in existing_proposal_keys:
+                continue
+            label = str(question.get("label") or "")
+            label_words = [
+                w for w in re.findall(r"\w+", label.lower())
+                if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
+            ]
+            if not label_words:
+                continue
+            matches = sum(1 for w in label_words if w in context_lower)
+            if matches >= 2 and matches >= len(label_words) * 0.5:
+                found.append(key)
+        return found
 
+    candidates = _candidates(assistant_reply.lower())
+    if len(candidates) != 1:
+        candidates = _candidates(user_message.lower())
     if len(candidates) != 1:
         return None
 
