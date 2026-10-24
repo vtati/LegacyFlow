@@ -720,6 +720,51 @@ def _deterministic_text_proposal(
     }
 
 
+def _is_whole_message_copy(
+    *,
+    question_type: str,
+    value: Any,
+    user_message: str,
+    last_assistant_text: str,
+    question_label: str,
+) -> bool:
+    """True when a text/notes proposal merely copies the user's whole
+    (long, multi-topic) message into a field the assistant did not just
+    ask about — the model's laziest failure mode, and a poison card: the
+    open proposal blocks its key for the rest of the interview (A/B
+    run 1: the guardian paragraph became trust_marital_share). A genuine
+    single-topic answer the model faithfully copies is kept: its key WAS
+    the asked question."""
+    import re
+
+    if question_type not in {"text", "notes"}:
+        return False
+    if not isinstance(value, str):
+        return False
+    if len(user_message.split()) <= 25:
+        return False
+
+    def _norm(s: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9 ]", " ", s.lower()).split())
+
+    msg_norm = _norm(user_message)
+    val_norm = _norm(value)
+    if not val_norm or len(val_norm) < 0.9 * len(msg_norm):
+        return False
+    if val_norm not in msg_norm and msg_norm not in val_norm:
+        return False
+    label_words = [
+        w
+        for w in re.findall(r"\w+", question_label.lower())
+        if len(w) > 3
+        and w not in {"what", "does", "your", "with", "have", "this", "that"}
+    ]
+    asked = (
+        sum(1 for w in label_words if w in last_assistant_text.lower()) >= 2
+    )
+    return not asked
+
+
 def _answers_map(conn: Any, matter_id: UUID) -> dict[str, Any]:
     return {
         str(row["question_key"]): row["answer"] for row in intake_repo.list_answers(conn, matter_id)
@@ -1601,6 +1646,13 @@ def post_turn(
 
     # --- Validate proposals: known pack keys only; drop the rest loudly ---
     known_keys = qs.all_question_keys(pack.question_sets)
+    question_types = {
+        str(question.get("key")): str(question.get("type") or "")
+        for _, _, question in qs.iter_questions(pack.question_sets)
+    }
+    last_assistant_text = next(
+        (m.content for m in reversed(history) if m.role == "assistant"), ""
+    )
     valid_proposals = []
     for draft in response.proposals:
         if draft.question_key not in known_keys:
@@ -1613,6 +1665,19 @@ def post_turn(
         if draft.value is None or (isinstance(draft.value, str) and not draft.value.strip()):
             logger.warning(
                 "Dropping proposal for %r with empty value (session %s)",
+                draft.question_key,
+                session_id,
+            )
+            continue
+        if _is_whole_message_copy(
+            question_type=question_types.get(draft.question_key, ""),
+            value=draft.value,
+            user_message=message,
+            last_assistant_text=last_assistant_text,
+            question_label=question_labels.get(draft.question_key, ""),
+        ):
+            logger.warning(
+                "Dropping whole-message copy proposal for %r (session %s)",
                 draft.question_key,
                 session_id,
             )

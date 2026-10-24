@@ -726,3 +726,78 @@ class TestBundledMessageFallbacks:
         )
         assert result is not None
         assert result["question_key"] == "testator_street_address"
+
+
+class TestWholeMessageCopyGuard:
+    """The model sometimes 'extracts' a notes/text value by copying the
+    user's ENTIRE multi-topic paragraph into an unrelated field (live
+    A/B run 1: the guardian paragraph became trust_marital_share and the
+    stuck-open card blocked the key for the rest of the interview).
+    Whole-message copies for a key the assistant did not just ask about
+    are dropped at proposal validation."""
+
+    _PARAGRAPH = (
+        "My brother Amit Sharma should be the guardian for our children — "
+        "he is trusted, he is close to the children, and he shares our "
+        "values. If he can't serve, Neha Kapoor is the backup guardian."
+    )
+
+    def test_copy_for_unasked_key_is_dropped(self) -> None:
+        from app.domains.interview.service import _is_whole_message_copy
+
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=self._PARAGRAPH,
+            user_message=self._PARAGRAPH,
+            last_assistant_text="Who should care for your minor children if neither parent can?",
+            question_label="What share of the trust should go to your spouse outright, if any?",
+        ) is True
+
+    def test_copy_for_the_asked_key_is_kept(self) -> None:
+        from app.domains.interview.service import _is_whole_message_copy
+
+        msg = (
+            "For my living will: if I am terminally ill or permanently "
+            "unconscious, withhold life-sustaining treatment and keep me "
+            "on comfort care only, and I want no heroic measures at all."
+        )
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=msg,
+            user_message=msg,
+            last_assistant_text="Do you have wishes about life-prolonging treatment?",
+            question_label="Do you have wishes about life-prolonging treatment? For example, under what conditions?",
+        ) is False
+
+    def test_short_messages_are_never_dropped(self) -> None:
+        from app.domains.interview.service import _is_whole_message_copy
+
+        assert _is_whole_message_copy(
+            question_type="text",
+            value="123 Main Street",
+            user_message="123 Main Street",
+            last_assistant_text="What is your street address?",
+            question_label="What share of the trust should go to your spouse?",
+        ) is False
+
+    def test_partial_extraction_is_kept(self) -> None:
+        from app.domains.interview.service import _is_whole_message_copy
+
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value="trusted, close to the children, shares our values",
+            user_message=self._PARAGRAPH,
+            last_assistant_text="Who should care for your minor children?",
+            question_label="Why is this person the right guardian?",
+        ) is False
+
+    def test_non_text_types_are_never_dropped(self) -> None:
+        from app.domains.interview.service import _is_whole_message_copy
+
+        assert _is_whole_message_copy(
+            question_type="person",
+            value=self._PARAGRAPH,
+            user_message=self._PARAGRAPH,
+            last_assistant_text="Who should care for your minor children?",
+            question_label="What share of the trust should go to your spouse?",
+        ) is False
