@@ -8,8 +8,23 @@ in the packs and is retrieved per turn.
 
 from __future__ import annotations
 
+# The v5 section-order bullet, exactly as rendered. In a v6 cluster-focus
+# prompt it contradicts the cluster instruction, so the gap path swaps it
+# for cluster-order language (the no-gap path stays byte-for-byte v5).
+_SECTION_ORDER_BULLET = """- Follow the pack's section order: start with household, then guardians,
+  assets, executors, bequests, addresses, healthcare, POA, trust,
+  beneficiaries, and final wishes. Complete one section before moving to
+  the next. Do NOT jump to assets or bequests before household is done."""
+_CLUSTER_ORDER_BULLET = """- Follow the CLUSTER FOCUS below: finish the focus cluster's fields \
+before moving to another cluster. Do NOT jump to questions from other \
+clusters this turn."""
+
 PROMPT_TEMPLATE_NAME = "interview_system"
-PROMPT_TEMPLATE_VERSION = "v5"
+# v6 = v5 + the optional CLUSTER FOCUS section (Interview v2). Turns
+# without a cluster gap produce the v5 text byte-for-byte and are still
+# traced as v5 (PROMPT_TEMPLATE_VERSION_V5).
+PROMPT_TEMPLATE_VERSION = "v6"
+PROMPT_TEMPLATE_VERSION_V5 = "v5"
 
 
 def build_system_prompt(
@@ -21,6 +36,7 @@ def build_system_prompt(
     total_required: int,
     pending_proposal_keys: list[str] | None = None,
     answered_keys: list[str] | None = None,
+    cluster_gap: dict | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -32,13 +48,36 @@ def build_system_prompt(
     # "Still needed" excludes items already awaiting user confirmation, so the
     # model never has to cross-reference two lists to avoid re-asking.
     pending_set = set(pending)
-    still_needed = [k for k in missing_required_keys if k not in pending_set]
+    if cluster_gap is not None:
+        # v6: the state section lists ONLY the focus cluster's missing
+        # questions — the model asks one bundled question about these and
+        # nothing else this turn.
+        gap_keys = [str(q["key"]) for q in cluster_gap["questions"]]
+        still_needed = [k for k in gap_keys if k not in pending_set]
+    else:
+        still_needed = [k for k in missing_required_keys if k not in pending_set]
     still_needed_str = ", ".join(still_needed)
     pending_str = ", ".join(pending) if pending else "none"
     # APPROACH 2: Explicitly list answered keys so the model NEVER re-asks.
     answered = answered_keys or []
     answered_str = ", ".join(answered) if answered else "none"
-    return f"""\
+    cluster_block = ""
+    if cluster_gap is not None:
+        field_lines = "\n".join(
+            f"  * {q['label']} ({q['key']})" for q in cluster_gap["questions"]
+        )
+        cluster_block = f"""
+
+CLUSTER FOCUS: {cluster_gap['cluster']}
+- Ask ONE bundled question this turn covering up to 4 of the fields \
+below, grouped naturally into a single friendly question in plain \
+language — not a list of separate questions.
+- Fields needed now:
+{field_lines}
+- The user may answer several fields at once: record every value they \
+state for these fields. Do NOT ask about fields outside this list this \
+turn."""
+    text = f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \
 gather facts, organize them, explain general educational information from \
@@ -165,6 +204,9 @@ that reflects the FULL conversation, not just structured fields. If the \
 user named their executor/guardian/healthcare agent in conversation, \
 include those names even if the structured proposal is pending. NEVER say \
 "Not specified yet" for something the user discussed. NEVER say \
-"Not applicable" for guardians when the user has minor children.
+"Not applicable" for guardians when the user has minor children.{cluster_block}
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id})."""
+    if cluster_gap is not None:
+        text = text.replace(_SECTION_ORDER_BULLET, _CLUSTER_ORDER_BULLET)
+    return text

@@ -696,6 +696,120 @@ def _progress(pack: LoadedPack, answers: dict[str, Any]) -> tuple[float, list[st
     return completeness, missing, total_required, answered_required
 
 
+# Interview v2 cluster order (spec §Interview flow): the interview walks
+# these in order; within a cluster the model asks ONE bundled question.
+CLUSTER_ORDER: tuple[str, ...] = (
+    "identity", "children", "money", "wishes", "people", "agents", "trust", "final",
+)
+
+
+def _gate_keys_for_pending(
+    question_sets: Any, pending_keys: set[str]
+) -> set[str]:
+    """Question keys referenced by the applies_if expressions that keep
+    `pending_keys` pending (their gates)."""
+    exprs: list[str] = []
+    sets = (
+        question_sets.values()
+        if isinstance(question_sets, dict)
+        else question_sets
+    )
+    for question_set in sets:
+        for section in question_set.get("sections") or []:
+            section_expr = section.get("applies_if")
+            for question in section.get("questions") or []:
+                if str(question.get("key")) in pending_keys:
+                    if isinstance(section_expr, str):
+                        exprs.append(section_expr)
+                    question_expr = question.get("applies_if")
+                    if isinstance(question_expr, str):
+                        exprs.append(question_expr)
+    gates: set[str] = set()
+    for expr in exprs:
+        for kind, text in qs._tokenize_applies(expr):
+            if kind == "word" and text not in qs._APPLIES_KEYWORDS:
+                gates.add(text)
+    return gates
+
+
+def next_gap_cluster(
+    question_sets: Any, answers: dict[str, Any]
+) -> dict[str, Any] | None:
+    """The first cluster (in CLUSTER_ORDER) with unanswered work.
+
+    `question_sets` is the LoadedPack mapping (set id -> set dict), as
+    accepted by partition_questions / iter_questions.
+
+    Work = applicable-missing REQUIRED questions, plus unanswered gate
+    questions that pending content waits on (the document-choice gates —
+    without them the POA/healthcare sections can never become applicable).
+    Pruned questions never appear. Returns
+    {"cluster": name, "questions": [{"key", "label", "type"}]} or None when
+    every applicable required question is answered.
+    """
+    applicable, pending, _pruned = qs.partition_questions(question_sets, answers)
+    by_cluster: dict[str, list[dict[str, str]]] = {}
+    added: set[str] = set()
+
+    def _add(question: dict[str, Any]) -> None:
+        key = str(question.get("key"))
+        cluster = str(question.get("cluster") or "")
+        if cluster not in CLUSTER_ORDER or key in added:
+            return
+        if qs.is_answered(answers.get(key)):
+            return
+        added.add(key)
+        by_cluster.setdefault(cluster, []).append(
+            {
+                "key": key,
+                "label": str(question.get("label") or key),
+                "type": str(question.get("type") or "text"),
+            }
+        )
+
+    for _set_id, _section_id, question in applicable:
+        if question.get("required"):
+            _add(question)
+    if pending:
+        pending_keys = {str(q.get("key")) for _s, _sec, q in pending}
+        applicable_keys = {str(q.get("key")) for _s, _sec, q in applicable}
+        by_key = {
+            str(q.get("key")): q for _s, _sec, q in qs.iter_questions(question_sets)
+        }
+        for gate_key in _gate_keys_for_pending(question_sets, pending_keys):
+            gate_question = by_key.get(gate_key)
+            if gate_question is not None and gate_key in applicable_keys:
+                _add(gate_question)
+    for cluster in CLUSTER_ORDER:
+        if by_cluster.get(cluster):
+            return {"cluster": cluster, "questions": by_cluster[cluster]}
+    return None
+
+
+def _cluster_gap_for_turn(
+    conn: Any, *, firm_id: UUID, pack: LoadedPack, answers: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Cluster gap for this turn when the interview_v2 flag is on for the
+    matter's firm + pack; None (the v5 path) otherwise.
+
+    Fail-safe: a flag-read error must never break the turn — the interview
+    falls back to the proven v5 path (same best-effort posture as the
+    router's auto-confirm)."""
+    try:
+        enabled = feature_flags.is_enabled(
+            conn, "interview_v2", firm_id=firm_id, pack_id=pack.manifest.pack_id
+        )
+    except Exception:
+        logger.warning(
+            "interview_v2 flag read failed; falling back to the v5 prompt path",
+            exc_info=True,
+        )
+        return None
+    if not enabled:
+        return None
+    return next_gap_cluster(pack.question_sets, answers)
+
+
 def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> SessionOut:
     session_id = UUID(str(session["id"]))
     matter_id = UUID(str(session["matter_id"]))
@@ -1156,6 +1270,16 @@ def post_turn(
         question_labels=question_labels,
     )
     history = _history_messages(conn, session_id)
+    # Interview v2: with the flag on, the prompt focuses on ONE cluster's
+    # gap; off, the v5 path runs byte-for-byte (including its trace label).
+    cluster_gap = _cluster_gap_for_turn(
+        conn, firm_id=firm_id, pack=pack, answers=answers
+    )
+    prompt_version = (
+        prompts.PROMPT_TEMPLATE_VERSION
+        if cluster_gap is not None
+        else prompts.PROMPT_TEMPLATE_VERSION_V5
+    )
     system_prompt = prompts.build_system_prompt(
         pack_id=pack.manifest.pack_id,
         jurisdiction_code=pack.manifest.jurisdiction_code,
@@ -1164,6 +1288,7 @@ def post_turn(
         total_required=total_required,
         pending_proposal_keys=pending_keys,
         answered_keys=sorted(answers.keys()),
+        cluster_gap=cluster_gap,
     )
 
     provider = get_llm_provider()
@@ -1279,7 +1404,7 @@ def post_turn(
         model_id=settings.OPENAI_CHAT_MODEL if provider.name == "openai" else provider.name,
         model_version=None,
         prompt_template=prompts.PROMPT_TEMPLATE_NAME,
-        prompt_version=prompts.PROMPT_TEMPLATE_VERSION,
+        prompt_version=prompt_version,
         pack_version=version,
         tokens_in=response.usage.get("prompt_tokens"),
         tokens_out=response.usage.get("completion_tokens"),
@@ -1309,7 +1434,7 @@ def post_turn(
             confidence=draft.confidence,
             source_snippet=draft.source_snippet or None,
             model_id=provider.name,
-            prompt_version=prompts.PROMPT_TEMPLATE_VERSION,
+            prompt_version=prompt_version,
             pack_version=version,
         )
         proposal_out = _proposal_out(row)
