@@ -127,10 +127,10 @@ def insert_person(
     *,
     household_id: UUID,
     full_name: str,
-    date_of_birth: date | None,
-    email: str | None,
-    kind: str,
-    notes: str | None,
+    date_of_birth: date | None = None,
+    email: str | None = None,
+    kind: str = "adult",
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Insert a person; return the row."""
     with conn.cursor() as cur:

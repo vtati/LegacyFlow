@@ -9,7 +9,7 @@ in the packs and is retrieved per turn.
 from __future__ import annotations
 
 PROMPT_TEMPLATE_NAME = "interview_system"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v4"
 
 
 def build_system_prompt(
@@ -23,21 +23,21 @@ def build_system_prompt(
     answered_keys: list[str] | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
-    missing = ", ".join(missing_required_keys[:12])
-    more = f" (+{len(missing_required_keys) - 12} more)" if len(missing_required_keys) > 12 else ""
+    # State lists are NEVER truncated: a first-12 window hid every
+    # late-pack section (healthcare / POA / trust) from the model while
+    # early keys were stuck, which stalled the 2026-10-24 E2E interview
+    # at 29%. Key names are short; completeness beats brevity here.
+    missing = ", ".join(missing_required_keys)
     pending = pending_proposal_keys or []
     # "Still needed" excludes items already awaiting user confirmation, so the
     # model never has to cross-reference two lists to avoid re-asking.
     pending_set = set(pending)
     still_needed = [k for k in missing_required_keys if k not in pending_set]
-    still_needed_str = ", ".join(still_needed[:12])
-    still_more = f" (+{len(still_needed) - 12} more)" if len(still_needed) > 12 else ""
-    pending_str = ", ".join(pending[:12]) if pending else "none"
-    pending_more = f" (+{len(pending) - 12} more)" if len(pending) > 12 else ""
+    still_needed_str = ", ".join(still_needed)
+    pending_str = ", ".join(pending) if pending else "none"
     # APPROACH 2: Explicitly list answered keys so the model NEVER re-asks.
     answered = answered_keys or []
-    answered_str = ", ".join(answered[:20]) if answered else "none"
-    answered_more = f" (+{len(answered) - 20} more)" if len(answered) > 20 else ""
+    answered_str = ", ".join(answered) if answered else "none"
     return f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \
@@ -92,11 +92,11 @@ estate plan, then ask the specific question.
 
 INTERVIEW STATE:
 - Progress: {answered_required} of {total_required} required items complete.
-- Still needed: {still_needed_str}{still_more}.
+- Still needed: {still_needed_str}.
 - Awaiting user confirmation (do NOT re-ask about these — the user sees \
-them as review cards): {pending_str}{pending_more}.
+them as review cards): {pending_str}.
 - ALREADY ANSWERED (NEVER re-ask about these under any circumstances): \
-{answered_str}{answered_more}.
+{answered_str}.
 
 CRITICAL — NEVER REPEAT QUESTIONS:
 - If a question key appears in "ALREADY ANSWERED" or "Awaiting user \

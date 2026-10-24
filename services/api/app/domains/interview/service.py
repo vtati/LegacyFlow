@@ -184,23 +184,44 @@ _NO_PATTERNS = (
     r"\bwe don'?t\b",
     r"\bdo not expect\b",
     r"\bdon'?t expect\b",
+    # General negation forms. These MUST be checked before the YES
+    # patterns: "\bi do\b" / "\bwe do\b" match inside "I do not..." /
+    # "We do not...", which inverted three "No" answers to Yes @0.95 in
+    # the 2026-10-24 E2E run.
+    r"\bdo not\b",
+    r"\bdon'?t\b",
+    r"\bdoes not\b",
+    r"\bdo not have\b",
+    r"\bnot expect\b",
 )
 
 
 def _parse_yes_no(text: str) -> bool | None:
-    """Parse a clear yes/no answer. Returns True/False or None if ambiguous."""
+    """Parse a clear yes/no answer. Returns True/False or None if ambiguous.
+
+    Scoped to the FIRST clause: real answers are compound ("Yes, I do own
+    one, and I don't expect any conflicts."), so a negation in a trailing
+    clause about another topic must not flip a leading explicit Yes —
+    and a leading "No, we do not..." must not be flipped by the "we do"
+    inside it. Within one clause, negation wins over affirmation
+    ("I do not have one." is a No).
+    """
     import re
 
     lowered = text.lower().strip()
-    for pattern in _YES_PATTERNS:
-        if re.search(pattern, lowered):
-            # Guard against "yes, but..." hedges — still counts as yes
-            # unless followed by a clear negation.
-            return True
-    for pattern in _NO_PATTERNS:
-        if re.search(pattern, lowered):
+
+    def _scan(segment: str) -> bool | None:
+        if any(re.search(pat, segment) for pat in _NO_PATTERNS):
             return False
-    return None
+        if any(re.search(pat, segment) for pat in _YES_PATTERNS):
+            return True
+        return None
+
+    first_clause = re.split(r"[.!?;,]|\bbut\b|\band\b", lowered, maxsplit=1)[0].strip()
+    scoped = _scan(first_clause)
+    if scoped is not None:
+        return scoped
+    return _scan(lowered)
 
 
 def _deterministic_boolean_proposal(
@@ -222,11 +243,18 @@ def _deterministic_boolean_proposal(
     from app.domains.intake import question_sets as qs
 
     # Find which boolean question was asked last by matching the assistant's
-    # reply against question labels.
+    # reply against question labels. The previous assistant message usually
+    # acknowledges the last topic AND asks the next one, so several labels
+    # can match: the fallback fires only when exactly ONE undecided boolean
+    # question matches — attribution by coin flip fabricated values in the
+    # 2026-10-24 E2E run.
     reply_lower = assistant_reply.lower()
-    asked_key: str | None = None
+    candidates: list[str] = []
     for _, _, question in qs.iter_questions(question_sets):
         if question.get("type") != "boolean":
+            continue
+        key = str(question["key"])
+        if key in existing_proposal_keys:
             continue
         label = str(question.get("label") or "")
         # Match on significant words from the label (skip stopwords).
@@ -239,13 +267,11 @@ def _deterministic_boolean_proposal(
         # Require at least 2 significant words to match (avoid false positives).
         matches = sum(1 for w in label_words if w in reply_lower)
         if matches >= 2 and matches >= len(label_words) * 0.5:
-            asked_key = str(question["key"])
-            break
+            candidates.append(key)
 
-    if asked_key is None:
+    if len(candidates) != 1:
         return None
-    if asked_key in existing_proposal_keys:
-        return None
+    asked_key = candidates[0]
 
     value = _parse_yes_no(user_message)
     if value is None:
@@ -254,45 +280,116 @@ def _deterministic_boolean_proposal(
     return {
         "question_key": asked_key,
         "value": value,
-        "confidence": 0.95,
+        # Below the 0.9 auto-confirm threshold ON PURPOSE: a deterministic
+        # guess is always human-reviewed, never silently written.
+        "confidence": 0.80,
         "source_snippet": user_message.strip()[:500],
     }
 
 
 def _extract_person_name(text: str) -> str | None:
-    """Extract a person name from user message. Returns the name or None.
+    """Extract a person name from a user message. Returns the name or None.
 
-    Only triggers for short, name-like messages. Rejects sentences to avoid
-    extracting names from descriptive answers (e.g. "We have three children:
-    Aarav, Diya...").
+    Two accepted shapes:
+    - a bare name ("Priya Sharma", "Amit Sharma"), or
+    - a short nomination sentence carrying exactly ONE two-word
+      capitalized name span ("My wife Priya Sharma should be executor.").
+      Real users answer in sentences; the 2026-10-24 E2E run showed the
+      old bare-name-only rule silently dropped backup guardian/executor
+      answers whenever the model also skipped its tool call.
+
+    Rejected: place names (US states, address words), descriptive
+    multi-name text ("We have three children: Aarav, Diya..."), and any
+    span containing a non-name word. Every extraction lands on a
+    human-reviewed proposal card at 0.80 confidence, so a rare miss is
+    visible and correctable — a dropped answer is neither.
     """
     import re
 
     stripped = text.strip().rstrip(".")
-    words = stripped.split()
-    # A name answer is short: 1-4 words. Longer text is a sentence, not a name.
-    if len(words) > 4:
+    if not stripped:
         return None
-    # All words should be capitalized (names), allowing for middle initials.
-    # Reject common non-name words.
+
     non_name_words = {
         "we", "i", "my", "the", "a", "an", "no", "yes", "not", "have",
         "has", "had", "are", "is", "was", "were", "be", "been",
     }
-    cleaned_words = []
-    for w in words:
-        w_clean = re.sub(r"[^A-Za-z]", "", w)
-        if not w_clean:
-            continue
-        if w_clean.lower() in non_name_words:
-            return None
-        if not w_clean[0].isupper():
-            return None
-        cleaned_words.append(w_clean)
-    if len(cleaned_words) < 1 or len(cleaned_words) > 4:
+    # Places are not people: "Texas." became Primary Executor @0.90 in
+    # the 2026-10-24 E2E run because any capitalized word passed.
+    place_words = {
+        "texas", "california", "florida", "virginia", "austin", "houston",
+        "dallas", "street", "avenue", "road", "drive", "lane", "city",
+        "state", "states", "america", "english",
+    }
+    us_states = {
+        "alabama", "alaska", "arizona", "arkansas", "california",
+        "colorado", "connecticut", "delaware", "florida", "georgia",
+        "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas",
+        "kentucky", "louisiana", "maine", "maryland", "massachusetts",
+        "michigan", "minnesota", "mississippi", "missouri", "montana",
+        "nebraska", "nevada", "hampshire", "jersey", "mexico", "carolina",
+        "dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode",
+        "island", "tennessee", "texas", "utah", "vermont", "virginia",
+        "washington", "wisconsin", "wyoming", "york", "columbia",
+    }
+    blocked = non_name_words | place_words | us_states
+
+    def _clean(word: str) -> str:
+        return re.sub(r"[^A-Za-z]", "", word)
+
+    def _is_name_word(word: str) -> bool:
+        return bool(word) and word[0].isupper() and word.lower() not in blocked
+
+    words = stripped.split()
+
+    # Bare-name shape: 1-4 words, all capitalized name words. A SINGLE
+    # token gets a wider blocklist (major cities, greetings, meta words):
+    # "Denver." or "Hello." is not a person, and single tokens carry no
+    # corroborating second word.
+    single_token_blocked = blocked | {
+        "denver", "chicago", "boston", "phoenix", "seattle", "portland",
+        "atlanta", "miami", "york", "angeles", "vegas", "orleans",
+        "hello", "thanks", "okay", "sure", "right", "correct", "morning",
+        "afternoon", "evening", "today", "tomorrow", "none", "nobody",
+        "nothing", "everything", "something", "someone", "anyone",
+    }
+    if len(words) <= 4 and all(_is_name_word(_clean(w)) for w in words if _clean(w)):
+        cleaned = [_clean(w) for w in words if _clean(w)]
+        if 1 <= len(cleaned) <= 4:
+            if len(cleaned) == 1 and cleaned[0].lower() in single_token_blocked:
+                return None
+            return " ".join(cleaned)
+
+    # Sentence shape: exactly one run of exactly two capitalized name
+    # words, and the text must read like a nomination (a relation word,
+    # a role word, or a naming verb) — otherwise it is descriptive prose
+    # for the model's own extraction, not the fallback.
+    lowered = stripped.lower()
+    nomination_hint = any(
+        hint in lowered
+        for hint in (
+            "my wife", "my husband", "my brother", "my sister", "my mother",
+            "my father", "my friend", "my son", "my daughter", "guardian",
+            "executor", "trustee", "agent", "should be", "will be",
+        )
+    )
+    if not nomination_hint or "," in stripped or ":" in stripped:
         return None
-    # Single word is OK (first name only), but prefer 2+.
-    return " ".join(cleaned_words)
+    spans: list[str] = []
+    run: list[str] = []
+    for w in words:
+        cw = _clean(w)
+        if _is_name_word(cw):
+            run.append(cw)
+        else:
+            if 2 <= len(run) <= 3:
+                spans.append(" ".join(run))
+            run = []
+    if 2 <= len(run) <= 3:
+        spans.append(" ".join(run))
+    if len(spans) == 1:
+        return spans[0]
+    return None
 
 
 def _next_adaptive_question(
@@ -409,45 +506,75 @@ def _deterministic_person_proposal(
     existing_proposal_keys: set[str],
 ) -> dict[str, Any] | None:
     """Deterministic fallback: if the model asked a person-name question and
-    the user gave a name, but no proposal was emitted, create one."""
+    the user gave a name, but no proposal was emitted, create one.
+
+    Discipline (hardened after the 2026-10-24 E2E fabrication, where
+    "Texas." became Primary Executor @0.90): the role named in the
+    assistant's message must match the question's role; "backup /
+    alternate / successor" qualifiers in the message select the
+    qualified key (and their absence selects the primary key); and the
+    fallback fires only when exactly ONE undecided person question
+    matches — otherwise it abstains and lets the model/checklist drive.
+    """
     import re
 
     from app.domains.intake import question_sets as qs
 
     reply_lower = assistant_reply.lower()
-    asked_key: str | None = None
+    roles = ("guardian", "executor", "trustee", "agent")
+    # The assistant's message typically ACKNOWLEDGES the previous topic
+    # and then ASKS the next question in the final sentence. Role and
+    # qualifier words are therefore scoped to the tail sentence whenever
+    # it names a role: "backup" in an executor acknowledgement must not
+    # select the backup GUARDIAN for a primary-guardian question.
+    sentences = [seg for seg in re.split(r"[.!?]+", reply_lower) if seg.strip()]
+    tail = sentences[-1] if sentences else reply_lower
+    tail_roles = {r for r in roles if r in tail}
+    if tail_roles:
+        reply_roles = tail_roles
+        qualified_reply = any(
+            q in tail for q in ("backup", "alternate", "successor", "secondary")
+        )
+    else:
+        reply_roles = {r for r in roles if r in reply_lower}
+        qualified_reply = any(
+            q in reply_lower for q in ("backup", "alternate", "successor", "secondary")
+        )
+
+    candidates: list[str] = []
     for _, _, question in qs.iter_questions(question_sets):
         if question.get("type") != "person":
             continue
         key = str(question.get("key", ""))
+        if key in existing_proposal_keys:
+            continue
         label = str(question.get("label") or "")
-        # Match on key words (e.g. "guardian" in "primary_guardian_person")
-        # AND label words, since the model paraphrases the question.
         key_words = [w for w in key.split("_") if len(w) > 3]
         label_words = [
             w for w in re.findall(r"\w+", label.lower())
             if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that", "who"}
         ]
-        # Check key words in reply (e.g. "guardian" appears in both)
         key_matches = sum(1 for w in key_words if w in reply_lower)
         label_matches = sum(1 for w in label_words if w in reply_lower)
-        # For role-based person questions, the role word (guardian/executor/
-        # trustee) is distinctive enough on its own, since the model
-        # paraphrases the pack label.
-        if any(w in reply_lower for w in ("guardian", "executor", "trustee")) and any(
-            w in key_words for w in ("guardian", "executor", "trustee")
-        ):
-            asked_key = key
-            break
-        # Match if key word appears AND at least one label word, or vice versa
-        if (key_matches >= 1 and label_matches >= 1) or label_matches >= 2:
-            asked_key = key
-            break
+        key_roles = {r for r in roles if r in key}
+        role_match = bool(key_roles & reply_roles)
+        if role_match or label_matches >= 2 or (key_matches >= 1 and label_matches >= 1):
+            candidates.append(key)
 
-    if asked_key is None:
+    # Primary vs backup: the qualifier in the message decides.
+    qualified = [
+        k for k in candidates
+        if any(q in k for q in ("backup", "alternate", "successor", "secondary"))
+    ]
+    primary = [k for k in candidates if k not in qualified]
+    if qualified_reply and qualified:
+        candidates = qualified
+    elif not qualified_reply and primary:
+        candidates = primary
+
+    if len(candidates) != 1:
         return None
-    if asked_key in existing_proposal_keys:
-        return None
+    asked_key = candidates[0]
 
     name = _extract_person_name(user_message)
     if name is None:
@@ -456,8 +583,70 @@ def _deterministic_person_proposal(
     return {
         "question_key": asked_key,
         "value": name,
-        "confidence": 0.90,
+        # Below the 0.9 auto-confirm threshold ON PURPOSE: a deterministic
+        # guess is always human-reviewed, never silently written.
+        "confidence": 0.80,
         "source_snippet": user_message.strip()[:500],
+    }
+
+
+def _deterministic_text_proposal(
+    *,
+    user_message: str,
+    assistant_reply: str,
+    question_sets: dict[str, dict[str, Any]],
+    existing_proposal_keys: set[str],
+) -> dict[str, Any] | None:
+    """Deterministic fallback for text/notes questions: for these
+    types the user's answer IS the value (an address, a residuary note).
+    Select types are deliberately excluded — their values are pack
+    option codes, and raw prose stored as a select answer corrupts the
+    facts model while looking "answered".
+    They previously had no fallback at all — when the model skipped its
+    tool call, the answer vanished and progress froze (2026-10-24 E2E).
+    Fires only for exactly one undecided matching question, and never
+    for a question back, a greeting, or a one-word reply.
+    """
+    import re
+
+    from app.domains.intake import question_sets as qs
+
+    message = user_message.strip()
+    if len(message) < 3 or message.endswith("?"):
+        return None
+    if message.lower().rstrip(".!") in {
+        "hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "yes", "no",
+    }:
+        return None
+
+    reply_lower = assistant_reply.lower()
+    candidates: list[str] = []
+    for _, _, question in qs.iter_questions(question_sets):
+        if question.get("type") not in {"text", "notes"}:
+            continue
+        key = str(question["key"])
+        if key in existing_proposal_keys:
+            continue
+        label = str(question.get("label") or "")
+        label_words = [
+            w for w in re.findall(r"\w+", label.lower())
+            if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that"}
+        ]
+        if not label_words:
+            continue
+        matches = sum(1 for w in label_words if w in reply_lower)
+        if matches >= 2 and matches >= len(label_words) * 0.5:
+            candidates.append(key)
+
+    if len(candidates) != 1:
+        return None
+
+    return {
+        "question_key": candidates[0],
+        "value": message[:2000],
+        # Below the 0.9 auto-confirm threshold ON PURPOSE: human-reviewed.
+        "confidence": 0.80,
+        "source_snippet": message[:500],
     }
 
 
@@ -987,10 +1176,18 @@ def post_turn(
         existing_keys = set(pending_keys)
         # Also include keys from valid_proposals (they'll become pending).
         proposed_keys = {p.question_key for p in valid_proposals}
-        all_covered = existing_keys | proposed_keys
+        # Answered and already-decided keys are covered too: re-proposing
+        # them is what made the interview loop and resurrected rejected
+        # fabrications in the 2026-10-24 E2E run.
+        decided_keys = repo.decided_proposal_keys(conn, session_id)
+        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys
 
-        # Try boolean fallback first, then person-name fallback.
-        for fallback_fn in (_deterministic_boolean_proposal, _deterministic_person_proposal):
+        # Try boolean fallback first, then person-name, then text/notes.
+        for fallback_fn in (
+            _deterministic_boolean_proposal,
+            _deterministic_person_proposal,
+            _deterministic_text_proposal,
+        ):
             fallback = fallback_fn(
                 user_message=message,
                 assistant_reply=last_assistant_msg,
@@ -1014,7 +1211,11 @@ def post_turn(
                     fallback["value"],
                     session_id,
                 )
-                break
+                # A single message can carry several facts ("No, and my
+                # brother Amit Sharma is the backup executor") — let the
+                # remaining fallbacks run for OTHER keys instead of
+                # stopping at the first hit.
+                all_covered.add(fallback["question_key"])
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
     _store_turn(
@@ -1220,6 +1421,10 @@ def _replay_turn(
             source=str(row["source"]),
             confidence=float(row["confidence"]) if row["confidence"] is not None else None,
             source_snippet=row["source_snippet"],
+            # Carry the row's REAL status: defaulting to "proposed" made
+            # the router's auto-confirm resurrect rejected/corrected
+            # values into intake answers on idempotent replays.
+            status=str(row["status"]),
         )
         for row in repo.list_proposals_by_turn(conn, turn_id)
     ]

@@ -86,6 +86,9 @@ class ProposalDraftOut(BaseModel):
     source: str
     confidence: float | None
     source_snippet: str | None
+    # The router's auto-confirm reads/updates this; without the field it
+    # raised AttributeError (swallowed) and never ran (found 2026-10-24).
+    status: str = "proposed"
 
 
 class TurnOut(BaseModel):

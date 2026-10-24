@@ -1664,9 +1664,14 @@ class TestInterviewAgentContextFixes:
 
     def test_prompt_version_bumped(self) -> None:
         from app.domains.interview.prompts import PROMPT_TEMPLATE_VERSION
-        assert PROMPT_TEMPLATE_VERSION == "v3"
+        # v4 (2026-10-24): state lists are no longer truncated — the
+        # first-12 window hid late-pack sections from the model.
+        assert PROMPT_TEMPLATE_VERSION == "v4"
 
-    def test_prompt_pending_truncation_shows_overflow(self) -> None:
+    def test_prompt_pending_lists_all_keys(self) -> None:
+        # CHANGED 2026-10-24: pending keys are listed in full — the old
+        # first-12 truncation (with a "(+N more)" overflow marker) hid
+        # undecided items from the model and contributed to re-asking.
         from app.domains.interview import prompts
         p = prompts.build_system_prompt(
             pack_id="us-va",
@@ -1676,7 +1681,8 @@ class TestInterviewAgentContextFixes:
             total_required=20,
             pending_proposal_keys=[f"key_{i}" for i in range(15)],
         )
-        assert "(+3 more)" in p
+        assert "key_14" in p
+        assert "(+3 more)" not in p
 
     def test_prompt_still_needed_excludes_pending(self) -> None:
         from app.domains.interview import prompts
@@ -1901,14 +1907,31 @@ class TestDeterministicPersonFallback:
         assert result["question_key"] == "primary_guardian_person"
         assert result["value"] == "Meera Nair"
 
-    def test_name_in_sentence_returns_none(self) -> None:
-        # Long descriptive answers are NOT handled by the fallback — the model's
-        # normal proposal flow handles those. The fallback only handles short
-        # name-like answers to prevent false extractions like "We Aarav Diya".
+    def test_name_in_sentence_creates_proposal(self) -> None:
+        # CHANGED 2026-10-24 (E2E evidence): real users answer in sentences,
+        # and the model's own tool call often never fires — the old
+        # bare-name-only rule silently dropped those answers and the
+        # interview looped. A short nomination sentence with exactly one
+        # two-word name span now extracts; the value still lands on a
+        # human-reviewed card at 0.80 confidence.
         from app.domains.interview.service import _deterministic_person_proposal
 
         result = _deterministic_person_proposal(
             user_message="My sister Meera Nair should be their guardian.",
+            assistant_reply="Who should care for your minor children if neither parent can?",
+            question_sets=self._questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["value"] == "Meera Nair"
+
+    def test_descriptive_multi_name_answer_returns_none(self) -> None:
+        # The original hazard stays guarded: descriptive text naming
+        # several people is NOT a nomination answer.
+        from app.domains.interview.service import _deterministic_person_proposal
+
+        result = _deterministic_person_proposal(
+            user_message="We have three children: Aarav, Diya, and Kabir.",
             assistant_reply="Who should care for your minor children if neither parent can?",
             question_sets=self._questions(),
             existing_proposal_keys=set(),

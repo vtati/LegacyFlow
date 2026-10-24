@@ -148,7 +148,7 @@ def _sync_nominations_from_answers(
                 )
             except Exception as e:
                 # Per-answer failures are best-effort; don't fail the save.
-                logger.warning("Failed to auto-create nomination for %s: %s", key, e)
+                logger.error("Failed to auto-create nomination for %s: %s", key, e)
     except Exception as e:
         # Sync is best-effort; never fail the answer save.
         logger.warning("Nomination sync failed: %s", e)
@@ -164,6 +164,75 @@ def get_question_sets(conn: Any, *, actor_sub: str, matter_id: UUID) -> Question
         pack_version=version,
         question_sets=pack.question_sets,
     )
+
+
+_TRUE_STRINGS = {"yes", "true", "y"}
+_FALSE_STRINGS = {"no", "false", "n"}
+
+
+def _coerce_answer_value(question: dict[str, Any], value: Any) -> Any:
+    """Coerce an answer to its pack question type.
+
+    The interview Edit-save path submits booleans as display strings
+    ("No"); storing them raw left string-typed booleans in
+    intake_answers (2026-10-24 E2E: three corrected booleans stored as
+    the string "No", which downstream rules read as truthy). Boolean
+    keys accept only bools or clear yes/no strings — anything else is
+    a validation error, never a silent store.
+    """
+    if value is None:
+        return None
+    if question.get("type") == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in _TRUE_STRINGS:
+                return True
+            if lowered in _FALSE_STRINGS:
+                return False
+        raise ValidationAppError(
+            f"Answer for {question.get('key')!r} must be yes or no."
+        )
+    return value
+
+
+def _coerce_answers_map(
+    questions_by_key: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+    *,
+    strict: bool,
+) -> dict[str, Any]:
+    """Coerce a whole answers map for save_answers.
+
+    Batch saves (the intake wizard autosaves the FULL map on every
+    change) must never be bricked by one legacy row: an unvalidated
+    value stored before coercion existed would otherwise fail every
+    subsequent save for the matter. In batch mode an uncoercible value
+    is dropped with an error log; single-key saves (proposal decisions,
+    auto-confirm) stay strict because the caller is acting on exactly
+    that value.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    out: dict[str, Any] = {}
+    for key, value in answers.items():
+        question = questions_by_key.get(key)
+        if question is None:
+            out[key] = value
+            continue
+        try:
+            out[key] = _coerce_answer_value(question, value)
+        except ValidationAppError:
+            if strict:
+                raise
+            logger.error(
+                "Dropping uncoercible legacy answer for %r (value type %s)",
+                key,
+                type(value).__name__,
+            )
+    return out
 
 
 def save_answers(
@@ -182,6 +251,12 @@ def save_answers(
     unknown = sorted(key for key in answers if key not in known_keys)
     if unknown:
         raise ValidationAppError(f"Unknown question key(s): {', '.join(unknown)}.")
+    questions_by_key = {
+        str(q.get("key")): q for _, _, q in qs.iter_questions(pack.question_sets)
+    }
+    answers = _coerce_answers_map(
+        questions_by_key, answers, strict=len(answers) <= 1
+    )
     repo.upsert_answers(conn, matter_id, answers)
     # Auto-create nominations from person-name answers (e.g. guardian names
     # from the interview) so My Plan key roles stay in sync.

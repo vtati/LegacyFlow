@@ -381,6 +381,20 @@ def count_open_proposals(conn: Any, session_id: UUID) -> int:
         return int(row["n"]) if row else 0
 
 
+def decided_proposal_keys(conn: Any, session_id: UUID) -> set[str]:
+    """Keys with at least one DECIDED proposal (confirmed / corrected /
+    rejected) in this session. Deterministic fallbacks must never
+    re-propose these: in the 2026-10-24 E2E run a rejected fabricated
+    "Yes" was re-created verbatim by a later answer."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT question_key FROM field_proposals "
+            "WHERE session_id = %s AND status <> 'proposed'",
+            (str(session_id),),
+        )
+        return {str(row["question_key"]) for row in cur.fetchall()}
+
+
 def open_proposal_keys(conn: Any, session_id: UUID) -> set[str]:
     with conn.cursor() as cur:
         cur.execute(

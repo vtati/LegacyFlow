@@ -93,7 +93,12 @@ def post_turn(
     # (Doing save_answers inside the turn transaction hung indefinitely.)
     # Best-effort: never let auto-confirm break the turn response.
     try:
-        _auto_confirm_proposals(turn_out, claims.sub, matter_id)
+        confirmed = _auto_confirm_proposals(turn_out, claims.sub, matter_id)
+        if confirmed:
+            # The turn's completeness snapshot was computed BEFORE its
+            # proposals existed; refresh it so the client shows the
+            # post-auto-confirm truth instead of lagging a turn behind.
+            _refresh_turn_progress(turn_out, matter_id)
     except Exception:
         logging.getLogger(__name__).exception(
             "Auto-confirm failed; proposals left pending for manual review"
@@ -101,14 +106,32 @@ def post_turn(
     return turn_out
 
 
-def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) -> None:
+def _refresh_turn_progress(turn_out: TurnOut, matter_id: UUID) -> None:
+    """Recompute completeness/missing after auto-confirm wrote answers."""
+    try:
+        with db.transaction() as conn:
+            from app.domains.matters import service as matters_service
+
+            pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
+            answers = service._answers_map(conn, matter_id)
+            completeness, missing, _total, _answered = service._progress(pack, answers)
+            turn_out.completeness_pct = completeness
+            turn_out.missing_required_keys = missing
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Progress refresh after auto-confirm failed", exc_info=True
+        )
+
+
+def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) -> int:
     """Best-effort auto-confirm of high-confidence proposals.
 
     Runs in its own transaction with a 10s statement timeout so it can
     never hang the interview. Failures leave proposals pending for
-    manual card confirmation.
+    manual card confirmation. Returns the number confirmed.
     """
     logger = logging.getLogger(__name__)
+    confirmed = 0
     try:
         candidates = [
             p for p in (turn_out.proposals or [])
@@ -116,33 +139,47 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
         ]
     except Exception:
         logger.warning("Auto-confirm: failed to extract candidates, skipping")
-        return
+        return 0
     if not candidates:
-        return
+        return 0
+    from app.domains.matters import service as matters_service
+
     try:
         with db.transaction() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SET LOCAL statement_timeout = '10s'")
-            from app.domains.matters import service as matters_service
             actor_id = matters_service.caller_id(actor_sub)
-            for p in candidates:
-                try:
-                    intake_service.save_answers(
-                        conn, actor_sub=actor_sub, matter_id=matter_id,
-                        answers={p.question_key: p.proposed_value},
-                    )
-                    interview_repo.decide_proposal(
-                        conn, p.id, status="confirmed", corrected_value=None,
-                        decided_by_user_id=actor_id, scrub_snippet=False,
-                    )
-                    p.status = "confirmed"  # reflect in the response
-                except Exception:
-                    logger.warning(
-                        "Auto-confirm failed for %r, leaving as pending",
-                        p.question_key,
-                    )
     except Exception:
-        logger.warning("Auto-confirm transaction failed; proposals left pending")
+        logger.warning("Auto-confirm: caller lookup failed; skipping")
+        return 0
+    # One transaction PER candidate: a failure (or a lost compare-and-set)
+    # on one proposal can neither poison nor overstate the others, and
+    # the response only claims confirmations that actually committed.
+    for p in candidates:
+        try:
+            with db.transaction() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET LOCAL statement_timeout = '10s'")
+                # Compare-and-set FIRST: if the user already decided this
+                # proposal (e.g. rejected a fabrication while a slow turn
+                # was retrying), the CAS matches nothing and the user's
+                # decision wins — no answer is written.
+                row = interview_repo.decide_proposal(
+                    conn, p.id, status="confirmed", corrected_value=None,
+                    decided_by_user_id=actor_id, scrub_snippet=False,
+                )
+                if not row:
+                    continue
+                intake_service.save_answers(
+                    conn, actor_sub=actor_sub, matter_id=matter_id,
+                    answers={p.question_key: p.proposed_value},
+                )
+            p.status = "confirmed"  # reflect in the response
+            confirmed += 1
+        except Exception:
+            logger.warning(
+                "Auto-confirm failed for %r, leaving as pending",
+                p.question_key,
+            )
+    return confirmed
 
 
 @router.get(
