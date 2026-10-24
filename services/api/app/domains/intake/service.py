@@ -85,6 +85,42 @@ def _ensure_person_for_name(
     )
 
 
+def _stale_auto_nominations(
+    existing: list[dict[str, Any]],
+    *,
+    source_key: str,
+    target: tuple[str, int, str],
+) -> list[dict[str, Any]]:
+    """Auto-created nominations sourced from ``source_key`` that no longer
+    match the key's current target (type, priority, person_id).
+
+    When an answer changes to a different person, the earlier auto-created
+    row is superseded — leaving it produces duplicate Priority-1 role
+    holders (E2E #3: two primary guardians). Only rows still in "proposed"
+    status are stale: a nomination a human confirmed is a decision and is
+    never swept, and rows sourced from other keys or created manually are
+    untouched.
+    """
+    note = f"From interview answer: {source_key}"
+    stale: list[dict[str, Any]] = []
+    for n in existing:
+        if str(n.get("notes") or "") != note:
+            continue
+        if str(n.get("status") or "") != "proposed":
+            continue
+        try:
+            triple = (
+                str(n.get("nomination_type")),
+                int(n.get("priority")),
+                str(n.get("person_id")),
+            )
+        except (TypeError, ValueError):
+            continue
+        if triple != target:
+            stale.append(n)
+    return stale
+
+
 def _sync_nominations_from_answers(
     conn: Any,
     *,
@@ -135,8 +171,26 @@ def _sync_nominations_from_answers(
                         cur.execute("RELEASE SAVEPOINT lf_nom_sync")
                     continue
                 person_id = UUID(str(person["id"]))
-                # Skip if an identical nomination already exists.
+                # Retire auto-created nominations this key produced for a
+                # different person/priority (the answer changed) before the
+                # dedupe check, so a superseded row never lingers as a
+                # duplicate role holder.
                 existing = nom_repo.list_nominations(conn, matter_id)
+                stale_rows = _stale_auto_nominations(
+                    existing,
+                    source_key=key,
+                    target=(nomination_type, priority, str(person_id)),
+                )
+                stale_ids = {str(s["id"]) for s in stale_rows}
+                for stale in stale_rows:
+                    nom_repo.delete_nomination(conn, UUID(str(stale["id"])))
+                    logger.info(
+                        "Retired superseded %s nomination (matter %s, key %s)",
+                        nomination_type,
+                        matter_id,
+                        key,
+                    )
+                existing = [n for n in existing if str(n.get("id")) not in stale_ids]
                 if any(
                     str(n.get("nomination_type")) == nomination_type
                     and str(n.get("person_id")) == str(person_id)
