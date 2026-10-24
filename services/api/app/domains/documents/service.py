@@ -844,6 +844,11 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
     # Enhance with person data from the household.
     household_id = matter.get("household_id")
     if household_id:
+        # Raw answers for fallbacks below (name -> JSON value).
+        answers = {
+            str(row["question_key"]).lower(): row["answer"]
+            for row in intake_repo.list_answers(conn, UUID(str(matter["id"])))
+        }
         persons = household_repo.list_persons_for_household(conn, UUID(str(household_id)))
         children = []
         adults = []
@@ -863,7 +868,9 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
         else:
             # Fallback to the interview answer if household persons aren't populated
             details = answers.get("minor_children_details", "")
-            context["children_list"] = details.strip() if details and details.strip() else "___"
+            context["children_list"] = (
+                details.strip() if isinstance(details, str) and details.strip() else "___"
+            )
         if adults:
             context["testator_name"] = adults[0]
             context["grantor_name"] = adults[0]
