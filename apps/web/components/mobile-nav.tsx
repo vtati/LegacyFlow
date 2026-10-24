@@ -81,7 +81,7 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
           />
           <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-lf-canvas-elevated shadow-lf-subtle">
             <div className="flex items-center justify-between border-b border-lf-border px-4 py-3">
-              <span className="font-lf-serif text-base font-semibold tracking-tight text-lf-primary-950">
+              <span className="font-lf-serif text-base font-semibold tracking-tight text-lf-text">
                 {PRODUCT_NAME}
               </span>
               <button

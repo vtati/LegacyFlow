@@ -41,7 +41,7 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
               className="flex items-center gap-2 rounded-lf-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             >
               <LogoMark className="size-8" />
-              <span className="font-lf-serif text-lg font-semibold tracking-tight text-lf-primary-950">
+              <span className="font-lf-serif text-lg font-semibold tracking-tight text-lf-text">
                 {PRODUCT_NAME}
               </span>
             </Link>
