@@ -295,6 +295,37 @@
 /* Aurora field layer — apply to a positioned parent or as a body wash. */
 .lf-aurora { background-image: var(--lf-gradient-aurora); }
 
+/* Glass surface — translucent elevated color + blur, for sticky headers
+   floating over the aurora canvas (Lumen Aurora Phase 2). */
+.lf-glass {
+  background: color-mix(in srgb, var(--lf-canvas-elevated) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+}
+
+/* Aurora Drift — slow ambient motion for an oversized aurora layer. */
+@keyframes lf-aurora-drift {
+  from { transform: translate3d(0, 0, 0) scale(1.06); }
+  to { transform: translate3d(-2.5%, 2%, 0) scale(1.12); }
+}
+.lf-aurora-drift { animation: lf-aurora-drift 16s ease-in-out infinite alternate; }
+
+/* Gentle float for hero specimens. */
+@keyframes lf-float-y {
+  from { transform: translateY(0); }
+  to { transform: translateY(-7px); }
+}
+.lf-float { animation: lf-float-y 7s ease-in-out infinite alternate; }
+
+/* Scroll reveal — armed by JS after mount (content is never hidden for
+   no-JS or pre-hydration renders); .is-visible is added on intersection. */
+.lf-reveal-armed { opacity: 0; transform: translateY(16px); }
+.lf-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 /* ------------------------------------------------------------------ */
 /* Atelier Light motion system — keyframes + utilities                 */
 /* ------------------------------------------------------------------ */
@@ -389,9 +420,13 @@
   .lf-animate-slide-in,
   .lf-animate-fade-up,
   .lf-animate-fade-up-stagger,
-  .lf-typing-dot {
+  .lf-typing-dot,
+  .lf-aurora-drift,
+  .lf-float {
     animation: none;
   }
+  .lf-reveal-armed { opacity: 1; transform: none; }
+  .lf-reveal.is-visible { transition: none; }
   .lf-lumen-fill::after { animation: none; display: none; }
   .lf-pressable:active { transform: none; }
   .lf-lift:hover, .lf-proposal:hover { transform: none; }

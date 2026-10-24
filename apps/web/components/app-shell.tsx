@@ -31,8 +31,8 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
   const section = sectionFromPath(pathname);
 
   return (
-    <div className="flex min-h-screen flex-col bg-lf-canvas">
-      <header className="sticky top-0 z-40 border-b border-lf-border bg-lf-canvas-elevated">
+    <div className="lf-aurora flex min-h-screen flex-col bg-lf-canvas">
+      <header className="lf-glass sticky top-0 z-40 border-b border-lf-border">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-1">
             <MobileNav section={section} />

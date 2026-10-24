@@ -29,7 +29,7 @@ export function SectionNav({ section }: SectionNavProps): React.JSX.Element {
                   'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',
                   active
-                    ? 'bg-lf-accent-100 text-lf-text before:absolute before:left-1.5 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-lf-accent-600 before:content-[""]'
+                    ? 'bg-lf-panel-cyan text-lf-text before:absolute before:left-1.5 before:top-1/2 before:h-5 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-lf-gradient before:content-[""]'
                     : 'text-lf-text-muted hover:bg-lf-canvas-subtle hover:text-lf-text',
                 )}
               >
