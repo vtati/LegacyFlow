@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,12 @@ const FOCUSABLE_SELECTOR =
  * Body scroll is locked while open.
  */
 export function Modal({ open, onClose, title, description, children }: ModalProps) {
+  // Portaled to <body> (see mobile-nav.tsx): a `position: fixed` overlay
+  // must not depend on having no filtered/transformed ancestor.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = `modal-title-${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
@@ -85,9 +92,9 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <>
       <style>{`@keyframes lf-scrim-in{from{opacity:0}to{opacity:1}}@keyframes lf-modal-in{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
       <div
@@ -126,6 +133,7 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
           <div className="px-6 pb-6">{children}</div>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

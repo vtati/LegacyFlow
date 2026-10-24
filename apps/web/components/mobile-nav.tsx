@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { PRODUCT_NAME } from '@/lib/constants';
@@ -15,6 +16,11 @@ interface MobileNavProps {
  * Mobile navigation: a hamburger button (header, left) that opens the section
  * nav in a left slide-over drawer. Rendered only below the md breakpoint —
  * desktop keeps the permanent sidebar.
+ *
+ * The drawer is portaled to <body>: it is `position: fixed`, and the glass
+ * header's backdrop-filter makes the header a containing block for fixed
+ * descendants — rendered in place, the drawer collapsed into the 64px header
+ * box and could not open (Phase 2 regression, fixed 2026-10-24).
  */
 export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -59,8 +65,9 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
         <Menu className="size-5" aria-hidden="true" />
       </button>
 
-      {open ? (
-        <div
+      {open
+        ? createPortal(
+            <div
           className="fixed inset-0 z-50"
           role="dialog"
           aria-modal="true"
@@ -94,8 +101,10 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
               <SectionNav section={section} />
             </div>
           </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
