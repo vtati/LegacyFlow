@@ -690,7 +690,7 @@ def _answers_map(conn: Any, matter_id: UUID) -> dict[str, Any]:
 
 
 def _progress(pack: LoadedPack, answers: dict[str, Any]) -> tuple[float, list[str], int, int]:
-    per_set, completeness, missing = qs.compute_progress(pack.question_sets, answers)
+    per_set, completeness, missing, _pruned = qs.compute_progress(pack.question_sets, answers)
     total_required = sum(p.required_total for p in per_set.values())
     answered_required = sum(p.required_answered for p in per_set.values())
     return completeness, missing, total_required, answered_required

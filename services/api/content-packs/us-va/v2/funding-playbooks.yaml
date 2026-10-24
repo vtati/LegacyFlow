@@ -1,0 +1,99 @@
+# Funding playbooks: deterministic task generation per asset category (FR-FUND-001).
+# Each playbook becomes funding task(s); evidence_type drives the evidence flow.
+playbooks:
+  - id: bank-tod-podb
+    asset_types: [bank]
+    title: 'Review transfer-on-death / payable-on-death designation'
+    description_markdown: |
+      Confirm who receives each bank account directly (transfer-on-death or
+      payable-on-death). If the designation is missing or outdated, contact
+      the bank to update it. Your attorney can advise on coordination with
+      the rest of your plan.
+    priority: high
+    evidence_type: beneficiary_confirmation
+
+  - id: brokerage-tod
+    asset_types: [brokerage]
+    title: 'Review transfer-on-death registration'
+    description_markdown: |
+      Confirm the transfer-on-death registration on each brokerage account
+      and that contingent beneficiaries are named where available.
+    priority: high
+    evidence_type: beneficiary_confirmation
+
+  - id: retirement-beneficiary
+    asset_types: [retirement]
+    title: 'Confirm retirement account beneficiaries'
+    description_markdown: |
+      Review primary and contingent beneficiaries on retirement accounts.
+      These designations usually control who receives the account regardless
+      of other documents. Consider attorney review before making changes.
+    priority: high
+    evidence_type: beneficiary_confirmation
+
+  - id: insurance-beneficiary
+    asset_types: [insurance]
+    title: 'Confirm life insurance beneficiaries'
+    description_markdown: |
+      Review primary and contingent beneficiaries on each policy and confirm
+      the designations match your current wishes.
+    priority: high
+    evidence_type: beneficiary_confirmation
+
+  - id: real-property-deed
+    asset_types: [real_property]
+    title: 'Review real property titling and deed'
+    description_markdown: |
+      Confirm how the property is titled and whether the deed reflects your
+      plan. Deed changes require attorney involvement; do not record anything
+      without your attorney's direction.
+    priority: high
+    evidence_type: deed_copy
+    attorney_review_recommended: true
+
+  - id: business-interest-review
+    asset_types: [business]
+    title: 'Attorney review of business interest transfer'
+    description_markdown: |
+      Business interests need attorney review for transfer restrictions,
+      buy-sell agreements, and succession planning.
+    priority: high
+    evidence_type: attorney_confirmation
+    attorney_review_recommended: true
+
+  - id: vehicle-title
+    asset_types: [vehicle]
+    title: 'Review vehicle titling'
+    description_markdown: |
+      Confirm vehicle titles and transfer-on-death options available in your
+      state, if any.
+    priority: medium
+    evidence_type: title_copy
+
+  - id: 529-beneficiary
+    asset_types: ['529']
+    title: 'Confirm 529 education account beneficiaries'
+    description_markdown: |
+      Review the designated beneficiary on each 529 account.
+    priority: medium
+    evidence_type: beneficiary_confirmation
+
+  - id: digital-asset-inventory
+    asset_types: [digital]
+    title: 'Document digital asset access plan'
+    description_markdown: |
+      List important digital accounts and how your trusted contacts can
+      access them, consistent with each provider's terms and your attorney's
+      guidance.
+    priority: medium
+    evidence_type: inventory_list
+
+  - id: general-beneficiary-alignment
+    asset_types: [bank, brokerage, retirement, insurance, '529']
+    title: 'Align beneficiary designations with plan decisions'
+    description_markdown: |
+      Compare every beneficiary designation against the distribution
+      decisions recorded in your plan and flag any mismatches for attorney
+      review.
+    priority: medium
+    evidence_type: review_checklist

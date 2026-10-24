@@ -105,6 +105,20 @@ class ProductionReleaseUnavailableError(ConflictError):
     )
 
 
+class IntakeIncompleteError(ConflictError):
+    """Intake still has applicable required answers missing (HTTP 409).
+
+    Raised by the documents completeness pre-check, which shares the
+    applicability partition with progress: pruned questions never block
+    generation; pending/applicable unanswered ones do, and the message
+    lists their labels so the family knows exactly what is missing.
+    """
+
+    type = "urn:legacyflow:error:intake_incomplete"
+    title = "Intake incomplete"
+    detail = "The intake is not complete yet."
+
+
 class DocumentAssemblyDisabledError(ConflictError):
     """Document assembly is disabled for this firm/pack (HTTP 409, fail closed).
 
@@ -689,6 +703,44 @@ def _require_document_assembly(
         raise DocumentAssemblyDisabledError()
 
 
+def _require_intake_complete(conn: Any, matter: dict[str, Any]) -> None:
+    """Refuse document generation while applicable required answers are
+    missing (Interview v2 Part 1).
+
+    Uses the matter's snapshotted pack + the shared applicability
+    partition (via compute_progress): a v1 matter sees exactly today's
+    required set (no ``applies_if`` anywhere); a v2 matter is blocked
+    only by applicable/pending gaps — pruned questions never block.
+    """
+    _pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    try:
+        pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
+    except FileNotFoundError:
+        # The assembly gate (which runs before this check) already fails
+        # closed when the pack is missing; nothing more to verify here.
+        return
+    from ...domains.intake import question_sets as intake_qs
+
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, UUID(str(matter["id"])))
+    }
+    _per_set, _pct, missing, _pruned = intake_qs.compute_progress(
+        pack.question_sets, answers
+    )
+    if not missing:
+        return
+    labels = {
+        str(q["key"]): str(q.get("label") or q["key"])
+        for _, _, q in intake_qs.iter_questions(pack.question_sets)
+    }
+    listing = "; ".join(labels.get(key, key) for key in missing)
+    raise IntakeIncompleteError(
+        "Intake is incomplete — these required answers are still missing: "
+        + listing
+    )
+
+
 # ---------------------------------------------------------------------------
 # Packages
 # ---------------------------------------------------------------------------
@@ -1117,6 +1169,7 @@ def generate_demo(
         jurisdiction_code=jurisdiction_code,
         semantic_version=semantic_version,
     )
+    _require_intake_complete(conn, matter)
     template = repo.get_template(conn, UUID(str(package["template_id"])))
     if template is None:
         raise ConflictError("The package's template is missing.")
@@ -1208,6 +1261,7 @@ def release_production(
         jurisdiction_code=jurisdiction_code,
         semantic_version=semantic_version,
     )
+    _require_intake_complete(conn, matter)
     template = repo.get_template(conn, UUID(str(package["template_id"])))
     if template is None:
         raise ConflictError("The package's template is missing.")

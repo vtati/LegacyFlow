@@ -7,13 +7,221 @@ that escalation-rule evaluation runs against.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import re
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from app.domains.intake.schemas import QuestionSetProgress
 
 #: Prefix marking a ``maps_to`` binding as an escalation fact.
 FACTS_PREFIX = "facts."
+
+
+# ---------------------------------------------------------------------------
+# ``applies_if`` evaluator (Interview v2 applicability engine)
+#
+# A small recursive-descent evaluator over intake ANSWERS (flat mapping of
+# question key -> JSON value) with Kleene three-valued logic:
+#
+#   True  — the rule is decisively satisfied
+#   False — the rule is decisively violated (the question is pruned)
+#   None  — a referenced gate key is unanswered (the question is PENDING:
+#           fail-closed, still counted and still askable, never pruned)
+#
+# Grammar (no eval):
+#   expr       := or_expr
+#   or_expr    := and_expr ("or" and_expr)*
+#   and_expr   := not_expr ("and" not_expr)*
+#   not_expr   := "not" not_expr | comparison
+#   comparison := operand (("==" | "!=") operand)?
+#   operand    := identifier | "true" | "false" | number | 'string' | "(" expr ")"
+# ---------------------------------------------------------------------------
+
+_APPLIES_TOKEN_RE = re.compile(
+    r"""
+    (?P<ws>\s+)
+    | (?P<op>==|!=|\(|\))
+    | (?P<bool>true|false)\b
+    | (?P<number>-?\d+(?:\.\d+)?)
+    | (?P<string>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")
+    | (?P<word>[A-Za-z_][A-Za-z0-9_]*)
+    """,
+    re.VERBOSE,
+)
+_APPLIES_KEYWORDS = {"and", "or", "not"}
+
+#: Sentinel for "referenced key has no usable answer yet".
+_UNKNOWN = object()
+
+
+def _tokenize_applies(expression: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    pos = 0
+    while pos < len(expression):
+        match = _APPLIES_TOKEN_RE.match(expression, pos)
+        if not match or match.end() == pos:
+            raise ValueError(
+                f"Cannot tokenize applies_if expression near: {expression[pos : pos + 20]!r}"
+            )
+        kind = match.lastgroup or "ws"
+        pos = match.end()
+        if kind == "ws":
+            continue
+        tokens.append((kind, match.group()))
+    return tokens
+
+
+class _AppliesParser:
+    def __init__(self, tokens: list[tuple[str, str]]) -> None:
+        self._tokens = tokens
+        self._pos = 0
+
+    def parse(self) -> Any:
+        node = self._parse_or()
+        if self._pos != len(self._tokens):
+            raise ValueError("Unexpected trailing tokens in applies_if expression.")
+        return node
+
+    def _peek(self) -> tuple[str, str] | None:
+        return self._tokens[self._pos] if self._pos < len(self._tokens) else None
+
+    def _next(self) -> tuple[str, str]:
+        token = self._peek()
+        if token is None:
+            raise ValueError("Unexpected end of applies_if expression.")
+        self._pos += 1
+        return token
+
+    def _parse_or(self) -> Any:
+        node = self._parse_and()
+        while self._peek() == ("word", "or"):
+            self._next()
+            node = ("or", node, self._parse_and())
+        return node
+
+    def _parse_and(self) -> Any:
+        node = self._parse_not()
+        while self._peek() == ("word", "and"):
+            self._next()
+            node = ("and", node, self._parse_not())
+        return node
+
+    def _parse_not(self) -> Any:
+        if self._peek() == ("word", "not"):
+            self._next()
+            return ("not", self._parse_not())
+        return self._parse_comparison()
+
+    def _parse_comparison(self) -> Any:
+        left = self._parse_operand()
+        peek = self._peek()
+        if peek is not None and peek[0] == "op" and peek[1] in ("==", "!="):
+            self._next()
+            right = self._parse_operand()
+            return ("cmp", peek[1], left, right)
+        return left
+
+    def _parse_operand(self) -> Any:
+        kind, text = self._next()
+        if kind == "op" and text == "(":
+            node = self._parse_or()
+            if self._next() != ("op", ")"):
+                raise ValueError("Missing closing parenthesis in applies_if expression.")
+            return node
+        if kind == "bool":
+            return ("lit", text == "true")
+        if kind == "number":
+            return ("lit", float(text) if "." in text else int(text))
+        if kind == "string":
+            return ("lit", re.sub(r"\\(.)", r"\1", text[1:-1]))
+        if kind == "word":
+            if text in _APPLIES_KEYWORDS:
+                raise ValueError(f"Unexpected keyword {text!r} in applies_if expression.")
+            if text in ("True", "False", "TRUE", "FALSE"):
+                raise ValueError(
+                    f"Boolean literals in applies_if are lowercase: {text!r}."
+                )
+            return ("key", text)
+        raise ValueError(f"Unexpected token {text!r} in applies_if expression.")
+
+
+def _eval_raw(node: Any, answers: Mapping[str, Any]) -> Any:
+    """Evaluate an AST node to a RAW value (literal / answer value / _UNKNOWN
+    for an unanswered key) — used at comparison leaves."""
+    kind = node[0]
+    if kind == "lit":
+        return node[1]
+    if kind == "key":
+        value = answers.get(node[1])
+        return value if is_answered(value) else _UNKNOWN
+    # A parenthesised boolean sub-expression used as an operand: its
+    # three-valued truth result is the value (None maps back to _UNKNOWN;
+    # the grammar has no null literal, so None only ever means "pending").
+    result = _eval_bool(node, answers)
+    return _UNKNOWN if result is None else result
+
+
+def _truth_of(value: Any) -> bool | None:
+    if value is _UNKNOWN:
+        return None
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    return bool(value)
+
+
+def _eval_bool(node: Any, answers: Mapping[str, Any]) -> bool | None:
+    kind = node[0]
+    if kind in ("lit", "key"):
+        return _truth_of(_eval_raw(node, answers))
+    if kind == "cmp":
+        left = _eval_raw(node[2], answers)
+        right = _eval_raw(node[3], answers)
+        if left is _UNKNOWN or right is _UNKNOWN:
+            return None
+        # Type-strict across the bool/number family: Python's True == 1
+        # conflation must not make `count == true` decisive.
+        if isinstance(left, bool) != isinstance(right, bool) and isinstance(
+            left, (bool, int, float)
+        ) and isinstance(right, (bool, int, float)):
+            return node[1] == "!="
+        return bool(left == right) if node[1] == "==" else bool(left != right)
+    if kind == "not":
+        inner = _eval_bool(node[1], answers)
+        return None if inner is None else not inner
+    if kind == "and":
+        left = _eval_bool(node[1], answers)
+        right = _eval_bool(node[2], answers)
+        if left is False or right is False:
+            return False
+        if left is None or right is None:
+            return None
+        return True
+    if kind == "or":
+        left = _eval_bool(node[1], answers)
+        right = _eval_bool(node[2], answers)
+        if left is True or right is True:
+            return True
+        if left is None or right is None:
+            return None
+        return False
+    raise ValueError(f"Unknown applies_if AST node {kind!r}.")
+
+
+def evaluate_applies_if(expression: str, answers: Mapping[str, Any]) -> bool | None:
+    """Evaluate an ``applies_if`` rule against intake answers.
+
+    Returns True/False when the rule is decisive, None when any referenced
+    key is unanswered and the outcome is not already decided by the other
+    side of an ``and``/``or`` (Kleene logic). Raises ValueError on a
+    malformed expression.
+    """
+    tokens = _tokenize_applies(expression)
+    if not tokens:
+        raise ValueError("Empty applies_if expression.")
+    ast = _AppliesParser(tokens).parse()
+    return _eval_bool(ast, answers)
 
 
 def iter_questions(
@@ -46,25 +254,107 @@ def is_answered(value: Any) -> bool:
     return True
 
 
+def _applies_state(expr: Any, answers: Mapping[str, Any], *, where: str) -> bool | None:
+    """Evaluate one ``applies_if`` slot: absent -> True; a present but
+    non-string value is a pack authoring error and fails loud."""
+    if expr is None:
+        return True
+    if not isinstance(expr, str):
+        raise ValueError(f"applies_if at {where} must be a string expression.")
+    if not expr.strip():
+        return True
+    return evaluate_applies_if(expr, answers)
+
+
+def _partition_rows(
+    question_sets: dict[str, dict[str, Any]],
+    answers: Mapping[str, Any],
+) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """Every question with its applicability state, in pack order.
+
+    State combines the section's and the question's ``applies_if``: any
+    False -> "pruned"; else any None -> "pending"; else "applicable".
+    """
+    rows: list[tuple[str, str, str, dict[str, Any]]] = []
+    for set_id, question_set in question_sets.items():
+        for section in question_set.get("sections", []):
+            section_id = str(section.get("id", ""))
+            section_state = _applies_state(
+                section.get("applies_if"), answers, where=f"{set_id}.{section_id}"
+            )
+            for question in section.get("questions", []):
+                question = dict(question)
+                question_state = _applies_state(
+                    question.get("applies_if"),
+                    answers,
+                    where=f"{set_id}.{question.get('key')}",
+                )
+                states = (section_state, question_state)
+                if False in states:
+                    state = "pruned"
+                elif None in states:
+                    state = "pending"
+                else:
+                    state = "applicable"
+                rows.append((state, set_id, section_id, question))
+    return rows
+
+
+def partition_questions(
+    question_sets: dict[str, dict[str, Any]],
+    answers: Mapping[str, Any],
+) -> tuple[
+    list[tuple[str, str, dict[str, Any]]],
+    list[tuple[str, str, dict[str, Any]]],
+    list[tuple[str, str, dict[str, Any]]],
+]:
+    """Partition a pack's questions into (applicable, pending, pruned).
+
+    Lists preserve pack order. This is the single source of truth for
+    progress, the interview's next-gap selection, and the documents
+    completeness gate.
+    """
+    applicable: list[tuple[str, str, dict[str, Any]]] = []
+    pending: list[tuple[str, str, dict[str, Any]]] = []
+    pruned: list[tuple[str, str, dict[str, Any]]] = []
+    buckets = {"applicable": applicable, "pending": pending, "pruned": pruned}
+    for state, set_id, section_id, question in _partition_rows(question_sets, answers):
+        buckets[state].append((set_id, section_id, question))
+    return applicable, pending, pruned
+
+
 def compute_progress(
     question_sets: dict[str, dict[str, Any]],
     answers: dict[str, Any],
-) -> tuple[dict[str, QuestionSetProgress], float, list[str]]:
+) -> tuple[dict[str, QuestionSetProgress], float, list[str], list[str]]:
     """Compute per-set progress and overall required-question completeness.
 
-    Returns ``(per_set, completeness_pct, missing_required_keys)`` where
-    ``completeness_pct`` is the required-answered share across all sets
-    (100.0 when the pack declares no required questions) and
-    ``missing_required_keys`` lists unanswered required keys in pack order.
+    Returns ``(per_set, completeness_pct, missing_required_keys,
+    pruned_required_keys)``. Denominators count APPLICABLE + PENDING
+    required questions only — pruned questions (their ``applies_if`` gate
+    answered decisively) leave the denominator entirely, while pending
+    questions still count (fail-closed). ``missing_required_keys`` lists
+    unanswered applicable/pending required keys in pack order;
+    ``completeness_pct`` is the required-answered share (100.0 when no
+    applicable required questions remain).
     """
+    rows = _partition_rows(question_sets, answers)
+    # Pre-register every set in pack order (zeroed) so per-set payloads
+    # stay shape-stable — and in position — even when a whole set prunes.
     totals: dict[str, dict[str, int]] = {}
     order: list[str] = []
+    for set_id in question_sets:
+        totals[set_id] = {"total": 0, "answered": 0, "req": 0, "req_ok": 0}
+        order.append(set_id)
     missing: list[str] = []
-    for set_id, _, question in iter_questions(question_sets):
+    pruned_required: list[str] = []
+    for state, set_id, _section_id, question in rows:
         key = str(question["key"])
-        stats = totals.setdefault(set_id, {"total": 0, "answered": 0, "req": 0, "req_ok": 0})
-        if set_id not in order:
-            order.append(set_id)
+        if state == "pruned":
+            if question.get("required"):
+                pruned_required.append(key)
+            continue
+        stats = totals[set_id]
         stats["total"] += 1
         answered = is_answered(answers.get(key))
         if answered:
@@ -90,7 +380,7 @@ def compute_progress(
     req_total = sum(stats["req"] for stats in totals.values())
     req_ok = sum(stats["req_ok"] for stats in totals.values())
     overall = round(100.0 * req_ok / req_total, 2) if req_total else 100.0
-    return per_set, overall, missing
+    return per_set, overall, missing, pruned_required
 
 
 def build_overall_progress(

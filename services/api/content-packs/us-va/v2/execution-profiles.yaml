@@ -1,0 +1,36 @@
+# Test-only execution profiles (artifact §9.5).
+# IMPORTANT: system configuration starter, not a full legal signing
+# instruction set and not a substitute for attorney approval.
+# Execution guidance capability is attorney_pending for this pack.
+execution_profiles:
+  - id: VA-WILL-V0
+    document_type: will
+    jurisdiction: US-VA
+    status: attorney_pending
+    requirements:
+      written_document: true
+      testator_signature_required: true
+      witnesses:
+        required_count: 2
+        must_be_competent: true
+        simultaneous_presence_required: true
+        witness_signs_in_testator_presence: true
+      notary:
+        legally_required: false
+        recommended_self_proving_affidavit: true
+      electronic_execution_supported_in_this_profile: false
+    source:
+      citation: 'Va. Code § 64.2-403'
+    checklist_template:
+      - key: written_document_prepared
+        label: 'Prepare the written document'
+        detail: 'The document must be in writing.'
+      - key: testator_signature
+        label: 'Sign the document'
+        detail: 'The person making the plan signs the document.'
+      - key: witness_signatures
+        label: 'Collect witness signatures'
+        detail: 'Two competent witnesses sign in the presence of the person making the plan and each other.'
+      - key: self_proving_affidavit
+        label: 'Consider a self-proving affidavit (recommended, not required)'
+        detail: 'A notarized affidavit can simplify later court proceedings.'

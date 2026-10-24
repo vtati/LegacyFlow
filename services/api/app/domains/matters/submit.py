@@ -97,7 +97,7 @@ def submit_matter(conn: Any, *, actor_sub: str, matter_id: UUID) -> MatterOut:
     answers = {
         row["question_key"]: row["answer"] for row in intake_repo.list_answers(conn, matter_id)
     }
-    _per_set, overall, missing = intake_questions.compute_progress(pack.question_sets, answers)
+    _per_set, overall, missing, _pruned = intake_questions.compute_progress(pack.question_sets, answers)
     # ``matters.completeness_pct`` is an integer column (Track A Slice 2
     # migration): round once here so the persisted value, the audit trail,
     # and the response all agree.

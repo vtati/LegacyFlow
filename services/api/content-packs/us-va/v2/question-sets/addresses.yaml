@@ -1,0 +1,35 @@
+# Address details question set (v1).
+# Collects the addresses the will template needs for identification.
+question_set:
+  id: addresses
+  version: 2.0.0
+  title: Addresses
+sections:
+- id: testator
+  title: Your address
+  questions:
+  - key: testator_street_address
+    type: text
+    label: What is your street address? (You are the "testator" — the person creating the will)
+    help: 'Why we ask: the will identifies you by your residence.'
+    required: true
+    maps_to: facts.testator_street_address
+    cluster: identity
+  - key: testator_city
+    type: text
+    label: What city do you live in?
+    help: 'Why we ask: the will states your city alongside your state.'
+    required: true
+    maps_to: facts.testator_city
+    cluster: identity
+- id: guardian
+  title: Guardian address
+  questions:
+  - key: primary_guardian_address
+    type: text
+    label: What city and state does your nominated guardian live in?
+    help: 'Why we ask: the will identifies the guardian by residence.'
+    required: true
+    maps_to: facts.guardian_address
+    cluster: people
+    applies_if: has_minor_children == true

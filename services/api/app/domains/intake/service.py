@@ -668,7 +668,7 @@ def get_progress(conn: Any, *, actor_sub: str, matter_id: UUID) -> IntakeProgres
     answers = {
         str(row["question_key"]): row["answer"] for row in repo.list_answers(conn, matter_id)
     }
-    per_set, overall, _missing = qs.compute_progress(pack.question_sets, answers)
+    per_set, overall, _missing, _pruned = qs.compute_progress(pack.question_sets, answers)
     # ``matters.completeness_pct`` is an integer column (Track A Slice 2
     # migration): round once here so the persisted value and the response agree.
     overall = float(int(round(overall)))
