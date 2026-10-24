@@ -248,6 +248,8 @@ def _deterministic_boolean_proposal(
     # can match: the fallback fires only when exactly ONE undecided boolean
     # question matches — attribution by coin flip fabricated values in the
     # 2026-10-24 E2E run.
+    label_words_by_key: dict[str, list[str]] = {}
+
     def _candidates(context_lower: str) -> list[str]:
         found: list[str] = []
         for _, _, question in qs.iter_questions(question_sets):
@@ -264,6 +266,7 @@ def _deterministic_boolean_proposal(
             ]
             if not label_words:
                 continue
+            label_words_by_key[key] = label_words
             # Require at least 2 significant words to match (avoid false positives).
             matches = sum(1 for w in label_words if w in context_lower)
             if matches >= 2 and matches >= len(label_words) * 0.5:
@@ -280,7 +283,33 @@ def _deterministic_boolean_proposal(
         return None
     asked_key = candidates[0]
 
-    value = _parse_yes_no(user_message)
+    # The VALUE comes from the clause(s) about THIS topic, never from the
+    # whole message: a bundled v2 answer covers many topics with mixed
+    # polarity ("Yes to the POA, no business interests, no conflicts…"),
+    # and whole-message polarity fabricated has_minor_children=False out
+    # of an identity paragraph in the 2026-10-24 Part 3 live run.
+    label_words = label_words_by_key.get(asked_key, [])
+    clauses = re.split(r"[.!?;,]|\bbut\b|\band\b", user_message.lower())
+    topic = [
+        (i, c)
+        for i, c in enumerate(clauses)
+        if sum(1 for w in label_words if w in c) >= 2
+    ]
+    if len(topic) != 1:
+        return None
+    idx, topic_clause = topic[0]
+    value = _parse_yes_no(topic_clause)
+    if value is None and idx > 0:
+        # "Yes, I expect some disagreement." — the comma split strands the
+        # polarity word in the preceding fragment. Borrow it when that
+        # fragment is a short polarity-only lead-in.
+        prev = clauses[idx - 1].strip()
+        if (
+            prev
+            and len(prev.split()) <= 3
+            and _parse_yes_no(prev) is not None
+        ):
+            value = _parse_yes_no(f"{prev} {topic_clause}")
     if value is None:
         return None
 
@@ -669,9 +698,17 @@ def _deterministic_text_proposal(
         return found
 
     candidates = _candidates(assistant_reply.lower())
-    if len(candidates) != 1:
+    from_assistant = len(candidates) == 1
+    if not from_assistant:
         candidates = _candidates(user_message.lower())
     if len(candidates) != 1:
+        return None
+    if not from_assistant and len(message.split()) > 40:
+        # Channel 2 (the message names the topic) with a LONG message is
+        # a bundled v2 paragraph, not a single drifted answer: storing
+        # the whole paragraph as one field's value is garbage (Part 3
+        # live run: poa_agent_address = the entire identity paragraph).
+        # The model owns bundled extraction; the fallback abstains.
         return None
 
     return {

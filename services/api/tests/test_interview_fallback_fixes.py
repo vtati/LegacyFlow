@@ -603,3 +603,126 @@ class TestSelfDescribingAnswers:
         assert result is not None
         assert result["question_key"] == "has_specific_bequests"
         assert result["value"] is False
+
+
+class TestBundledMessageFallbacks:
+    """Interview v2 bundled answers: ONE user message answers MANY topics
+    at once. Whole-message polarity/value attribution — safe in the v1
+    one-question world — fabricates values for whichever topic the model
+    did not record (Part 3 live verification, 2026-10-24: an identity
+    paragraph produced has_minor_children=False and a poa_agent_address
+    proposal whose value was the entire paragraph)."""
+
+    _IDENTITY_MESSAGE = (
+        "My full legal name is Arjun Sharma. I'm married, and my primary "
+        "residence is in Texas — I live at 123 Main Street, Austin. "
+        "A few quick answers: no child with special needs, no prior "
+        "marriages or children outside my current marriage, no real "
+        "estate outside Texas, no business interests, and I don't "
+        "expect any family conflicts. Yes, I want a durable financial "
+        "power of attorney, and yes, I want an advance healthcare directive."
+    )
+    _PREV_REPLY = (
+        "Great! Let's get started with your estate planning interview. "
+        "You're signed in as test.recording — is that the full legal "
+        "name you'd like on the documents?"
+    )
+    _COVERED = {
+        "testator_full_name", "marital_status", "primary_residence_state",
+        "testator_street_address", "testator_city",
+        "has_child_with_special_needs",
+        "has_prior_marriage_or_children_outside_current_relationship",
+        "owns_real_estate_outside_primary_jurisdiction",
+        "owns_or_controls_business_interest", "expects_family_conflict",
+        "wants_healthcare_directive", "wants_poa_document",
+    }
+
+    def test_bundled_message_produces_no_boolean_fallback(self) -> None:
+        from app.domains.interview.service import _deterministic_boolean_proposal
+        from app.domains.legal_content.pack_loader import get_pack
+
+        pack = get_pack("US-VA", "2.0.0")
+        result = _deterministic_boolean_proposal(
+            user_message=self._IDENTITY_MESSAGE,
+            assistant_reply=self._PREV_REPLY,
+            question_sets=pack.question_sets,
+            existing_proposal_keys=set(self._COVERED),
+        )
+        assert result is None
+
+    def test_bundled_message_produces_no_text_fallback(self) -> None:
+        from app.domains.interview.service import _deterministic_text_proposal
+        from app.domains.legal_content.pack_loader import get_pack
+
+        pack = get_pack("US-VA", "2.0.0")
+        result = _deterministic_text_proposal(
+            user_message=self._IDENTITY_MESSAGE,
+            assistant_reply=self._PREV_REPLY,
+            question_sets=pack.question_sets,
+            existing_proposal_keys=set(self._COVERED) | {"has_minor_children"},
+        )
+        assert result is None
+
+    def test_boolean_value_comes_from_the_topic_clause(self) -> None:
+        """A leading 'Yes' about a covered topic must not flip the one
+        undecided boolean whose own clause says No (and vice versa)."""
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "Yes, we do own a business interest. And no — I don't "
+                "expect any disagreement among family members."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys={"owns_or_controls_business_interest"},
+        )
+        assert result is not None
+        assert result["question_key"] == "expects_family_conflict"
+        assert result["value"] is False
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "No, we do not own a business. Yes, I do expect "
+                "disagreement among family members about the plan."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys={"owns_or_controls_business_interest"},
+        )
+        assert result is not None
+        assert result["question_key"] == "expects_family_conflict"
+        assert result["value"] is True
+
+    def test_short_drifted_text_answer_still_proposes(self) -> None:
+        """Channel 2 (user message names the topic) survives for short,
+        single-fact messages — only long bundled paragraphs are barred."""
+        from app.domains.interview.service import _deterministic_text_proposal
+
+        class _TextQs:
+            pass
+
+        qs = {
+            "addresses": {
+                "sections": [
+                    {
+                        "id": "a",
+                        "questions": [
+                            {
+                                "key": "testator_street_address",
+                                "type": "text",
+                                "label": "What is your street address?",
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        result = _deterministic_text_proposal(
+            user_message="123 Main Street is my street address",
+            assistant_reply="Let's talk about your wishes.",
+            question_sets=qs,
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "testator_street_address"
