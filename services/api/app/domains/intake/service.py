@@ -7,6 +7,7 @@ progress persists the answer-driven completeness percentage.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -229,6 +230,281 @@ def _sync_nominations_from_answers(
         logger.warning("Nomination sync failed: %s", e)
 
 
+# ---------------------------------------------------------------------------
+# Answer materialization: minors + assets
+#
+# The Family & Guardians and Assets pages read household persons and asset
+# rows, but interview answers only ever created nominations — E2E #3 showed
+# "No minors recorded" / "No assets yet" after a complete interview. These
+# syncs close that gap, create-only and best-effort, mirroring the
+# nominations sync contract (never fail the answer save, never delete or
+# overwrite records a human may have enriched).
+# ---------------------------------------------------------------------------
+
+_MINOR_KINDS = {"minor"}  # persons.kind CHECK allows only adult/minor
+_NAME_PATTERN = r"[A-ZÀ-Þ][A-Za-zÀ-ÿ.'-]+(?:\s+(?:[A-ZÀ-Þ][A-Za-zÀ-ÿ.'-]+|de|van|von)){0,3}"
+_AGE_PAREN_RE = re.compile(rf"({_NAME_PATTERN})\s*\(\s*(?:age\s*)?(\d{{1,2}})\s*\)")
+_AGE_WORD_RE = re.compile(rf"({_NAME_PATTERN})\s*,?\s+(?:age|Age)\s+(\d{{1,2}})\b")
+_NAME_ONLY_RE = re.compile(rf"^{_NAME_PATTERN}$")
+#: Leading words that are descriptors/honorifics, not part of a child's name
+#: ("Son Aarav Sharma (12)" must yield "Aarav Sharma", never "Son Aarav…").
+#: Stripped repeatedly, so multi-word descriptors ("Step Daughter",
+#: "Foster Son", "First Child", "Twin Brother") collapse token by token.
+_NAME_LEAD_INS = {
+    "son", "sons", "daughter", "daughters", "child", "children", "kid",
+    "kids", "twin", "twins", "stepdaughter", "stepson", "stepchild",
+    "step", "half", "foster", "adopted", "biological", "grandson",
+    "granddaughter", "grandchild", "grandchildren", "nephew", "niece",
+    "brother", "sister", "first", "second", "third", "only", "eldest",
+    "elder", "middle", "young", "oldest", "youngest", "older", "younger",
+    "big", "little", "special", "needs", "baby", "infant", "toddler",
+    "newborn", "minor", "boy", "girl", "born", "godson", "goddaughter",
+    "godchild", "godchildren", "god", "surviving", "adoptive", "our",
+    "my", "his", "her", "their", "the",
+    "dr", "dr.", "mr", "mr.", "mrs", "mrs.", "ms", "ms.",
+}
+#: Whole-answer negatives that must never become a person.
+_NAME_NEGATIVES = {"no", "none", "n/a", "na", "nil"}
+
+
+def _is_lead_in(token: str) -> bool:
+    """True when a token is a descriptor lead-in (hyphenated forms like
+    "Step-son" count when every part is a lead-in)."""
+    lowered = token.lower()
+    if lowered in _NAME_LEAD_INS:
+        return True
+    if "-" in lowered:
+        return all(part in _NAME_LEAD_INS for part in lowered.split("-") if part)
+    return False
+
+
+def _clean_person_name(raw: str) -> str | None:
+    """Strip descriptor lead-ins from an extracted name; None if nothing
+    name-like remains (or the text is a negative like "None").
+
+    When descriptors were stripped, the remaining run is capped at the
+    last 3 words — descriptor contexts make longer runs suspect, and a
+    child's name in this field is at most first/middle/last. A run with
+    no descriptors keeps the regex's 4-word allowance.
+    """
+    words = " ".join(raw.split()).strip(" .").split(" ")
+    if words and words[0].lower() in _NAME_NEGATIVES:
+        return None
+    stripped = False
+    while words and _is_lead_in(words[0]):
+        words = words[1:]
+        stripped = True
+    if not words:
+        return None
+    if stripped and len(words) > 3:
+        words = words[-3:]
+    name = " ".join(words)
+    if name.lower() in _NAME_NEGATIVES or len(name) > 40:
+        return None
+    return name
+
+
+def _parse_minor_children(details: str) -> list[tuple[str, int | None]]:
+    """Extract (name, age) pairs from a minor_children_details answer.
+
+    Conservative by design: ages come only from explicit "(12)" / "age 12"
+    forms and must be under 18; a bare name list ("Aarav Sharma, Diya
+    Sharma and Kabir Sharma") is accepted segment by segment, each segment
+    required to look like a plain capitalized name, and merged with the
+    aged matches so an age-less sibling is not dropped. Prose yields
+    nothing — an unparsed answer is safer than an invented person.
+    """
+    found: list[tuple[str, int | None]] = []
+    seen: set[str] = set()
+    adults: set[str] = set()  # names explicitly stated with an age >= 18
+    for pattern in (_AGE_PAREN_RE, _AGE_WORD_RE):
+        for match in pattern.finditer(details):
+            name = _clean_person_name(match.group(1))
+            if name is None:
+                continue
+            age = int(match.group(2))
+            if age > 17:
+                adults.add(name.lower())
+                continue
+            if name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            found.append((name, age))
+    for segment in re.split(r"[,;\n]|\band\b", details):
+        candidate = " ".join(segment.split()).strip(" .")
+        if not candidate:
+            continue
+        if not _NAME_ONLY_RE.match(candidate):
+            # A lowercase lead-in ("Our sons Aarav Sharma") breaks the
+            # whole-segment match — fall back to a trailing name run of
+            # at least two words at the segment's end.
+            trailing = re.search(rf"({_NAME_PATTERN})$", candidate)
+            if trailing is None or " " not in trailing.group(1):
+                continue
+            candidate = trailing.group(1)
+        name = _clean_person_name(candidate)
+        if name is None or name.lower() in seen or name.lower() in adults:
+            continue
+        seen.add(name.lower())
+        found.append((name, None))
+        if len(found) >= 8:
+            break
+    return found
+
+
+def _sync_minors_from_answers(
+    conn: Any, *, household_id: UUID, answers: dict[str, Any]
+) -> None:
+    """Create minor persons for children named in the interview (create-only)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        if answers.get("has_minor_children") is False:
+            return
+        details = answers.get("minor_children_details")
+        if not isinstance(details, str) or not details.strip():
+            return
+        from app.domains.household import repository as household_repo
+
+        existing = household_repo.list_persons_for_household(conn, household_id)
+        known = {
+            str(p.get("full_name", "")).strip().lower()
+            for p in existing
+            if str(p.get("kind") or "").lower() in _MINOR_KINDS
+        }
+        # SAVEPOINT armor, same as the nominations sync: a DB-level failure
+        # here must not poison the request transaction and lose the save.
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT lf_minor_sync")
+        try:
+            for name, age in _parse_minor_children(details):
+                if name.lower() in known:
+                    continue
+                household_repo.insert_person(
+                    conn,
+                    household_id=household_id,
+                    full_name=name,
+                    kind="minor",
+                    notes=(
+                        f"Age {age} per the interview"
+                        if age is not None
+                        else "Named in the interview as a minor child"
+                    ),
+                )
+                known.add(name.lower())
+                logger.info("Materialized minor person %s (household %s)", name, household_id)
+        except Exception:
+            with conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT lf_minor_sync")
+                cur.execute("RELEASE SAVEPOINT lf_minor_sync")
+            raise
+        with conn.cursor() as cur:
+            cur.execute("RELEASE SAVEPOINT lf_minor_sync")
+    except Exception as e:  # best-effort: never fail the answer save
+        logger.warning("Minor materialization failed: %s", e)
+
+
+_CATEGORY_ASSET_TYPES = {
+    "bank": "bank_account",
+    "brokerage": "investment",
+    "retirement": "retirement",
+    "insurance": "insurance",
+    "real_property": "real_estate",
+    "business": "business",
+    "vehicle": "vehicle",
+    "529": "other",
+    "digital": "other",
+}
+
+
+def _asset_specs_for_categories(
+    question: dict[str, Any] | None, selected: list[str]
+) -> list[tuple[str, str]]:
+    """Map selected asset-category values to (asset_type, label) rows.
+
+    Labels come from the pack question's own options so the Assets page
+    shows the wording the user picked; unknown values are skipped.
+    """
+    labels = {}
+    if question:
+        for option in question.get("options") or []:
+            if isinstance(option, dict) and option.get("value") is not None:
+                labels[str(option["value"])] = str(option.get("label") or option["value"])
+    specs: list[tuple[str, str]] = []
+    for value in selected:
+        asset_type = _CATEGORY_ASSET_TYPES.get(value)
+        if asset_type is None:
+            continue
+        specs.append((asset_type, labels.get(value, value)))
+    return specs
+
+
+def _sync_assets_from_answers(
+    conn: Any,
+    *,
+    firm_id: UUID,
+    household_id: UUID,
+    matter_id: UUID,
+    actor_id: UUID,
+    answers: dict[str, Any],
+    pack: Any,
+) -> None:
+    """Create one asset row per selected asset category (create-only)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        categories = answers.get("asset_categories_present")
+        if not isinstance(categories, list) or not categories:
+            return
+        question = None
+        for _set_id, _section_id, q in qs.iter_questions(pack.question_sets):
+            if str(q.get("key")) == "asset_categories_present":
+                question = q
+                break
+        specs = _asset_specs_for_categories(question, [str(c) for c in categories])
+        if not specs:
+            return
+        from app.domains.assets import repository as assets_repo
+
+        rows, _total = assets_repo.list_assets_for_household(
+            conn, household_id, page=1, page_size=200
+        )
+        have = {(str(a.get("asset_type")), str(a.get("label"))) for a in rows}
+        # SAVEPOINT armor, same as the nominations sync (see minors sync).
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT lf_asset_sync")
+        try:
+            for asset_type, label in specs:
+                if (asset_type, label) in have:
+                    continue
+                assets_repo.insert_asset(
+                    conn,
+                    firm_id=firm_id,
+                    household_id=household_id,
+                    matter_id=matter_id,
+                    asset_type=asset_type,
+                    label=label,
+                    estimated_value_cents=None,
+                    ownership=None,
+                    beneficiary_designation={},
+                    notes="Added from the interview asset categories",
+                    created_by_user_id=actor_id,
+                )
+                have.add((asset_type, label))
+                logger.info("Materialized asset %s/%s (matter %s)", asset_type, label, matter_id)
+        except Exception:
+            with conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT lf_asset_sync")
+                cur.execute("RELEASE SAVEPOINT lf_asset_sync")
+            raise
+        with conn.cursor() as cur:
+            cur.execute("RELEASE SAVEPOINT lf_asset_sync")
+    except Exception as e:  # best-effort: never fail the answer save
+        logger.warning("Asset materialization failed: %s", e)
+
+
 def get_question_sets(conn: Any, *, actor_sub: str, matter_id: UUID) -> QuestionSetsOut:
     """Serve the matter's snapshotted pack question sets (read access)."""
     actor_id = matters_service.caller_id(actor_sub)
@@ -340,6 +616,20 @@ def save_answers(
         matter_id=matter_id,
         household_id=UUID(str(scope.matter["household_id"])),
         firm_id=UUID(str(scope.matter["firm_id"])),
+        actor_id=actor_id,
+        answers=answers,
+        pack=pack,
+    )
+    _sync_minors_from_answers(
+        conn,
+        household_id=UUID(str(scope.matter["household_id"])),
+        answers=answers,
+    )
+    _sync_assets_from_answers(
+        conn,
+        firm_id=UUID(str(scope.matter["firm_id"])),
+        household_id=UUID(str(scope.matter["household_id"])),
+        matter_id=matter_id,
         actor_id=actor_id,
         answers=answers,
         pack=pack,
