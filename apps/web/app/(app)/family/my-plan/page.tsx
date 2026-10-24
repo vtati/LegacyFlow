@@ -84,6 +84,11 @@ function extractDecisions(
   return decisions.slice(0, 10);
 }
 
+function articleFor(label: string): string {
+  return /^[aeiou]/i.test(label.trim()) ? 'an' : 'a';
+}
+
+
 function buildNextSteps(
   matter: MatterSummary,
   nominations: Record<string, Nomination[]>,
@@ -97,7 +102,7 @@ function buildNextSteps(
   for (const type of NOMINATION_TYPES) {
     if ((nominations[type] ?? []).length === 0) {
       steps.push({
-        label: `Name ${type === 'guardian' ? 'a guardian for your children' : `an ${NOMINATION_LABELS[type]?.toLowerCase() ?? type}`}`,
+        label: `Name ${type === 'guardian' ? 'a guardian for your children' : `${articleFor(NOMINATION_LABELS[type] ?? type)} ${NOMINATION_LABELS[type]?.toLowerCase() ?? type}`}`,
         href: '/family/guardians',
       });
     }
@@ -123,6 +128,8 @@ function buildNextSteps(
 function MatterPlanCard({ plan }: { plan: MatterPlan }) {
   const { matter } = plan;
   const required = plan.progress?.overall;
+  const displayPct =
+    required != null ? Math.round(required.percent_complete) : matter.completeness_pct;
 
   return (
     <Card>
@@ -148,9 +155,9 @@ function MatterPlanCard({ plan }: { plan: MatterPlan }) {
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-lf-text">Plan completeness</span>
-            <span className="font-medium text-lf-text">{matter.completeness_pct}%</span>
+            <span className="font-medium text-lf-text">{displayPct}%</span>
           </div>
-          <ProgressBar value={matter.completeness_pct} label={`${matter.title} plan progress`} />
+          <ProgressBar value={displayPct} label={`${matter.title} plan progress`} />
           {required && required.required_total > 0 && (
             <p className="text-xs text-lf-text-subtle">
               {required.required_answered} of {required.required_total} required intake answers
