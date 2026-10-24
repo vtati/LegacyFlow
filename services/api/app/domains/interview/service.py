@@ -786,28 +786,199 @@ def next_gap_cluster(
     return None
 
 
-def _cluster_gap_for_turn(
-    conn: Any, *, firm_id: UUID, pack: LoadedPack, answers: dict[str, Any]
-) -> dict[str, Any] | None:
-    """Cluster gap for this turn when the interview_v2 flag is on for the
-    matter's firm + pack; None (the v5 path) otherwise.
-
-    Fail-safe: a flag-read error must never break the turn — the interview
-    falls back to the proven v5 path (same best-effort posture as the
-    router's auto-confirm)."""
+def _v2_enabled(conn: Any, *, firm_id: UUID, pack: LoadedPack) -> bool:
+    """The interview_v2 flag for this firm + pack. Fail-safe: a flag-read
+    error must never break the turn — the interview falls back to the
+    proven v5 path (same best-effort posture as the router's
+    auto-confirm)."""
     try:
-        enabled = feature_flags.is_enabled(
-            conn, "interview_v2", firm_id=firm_id, pack_id=pack.manifest.pack_id
+        return bool(
+            feature_flags.is_enabled(
+                conn, "interview_v2", firm_id=firm_id, pack_id=pack.manifest.pack_id
+            )
         )
     except Exception:
         logger.warning(
             "interview_v2 flag read failed; falling back to the v5 prompt path",
             exc_info=True,
         )
-        return None
-    if not enabled:
+        return False
+
+
+def _cluster_gap_for_turn(
+    conn: Any, *, firm_id: UUID, pack: LoadedPack, answers: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Cluster gap for this turn when the interview_v2 flag is on for the
+    matter's firm + pack; None (the v5 path) otherwise."""
+    if not _v2_enabled(conn, firm_id=firm_id, pack=pack):
         return None
     return next_gap_cluster(pack.question_sets, answers)
+
+
+# --- Role bundles (Interview v2, Part 3) -------------------------------------
+# One person named for one role is offered for the sibling roles as a
+# single grouped yes/no. The fill happens through server-created proposals
+# (source "bundle", confidence 1.0) on a deterministic YES — the model
+# never guesses a nomination (spec: reuse is a confirmation, never an
+# assumption).
+PRIMARY_BUNDLE: tuple[str, ...] = (
+    "primary_executor_person",
+    "poa_agent_person",
+    "healthcare_agent_person",
+)
+BACKUP_BUNDLE: tuple[str, ...] = (
+    "backup_executor_person",
+    "successor_poa_agent_person",
+    "successor_healthcare_agent_person",
+    "successor_trustee_person",
+)
+_ROLE_BUNDLES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("primary", PRIMARY_BUNDLE),
+    ("backup", BACKUP_BUNDLE),
+)
+ADDRESS_BUNDLE_KEYS: tuple[str, ...] = (
+    "primary_executor_address",
+    "poa_agent_address",
+    "primary_guardian_address",
+)
+#: An offer is presented at most twice; after that the cluster flow asks
+#: the remaining roles individually (a defer is not a decline). A
+#: "presentation" is counted when an offer is placed into a turn's prompt;
+#: if that turn's model call then fails, the count is still spent (the
+#: cap is an approximation, biased toward asking individually sooner).
+MAX_BUNDLE_OFFERS = 2
+
+
+def pending_bundle_offer(
+    question_sets: Any,
+    answers: dict[str, Any],
+    *,
+    declined: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """The pending bundle offer for this answer state, or None.
+
+    Role bundles: exactly one member answered (the anchor) and at least
+    one member unanswered AND applicable — pruned members are never fill
+    targets. Address bundle: the testator's own address trio is answered
+    and at least one role address is missing and applicable. Declined offers (by decline_key) never reappear. Decline keys are
+    "<bundle>:<anchor name lower>" for role bundles and
+    "address:<composed address lower>" for the address bundle.
+    """
+    applicable, _pending, _pruned = qs.partition_questions(question_sets, answers)
+    applicable_keys = {str(q.get("key")) for _s, _sec, q in applicable}
+
+    for bundle_name, members in _ROLE_BUNDLES:
+        answered_members = [
+            k for k in members if qs.is_answered(answers.get(k))
+        ]
+        if len(answered_members) != 1:
+            continue
+        anchor_key = answered_members[0]
+        anchor_name = answers.get(anchor_key)
+        if not isinstance(anchor_name, str) or not anchor_name.strip():
+            continue
+        anchor_name = anchor_name.strip()
+        decline_key = f"{bundle_name}:{anchor_name.lower()}"
+        if decline_key in declined:
+            continue
+        fill_keys = [
+            k
+            for k in members
+            if k != anchor_key
+            and not qs.is_answered(answers.get(k))
+            and k in applicable_keys
+        ]
+        if fill_keys:
+            return {
+                "bundle": bundle_name,
+                "anchor_key": anchor_key,
+                "anchor_name": anchor_name,
+                "fill_keys": fill_keys,
+                "fill_value": anchor_name,
+                "decline_key": decline_key,
+            }
+
+    street = answers.get("testator_street_address")
+    city = answers.get("testator_city")
+    state = answers.get("primary_residence_state")
+    if all(isinstance(v, str) and v.strip() for v in (street, city, state)):
+        composed = f"{street.strip()}, {city.strip()}, {state.strip()}"
+        decline_key = f"address:{composed.lower()}"
+        if decline_key not in declined:
+            fill_keys = [
+                k
+                for k in ADDRESS_BUNDLE_KEYS
+                if not qs.is_answered(answers.get(k)) and k in applicable_keys
+            ]
+            if fill_keys:
+                return {
+                    "bundle": "address",
+                    "anchor_key": "testator_street_address",
+                    "anchor_name": composed,
+                    "fill_keys": fill_keys,
+                    "fill_value": composed,
+                    "decline_key": decline_key,
+                }
+    return None
+
+
+def _bundle_offer_for_turn(
+    conn: Any,
+    *,
+    session_id: UUID,
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    question_labels: dict[str, str],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """The offer to present this turn + the session state (mutated when an
+    offer is presented, so the caller can persist it).
+
+    Suppression: declined offers never return; an offer already presented
+    MAX_BUNDLE_OFFERS times without resolution stops being offered (the
+    cluster flow then asks the roles one by one)."""
+    try:
+        state = repo.get_session_state(conn, session_id)
+    except Exception:
+        logger.warning("bundle state read failed", exc_info=True)
+        state = {}
+    declined = set(state.get("bundles_declined") or [])
+    offer = pending_bundle_offer(pack.question_sets, answers, declined=declined)
+    if offer is None:
+        return None, state
+    offered = dict(state.get("bundles_offered") or {})
+    if int(offered.get(offer["decline_key"], 0)) >= MAX_BUNDLE_OFFERS:
+        return None, state
+    offered[offer["decline_key"]] = int(offered.get(offer["decline_key"], 0)) + 1
+    state["bundles_offered"] = offered
+    offer["fill_labels"] = [
+        question_labels.get(k, k) for k in offer["fill_keys"]
+    ]
+    return offer, state
+
+
+def _signed_in_name(conn: Any, household_id: Any) -> str | None:
+    """Full name of the household's primary client (their profile name),
+    for the identity confirmation opener. Best-effort."""
+    if household_id is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.full_name FROM household_members hm
+                JOIN profiles p ON p.id = hm.user_id
+                WHERE hm.household_id = %s
+                  AND hm.relationship_role = 'primary_client'
+                LIMIT 1
+                """,
+                (str(household_id),),
+            )
+            row = cur.fetchone()
+        if row and row.get("full_name"):
+            return str(row["full_name"])
+    except Exception:
+        logger.warning("signed-in name lookup failed", exc_info=True)
+    return None
 
 
 def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> SessionOut:
@@ -1270,14 +1441,35 @@ def post_turn(
         question_labels=question_labels,
     )
     history = _history_messages(conn, session_id)
-    # Interview v2: with the flag on, the prompt focuses on ONE cluster's
-    # gap; off, the v5 path runs byte-for-byte (including its trace label).
-    cluster_gap = _cluster_gap_for_turn(
-        conn, firm_id=firm_id, pack=pack, answers=answers
-    )
+    # Interview v2 (flag on): a pending bundle offer outranks the cluster
+    # gap; otherwise the prompt focuses on ONE cluster's gap. Flag off:
+    # the v5 path runs byte-for-byte (including its trace label).
+    cluster_gap = None
+    bundle_offer = None
+    bundle_state: dict[str, Any] = {}
+    signed_in_name = None
+    if _v2_enabled(conn, firm_id=firm_id, pack=pack):
+        bundle_offer, bundle_state = _bundle_offer_for_turn(
+            conn,
+            session_id=session_id,
+            pack=pack,
+            answers=answers,
+            question_labels=question_labels,
+        )
+        if bundle_offer is not None:
+            try:
+                repo.update_session_state(conn, session_id, bundle_state)
+            except Exception:
+                logger.warning("bundle state persist failed", exc_info=True)
+        else:
+            cluster_gap = next_gap_cluster(pack.question_sets, answers)
+            if cluster_gap is not None and cluster_gap["cluster"] == "identity":
+                signed_in_name = _signed_in_name(
+                    conn, scope.matter.get("household_id")
+                )
     prompt_version = (
         prompts.PROMPT_TEMPLATE_VERSION
-        if cluster_gap is not None
+        if (cluster_gap is not None or bundle_offer is not None)
         else prompts.PROMPT_TEMPLATE_VERSION_V5
     )
     system_prompt = prompts.build_system_prompt(
@@ -1289,6 +1481,8 @@ def post_turn(
         pending_proposal_keys=pending_keys,
         answered_keys=sorted(answers.keys()),
         cluster_gap=cluster_gap,
+        bundle_offer=bundle_offer,
+        signed_in_name=signed_in_name,
     )
 
     provider = get_llm_provider()
@@ -1442,6 +1636,56 @@ def post_turn(
         # commits, in a separate transaction with a statement timeout.
         # (Doing it here hung the turn — see ADR.)
         stored_proposals.append(proposal_out)
+
+    # --- Role bundles: the user's reply to a pending offer is resolved
+    # deterministically. YES → server proposals (source "bundle",
+    # confidence 1.0) fill the sibling roles through the normal
+    # confirm/auto-confirm path. NO → the decline is recorded and the
+    # offer never repeats for that anchor. Anything else defers.
+    if bundle_offer is not None:
+        verdict = _parse_yes_no(message)
+        if verdict is True:
+            # Fresh read at fill time (review I-1): never stack a bundle
+            # proposal on top of an already-open proposal for the same
+            # key — the turn-start snapshot in pending_key_set can miss
+            # proposals stored by other paths since.
+            open_now = repo.open_proposal_keys(conn, session_id)
+            for fill_key in bundle_offer["fill_keys"]:
+                if (
+                    fill_key in pending_key_set
+                    or fill_key in open_now
+                    or qs.is_answered(answers.get(fill_key))
+                ):
+                    continue
+                row = repo.insert_proposal(
+                    conn,
+                    session_id=session_id,
+                    turn_id=UUID(str(assistant_turn["id"])),
+                    firm_id=firm_id,
+                    matter_id=matter_id,
+                    question_key=fill_key,
+                    proposed_value=bundle_offer["fill_value"],
+                    source="bundle",
+                    confidence=1.0,
+                    source_snippet=(
+                        f"Confirmed via the {bundle_offer['bundle']} bundle "
+                        f"offer (anchor: {bundle_offer['anchor_key']})"
+                    ),
+                    model_id="server_bundle",
+                    prompt_version=prompt_version,
+                    pack_version=version,
+                )
+                stored_proposals.append(_proposal_out(row))
+                pending_key_set.add(fill_key)
+        elif verdict is False:
+            declined = list(bundle_state.get("bundles_declined") or [])
+            if bundle_offer["decline_key"] not in declined:
+                declined.append(bundle_offer["decline_key"])
+            bundle_state["bundles_declined"] = declined
+            try:
+                repo.update_session_state(conn, session_id, bundle_state)
+            except Exception:
+                logger.warning("bundle decline persist failed", exc_info=True)
 
     _record_turn_audit(
         conn,

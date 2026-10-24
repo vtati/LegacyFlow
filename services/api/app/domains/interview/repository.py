@@ -40,6 +40,34 @@ def get_session(conn: Any, session_id: UUID) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
 
 
+def get_session_state(conn: Any, session_id: UUID) -> dict[str, Any]:
+    """The session's v2 state bag (bundle declines / offer counts).
+
+    Returns {} when the session or column is absent — bundle bookkeeping
+    must never break a turn."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT state FROM interview_sessions WHERE id = %s", (str(session_id),)
+        )
+        row = cur.fetchone()
+    if not row:
+        return {}
+    state = row.get("state")
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def update_session_state(conn: Any, session_id: UUID, state: dict[str, Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE interview_sessions
+            SET state = %s::jsonb, updated_at = now()
+            WHERE id = %s
+            """,
+            (json.dumps(state), str(session_id)),
+        )
+
+
 def insert_session(
     conn: Any,
     *,

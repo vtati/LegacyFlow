@@ -37,6 +37,8 @@ def build_system_prompt(
     pending_proposal_keys: list[str] | None = None,
     answered_keys: list[str] | None = None,
     cluster_gap: dict | None = None,
+    bundle_offer: dict | None = None,
+    signed_in_name: str | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -48,7 +50,13 @@ def build_system_prompt(
     # "Still needed" excludes items already awaiting user confirmation, so the
     # model never has to cross-reference two lists to avoid re-asking.
     pending_set = set(pending)
-    if cluster_gap is not None:
+    if bundle_offer is not None:
+        # A pending bundle offer outranks the cluster gap: the only work
+        # this turn is the grouped yes/no question.
+        still_needed = [
+            k for k in bundle_offer["fill_keys"] if k not in pending_set
+        ]
+    elif cluster_gap is not None:
         # v6: the state section lists ONLY the focus cluster's missing
         # questions — the model asks one bundled question about these and
         # nothing else this turn.
@@ -77,6 +85,47 @@ language — not a list of separate questions.
 - The user may answer several fields at once: record every value they \
 state for these fields. Do NOT ask about fields outside this list this \
 turn."""
+        if (
+            signed_in_name
+            and cluster_gap["cluster"] == "identity"
+            and any(
+                q["key"] == "testator_full_name" for q in cluster_gap["questions"]
+            )
+        ):
+            cluster_block += f"""
+- The user is signed in as {signed_in_name}. Open by confirming the \
+name: "You're signed in as {signed_in_name} — is that the full legal \
+name you'd like on the documents?" Record their confirmed legal name \
+as testator_full_name."""
+    if bundle_offer is not None:
+        anchor_name = str(bundle_offer["anchor_name"])
+        role_lines = "\n".join(
+            f"  * {label} ({key})"
+            for key, label in zip(
+                bundle_offer["fill_keys"], bundle_offer.get("fill_labels") or []
+            )
+        )
+        if bundle_offer["bundle"] == "address":
+            cluster_block = f"""
+
+ADDRESS BUNDLE OFFER:
+- Ask ONE yes/no question: should the roles below use the user's own \
+address ({anchor_name}) as well?
+{role_lines}
+- If the user says yes, the system records it automatically — do NOT \
+emit proposals for these address fields yourself; just acknowledge. \
+If they say no, acknowledge and move on. Never repeat this offer."""
+        else:
+            cluster_block = f"""
+
+ROLE BUNDLE OFFER:
+- The user has named {anchor_name} for one role. Ask ONE grouped \
+yes/no question offering {anchor_name} for these additional roles too:
+{role_lines}
+- Phrase it naturally, naming each role in plain language. If the \
+user says yes, the system records it automatically — do NOT emit \
+proposals for these roles yourself; just acknowledge. If they say no, \
+acknowledge and move on. Never repeat this offer."""
     text = f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \
@@ -207,6 +256,6 @@ include those names even if the structured proposal is pending. NEVER say \
 "Not applicable" for guardians when the user has minor children.{cluster_block}
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id})."""
-    if cluster_gap is not None:
+    if cluster_gap is not None or bundle_offer is not None:
         text = text.replace(_SECTION_ORDER_BULLET, _CLUSTER_ORDER_BULLET)
     return text

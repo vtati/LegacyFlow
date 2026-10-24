@@ -405,6 +405,89 @@ def _sync_minors_from_answers(
         logger.warning("Minor materialization failed: %s", e)
 
 
+def _sync_testator_name(
+    conn: Any, *, household_id: UUID, answers: dict[str, Any]
+) -> None:
+    """Identity capture (Interview v2): the confirmed legal name lands on
+    the household's primary-client person.
+
+    Rules: fill the earliest adult person whose name is empty or
+    "Unknown person"; if the household has NO adult person at all, create
+    one and link it to the primary_client membership; never overwrite a
+    real human-entered name. Best-effort + SAVEPOINT-armored like the
+    other syncs — a failure here must never fail the answer save.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    name = answers.get("testator_full_name")
+    if not isinstance(name, str) or not name.strip():
+        return
+    name = name.strip()
+    try:
+        from app.domains.household import repository as household_repo
+
+        persons = household_repo.list_persons_for_household(conn, household_id)
+        adults = [
+            p
+            for p in persons
+            if str(p.get("kind") or "").lower() not in _MINOR_KINDS
+        ]
+        unknown = [
+            p
+            for p in adults
+            if not str(p.get("full_name") or "").strip()
+            or str(p.get("full_name") or "").strip() == "Unknown person"
+        ]
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT lf_testator_sync")
+        try:
+            if unknown:
+                household_repo.update_person(
+                    conn,
+                    UUID(str(unknown[0]["id"])),
+                    {"full_name": name},
+                )
+                logger.info(
+                    "Testator name synced to person %s (household %s)",
+                    unknown[0]["id"],
+                    household_id,
+                )
+            elif not adults:
+                row = household_repo.insert_person(
+                    conn,
+                    household_id=household_id,
+                    full_name=name,
+                    kind="adult",
+                    notes="Primary client — named via the interview identity confirmation",
+                )
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE household_members
+                        SET person_id = %s
+                        WHERE household_id = %s
+                          AND relationship_role = 'primary_client'
+                          AND person_id IS NULL
+                        """,
+                        (str(row["id"]), str(household_id)),
+                    )
+                logger.info(
+                    "Created primary-client person %s (household %s)",
+                    row["id"],
+                    household_id,
+                )
+        except Exception:
+            with conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT lf_testator_sync")
+                cur.execute("RELEASE SAVEPOINT lf_testator_sync")
+            raise
+        with conn.cursor() as cur:
+            cur.execute("RELEASE SAVEPOINT lf_testator_sync")
+    except Exception as e:  # best-effort: never fail the answer save
+        logger.warning("Testator name sync failed: %s", e)
+
+
 _CATEGORY_ASSET_TYPES = {
     "bank": "bank_account",
     "brokerage": "investment",
@@ -621,6 +704,11 @@ def save_answers(
         pack=pack,
     )
     _sync_minors_from_answers(
+        conn,
+        household_id=UUID(str(scope.matter["household_id"])),
+        answers=answers,
+    )
+    _sync_testator_name(
         conn,
         household_id=UUID(str(scope.matter["household_id"])),
         answers=answers,

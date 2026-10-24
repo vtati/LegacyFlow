@@ -8,6 +8,14 @@ sections:
 - id: basics
   title: About your household
   questions:
+  - key: testator_full_name
+    type: text
+    label: What is your full legal name?
+    help: 'Why we ask: your documents must carry your exact legal name, spelled the way it appears on
+      your ID.'
+    required: true
+    maps_to: facts.testator_full_name
+    cluster: identity
   - key: marital_status
     type: single_select
     label: What best describes your household?

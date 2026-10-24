@@ -89,8 +89,9 @@ def test_full_yes_profile_applicable_required_count():
     }
     per_set, _pct, _missing, pruned = compute_progress(pack.question_sets, answers)
     # 38 v1 required + 2 beneficiary gates + specific_bequests (now
-    # required, gate true) = 41 applicable, nothing pruned.
-    assert _required_total(per_set) == 41
+    # required, gate true) = 41 applicable, nothing pruned. Part 3 added
+    # testator_full_name (required, identity) -> 42.
+    assert _required_total(per_set) == 42
     assert pruned == []
 
 
@@ -106,7 +107,8 @@ def test_pruned_profile_denominator_and_pruned_keys():
         # their sections stay PENDING (counted), never pruned.
     }
     per_set, _pct, _missing, pruned = compute_progress(pack.question_sets, answers)
-    assert _required_total(per_set) == 30
+    # 30 pre-Part-3 + testator_full_name (always applicable) = 31.
+    assert _required_total(per_set) == 31
     assert sorted(pruned) == sorted(
         [
             "primary_guardian_person",
