@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { darkTokens, legacyflowPreset, tokens } from '../index';
 
@@ -9,7 +10,7 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(tokens.colors.primary[800]).toBe('#132A42');
     expect(tokens.colors.primary[600]).toBe('#2E4E68');
     expect(tokens.colors.primary.foreground).toBe('#FFFFFF');
-    // Success — modern emerald (#1F9D74 at 500)
+    // Success — mint family (Lumen Aurora refresh; #0EA47A at 500)
     expect(tokens.colors.success[700]).toBe('#0A6B51');
     expect(tokens.colors.success[600]).toBe('#0B8663');
     expect(tokens.colors.success[500]).toBe('#0EA47A');
@@ -44,7 +45,7 @@ describe('design tokens — Atelier Light / Lumen Ink', () => {
     expect(tokens.colors.border.strong).toBe('#CBE0EC');
     // Gold token repurposed as the Lumen bright (legacy name kept for compatibility)
     expect(tokens.colors.gold).toBe('#0E9BBF');
-    // Radius — 16px cards per Direction A (--radius scale 0.75rem family)
+    // Radius — 18px cards (Lumen Aurora; was 16px under Direction A)
     expect(tokens.radius.card).toBe('18px');
     expect(tokens.radius.control).toBe('10px');
     // Type — Geist system; the display ("serif") slot also resolves to Geist
@@ -109,6 +110,7 @@ describe('design tokens — Lumen Aurora additions (2026-10-24)', () => {
     expect(tokens.colors.sky[500]).toBe('#1899D6');
     expect(tokens.colors.sky[100]).toBe('#E7F5FE');
     expect(tokens.colors.sky[700]).toBe('#0D6594');
+    expect(tokens.colors.sky[600]).toBe('#0E77AE');
     expect(tokens.colors.sky.foreground).toBe('#FFFFFF');
     // Violet — the AI color (500 = #7C6CF0 deck violet; 700 = #5B4BD6 AA text step)
     expect(tokens.colors.violet[500]).toBe('#7C6CF0');
@@ -137,7 +139,6 @@ describe('design tokens — Lumen Aurora additions (2026-10-24)', () => {
     expect(tokens.gradient.aurora).toContain('34 211 238');
     // Action gradient (white-text-safe at every blend point, AA report 2026-10-24)
     expect(tokens.gradient.action).toBe('linear-gradient(115deg, #0E7C9C 0%, #6553E3 100%)');
-    expect(tokens.colors.sky[600]).toBe('#0E77AE');
   });
 
   it('adds hero radius and glow shadow', () => {
@@ -175,5 +176,88 @@ describe('design tokens — Lumen Aurora additions (2026-10-24)', () => {
 
   it('preset enables class-based dark mode', () => {
     expect(legacyflowPreset.darkMode).toBe('class');
+  });
+});
+
+describe('design tokens — TS ↔ CSS parity (tokens.css mirrors tokens.ts)', () => {
+  const css = readFileSync(new URL('../tokens.css', import.meta.url), 'utf8');
+
+  function block(selector: string): Map<string, string> {
+    const m = css.match(new RegExp(selector.replace('.', '\\.') + '\\s*{([^}]*) }'.replace(' }', '}')));
+    expect(m, `CSS block ${selector} exists`).toBeTruthy();
+    const vars = new Map<string, string>();
+    for (const decl of (m as RegExpMatchArray)[1].split(';')) {
+      const d = decl.match(/--lf-[a-z0-9-]+\s*:\s*(.+)/s);
+      if (d) vars.set(d[0].split(':')[0].trim(), norm(d[1]));
+    }
+    return vars;
+  }
+  const norm = (v: string) => v.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  type ColorBag = typeof tokens.colors;
+  function expectedColors(c: ColorBag): Map<string, string> {
+    const out = new Map<string, string>();
+    const scales = ['primary', 'success', 'accent', 'sky', 'violet', 'error'] as const;
+    for (const name of scales) {
+      const scale = c[name] as unknown as Record<string, string>;
+      for (const [k, v] of Object.entries(scale)) {
+        out.set(k === 'foreground' ? `--lf-${name}-foreground` : `--lf-${name}-${k}`, norm(v));
+      }
+    }
+    for (const [k, v] of Object.entries(c.warning)) {
+      out.set(k === 'foreground' ? '--lf-warning-foreground' : `--lf-warning-${k}`, norm(v));
+    }
+    out.set('--lf-canvas', norm(c.canvas.DEFAULT));
+    out.set('--lf-canvas-subtle', norm(c.canvas.subtle));
+    out.set('--lf-canvas-elevated', norm(c.canvas.elevated));
+    out.set('--lf-text', norm(c.text.DEFAULT));
+    out.set('--lf-text-muted', norm(c.text.muted));
+    out.set('--lf-text-subtle', norm(c.text.subtle));
+    out.set('--lf-text-inverse', norm(c.text.inverse));
+    out.set('--lf-border', norm(c.border.DEFAULT));
+    out.set('--lf-border-strong', norm(c.border.strong));
+    for (const [k, v] of Object.entries(c.panel)) out.set(`--lf-panel-${k}`, norm(v));
+    out.set('--lf-gold', norm(c.gold));
+    return out;
+  }
+  function expectedShadow(sh: typeof tokens.shadow): Map<string, string> {
+    const out = new Map<string, string>();
+    out.set('--lf-shadow-subtle', norm(sh.subtle));
+    out.set('--lf-shadow-card', norm(sh.card));
+    out.set('--lf-shadow-glow', norm(sh.glow));
+    return out;
+  }
+  function expectedGradient(g: typeof tokens.gradient): Map<string, string> {
+    const out = new Map<string, string>();
+    out.set('--lf-gradient-primary', norm(g.primary));
+    out.set('--lf-gradient-aurora', norm(g.aurora));
+    out.set('--lf-gradient-action', norm(g.action));
+    return out;
+  }
+  function assertParity(cssVars: Map<string, string>, expected: Map<string, string>) {
+    for (const [k, v] of expected) expect(cssVars.get(k), k).toBe(v);
+    for (const k of cssVars.keys()) expect(expected.has(k), `no stray ${k}`).toBe(true);
+  }
+
+  it(':root mirrors the light tokens exactly (colors, radius, fonts, shadows, gradients)', () => {
+    const expected = new Map([
+      ...expectedColors(tokens.colors),
+      ...expectedShadow(tokens.shadow),
+      ...expectedGradient(tokens.gradient),
+    ]);
+    for (const [k, v] of Object.entries(tokens.radius)) expected.set(`--lf-radius-${k}`, norm(v));
+    expected.set('--lf-font-sans', norm(tokens.font.sans.join(', ')));
+    expected.set('--lf-font-serif', norm(tokens.font.serif.join(', ')));
+    expected.set('--lf-font-mono', norm(tokens.font.mono.join(', ')));
+    assertParity(block(':root'), expected);
+  });
+
+  it('.dark mirrors the dark tokens exactly (colors, shadows, gradients)', () => {
+    const expected = new Map([
+      ...expectedColors(darkTokens.colors),
+      ...expectedShadow(darkTokens.shadow),
+      ...expectedGradient(darkTokens.gradient),
+    ]);
+    assertParity(block('.dark'), expected);
   });
 });

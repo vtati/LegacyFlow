@@ -6,12 +6,15 @@ import { useId } from 'react';
  * The sprout glyph in a rounded tile filled with the signature gradient
  * (design token `--lf-gradient-primary`: #22D3EE → #0E9BBF → #7C6CF0).
  * Inline SVG so it stays crisp at every size and needs no image asset;
- * the gradient id is unique per instance via useId.
+ * the gradient id is unique per instance via useId (colons stripped —
+ * colon-bearing fragment refs are fragile in some engines).
+ * Decorative: every usage sits next to the visible "LegacyFlow" wordmark,
+ * which already names it for assistive tech.
  */
 export function LogoMark({ className }: { className?: string }): React.JSX.Element {
-  const gradientId = useId();
+  const gradientId = useId().replace(/:/g, '');
   return (
-    <svg viewBox="0 0 48 48" className={className} role="img" aria-label="LegacyFlow logo">
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#22D3EE" />
