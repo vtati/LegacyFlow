@@ -340,6 +340,18 @@ def _propose_tool_spec() -> dict[str, Any]:
     }
 
 
+def _is_next_gen_model(model: str) -> bool:
+    """gpt-5+ family: different chat-completions parameter contract.
+
+    Verified live (2026-10-25): function tools + reasoning_effort other
+    than 'none' is a 400 on /v1/chat/completions, temperature is not
+    accepted, and the output cap is max_completion_tokens. The gpt-4o /
+    gpt-4o-mini payload shape below stays byte-identical for the legacy
+    models every non-v2 path still uses.
+    """
+    return model.strip().lower().startswith(("gpt-5", "gpt-6"))
+
+
 class OpenAIChatProvider:
     """Interview turns via the OpenAI chat-completions API with tool calls."""
 
@@ -374,6 +386,14 @@ class OpenAIChatProvider:
             "tool_choice": "auto",
             "temperature": 0.2,
         }
+        if _is_next_gen_model(self._model):
+            # gpt-5+ contract (see _is_next_gen_model): no temperature,
+            # reasoning pinned to 'none' so function tools are accepted,
+            # generous completion cap so tool-call arguments never
+            # truncate mid-JSON.
+            payload.pop("temperature")
+            payload["reasoning_effort"] = "none"
+            payload["max_completion_tokens"] = 6000
         try:
             response = get_http_client().post(
                 "https://api.openai.com/v1/chat/completions",
@@ -553,13 +573,16 @@ _LLM_FACTORIES: dict[str, Callable[[], LLMProvider]] = {}
 _STT_FACTORIES: dict[str, Callable[[], STTProvider]] = {}
 
 
-def _openai_chat_factory() -> LLMProvider:
+def _openai_chat_factory(model: str | None = None) -> LLMProvider:
     from app.core.config import get_settings
 
     settings = get_settings()
     if not settings.OPENAI_API_KEY:
         raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
-    return OpenAIChatProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_INTERVIEW_MODEL)
+    return OpenAIChatProvider(
+        api_key=settings.OPENAI_API_KEY,
+        model=model or settings.OPENAI_INTERVIEW_MODEL,
+    )
 
 
 def _whisper_factory() -> STTProvider:
@@ -571,14 +594,21 @@ def _whisper_factory() -> STTProvider:
     return WhisperSTTProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_WHISPER_MODEL)
 
 
-_LLM_FACTORIES["deterministic_dev"] = lambda: DeterministicDevInterviewProvider()
+_LLM_FACTORIES["deterministic_dev"] = (
+    lambda model=None: DeterministicDevInterviewProvider()
+)
 _LLM_FACTORIES["openai"] = _openai_chat_factory
 _STT_FACTORIES["deterministic_dev"] = lambda: DeterministicDevSTTProvider()
 _STT_FACTORIES["whisper"] = _whisper_factory
 
 
-def get_llm_provider(name: str | None = None) -> LLMProvider:
-    """Select the interview LLM from ``AI_LLM_PROVIDER`` (default: deterministic_dev)."""
+def get_llm_provider(name: str | None = None, *, model: str | None = None) -> LLMProvider:
+    """Select the interview LLM from ``AI_LLM_PROVIDER`` (default: deterministic_dev).
+
+    ``model`` overrides the provider's model for this call only (the
+    Interview v2 stronger-extractor path); it is honored by the OpenAI
+    factory and ignored by the deterministic dev provider.
+    """
     from app.core.config import get_settings
 
     selected = (name or get_settings().AI_LLM_PROVIDER).strip().lower()
@@ -587,7 +617,7 @@ def get_llm_provider(name: str | None = None) -> LLMProvider:
         raise ConfigurationError(
             f"Unknown AI_LLM_PROVIDER {selected!r}. Expected one of: {sorted(_LLM_FACTORIES)}."
         )
-    return factory()
+    return factory(model=model)
 
 
 def get_stt_provider(name: str | None = None) -> STTProvider:

@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # the stronger model for extraction/tool discipline; cheap
     # classification (consistency) stays on OPENAI_CHAT_MODEL.
     OPENAI_INTERVIEW_MODEL: str = "gpt-4o"
+    # Stronger extractor for the interview_v2 path ONLY (benchmark
+    # 2026-10-25: gpt-5.5 beat gpt-4o on the recorded A/B paragraphs —
+    # recall .933 vs .908, wrong-source proposals 0 vs 6). Flag-off
+    # (v1) turns keep OPENAI_INTERVIEW_MODEL untouched.
+    OPENAI_INTERVIEW_MODEL_V2: str = "gpt-5.5"
     OPENAI_WHISPER_MODEL: str = "whisper-1"
     # Fernet key (base64, 32 bytes) for interview turn-body encryption (ADR-002).
     # Unset fails closed: the interviewer refuses to start a session rather

@@ -1060,7 +1060,7 @@ class TestInterviewCitations:
             ),
         ]
         monkeypatch.setattr(
-            interview_service, "get_llm_provider", lambda: _ProposalStub(drafts)
+            interview_service, "get_llm_provider", lambda **_kw: _ProposalStub(drafts)
         )
         matter_id = interview_setup["matter_id"]
         session_id = start_session(api_client, matter_id).json()["id"]
@@ -1095,7 +1095,7 @@ class _ProposalStub:
 def _stub_provider(
     monkeypatch: pytest.MonkeyPatch, drafts: list[ai_provider.FieldProposalDraft]
 ) -> None:
-    monkeypatch.setattr(interview_service, "get_llm_provider", lambda: _ProposalStub(drafts))
+    monkeypatch.setattr(interview_service, "get_llm_provider", lambda **_kw: _ProposalStub(drafts))
 
 
 def _post_with_proposal(

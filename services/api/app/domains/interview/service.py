@@ -5246,7 +5246,17 @@ def post_turn(
         next_gap=then_gap,
     )
 
-    provider = get_llm_provider()
+    # Stronger extractor on v2 turns only (config OPENAI_INTERVIEW_MODEL_V2,
+    # benchmark 2026-10-25); flag-off turns keep the default interview
+    # model exactly as before. effective_model is also what the AI trace
+    # and proposal rows record — provenance must name the model that
+    # actually ran (review I-2).
+    effective_model = (
+        settings.OPENAI_INTERVIEW_MODEL_V2
+        if v2_on
+        else settings.OPENAI_INTERVIEW_MODEL
+    )
+    provider = get_llm_provider(model=effective_model if v2_on else None)
     started = time.perf_counter()
     response = provider.chat(
         system_prompt=system_prompt,
@@ -5502,7 +5512,7 @@ def post_turn(
         matter_id=matter_id,
         turn_id=UUID(str(assistant_turn["id"])),
         provider=provider.name,
-        model_id=settings.OPENAI_INTERVIEW_MODEL if provider.name == "openai" else provider.name,
+        model_id=effective_model if provider.name == "openai" else provider.name,
         model_version=None,
         prompt_template=prompts.PROMPT_TEMPLATE_NAME,
         prompt_version=prompt_version,
@@ -5534,7 +5544,7 @@ def post_turn(
             source="user_stated",
             confidence=draft.confidence,
             source_snippet=draft.source_snippet or None,
-            model_id=settings.OPENAI_INTERVIEW_MODEL if provider.name == "openai" else provider.name,
+            model_id=effective_model if provider.name == "openai" else provider.name,
             prompt_version=prompt_version,
             pack_version=version,
         )
