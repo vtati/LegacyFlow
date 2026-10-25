@@ -1765,3 +1765,126 @@ class TestCopyGuardMultiTopicMessage:
     def test_single_topic_copy_for_window_key_still_kept(self):
         assert self._is_copy("healthcare_agent_phone", "text", 0) is False
         assert self._is_copy("healthcare_agent_phone", "text", 1) is False
+
+
+class TestValueShapeGate:
+    """Fix iteration 2 (A/B set 4, Sharma run 1): the model proposed
+    boolean True for the TEXT keys retirement_beneficiaries_current
+    and life_insurance_beneficiaries_current (answering the label's
+    'Are these up to date?' half) — and True PERSISTED as the final
+    intake answer, displacing the descriptive fact in the generated
+    documents. Symmetrically it proposed the string 'No specific
+    bequests' for a BOOLEAN key. A proposal whose value shape
+    contradicts the pack type is never a faithful extraction; the
+    deterministic fallbacks own the coerced forms."""
+
+    def test_bool_for_text_notes_person_is_rejected(self):
+        from app.domains.interview.service import _value_shape_ok
+
+        for qtype in ("text", "notes", "person"):
+            assert _value_shape_ok(qtype, True) is False
+            assert _value_shape_ok(qtype, False) is False
+
+    def test_string_for_boolean_is_rejected(self):
+        from app.domains.interview.service import _value_shape_ok
+
+        assert _value_shape_ok("boolean", "No specific bequests") is False
+        assert _value_shape_ok("boolean", "true") is False
+
+    def test_matching_shapes_pass(self):
+        from app.domains.interview.service import _value_shape_ok
+
+        assert _value_shape_ok("boolean", True) is True
+        assert _value_shape_ok("boolean", False) is True
+        assert _value_shape_ok("text", "512-555-0100") is True
+        assert _value_shape_ok("notes", "No limitations") is True
+        assert _value_shape_ok("person", "Maya Lee") is True
+
+    def test_ungated_types_untouched(self):
+        from app.domains.interview.service import _value_shape_ok
+
+        # Selects carry pack option codes / lists — not observed as
+        # poison; the gate does not invent rules for them.
+        assert _value_shape_ok("single_select", "married") is True
+        assert _value_shape_ok("multi_select", ["bank_accounts"]) is True
+        assert _value_shape_ok("", True) is True
+
+
+class TestCompletenessTextGate:
+    """Fix iteration 2 (A/B set 4): G3's scoped text capture takes
+    the WHOLE message as the value. Under v6's single-key focus
+    that was the sanctioned lapse-catcher (A/B run 4: zero proposals
+    stored). Under v7's merged focus it stamped one paragraph into
+    EVERY uncovered notes key of the focus (set-4 Sharma turns 7/9:
+    guardian_reason, living_will_directives, organ_donation_wishes,
+    poa_additional_powers all = the agents paragraph at 0.80). The
+    capture is now gated to lapse turns: when the turn already
+    produced >=2 proposals, the message is multi-topic and bundled
+    extraction is the model's job — the fallback abstains."""
+
+    _AGENTS_PARA = (
+        "For the financial power of attorney, my agent is Priya Sharma "
+        "and the successor agent is Amit Sharma. For healthcare, my "
+        "agent is Priya Sharma and Amit Sharma is the successor "
+        "healthcare agent."
+    )
+    _GUARDIAN_PARA = (
+        "My brother Amit Sharma should be the guardian for our "
+        "children — he is trusted, he is close to the children, and "
+        "he shares our values. If he can't serve, Neha Kapoor is the "
+        "backup guardian."
+    )
+    _MULTI_ASK = (
+        "Next, a few things: 1) Who should care for your minor "
+        "children if neither parent can? 2) Why is this person a good "
+        "fit? (optional) 3) Do you have wishes about life-prolonging "
+        "treatment? 4) Do you wish to donate organs, tissue, or eyes "
+        "after death? 5) Are there any specific financial powers you "
+        "want to grant or withhold? (optional)"
+    )
+
+    def _run(self, focus, message, prior):
+        from app.domains.interview.service import (
+            _focus_completeness_proposals,
+        )
+        from app.domains.legal_content.pack_loader import get_pack
+
+        sets = get_pack("US-VA", "2.0.0").question_sets
+        types = {}
+        from app.domains.intake import question_sets as qs
+
+        for _, _, q in qs.iter_questions(sets):
+            types[str(q["key"])] = str(q.get("type") or "")
+        return _focus_completeness_proposals(
+            focus_keys=focus,
+            covered_keys=set(),
+            question_types=types,
+            user_message=message,
+            assistant_reply=self._MULTI_ASK,
+            question_sets=sets,
+            answered_keys=set(),
+            prior_proposal_count=prior,
+        )
+
+    def test_multi_topic_turn_stamps_nothing(self):
+        out = self._run(
+            [
+                "guardian_reason",
+                "living_will_directives",
+                "organ_donation_wishes",
+                "poa_additional_powers",
+            ],
+            self._AGENTS_PARA,
+            prior=4,
+        )
+        assert out == []
+
+    def test_lapse_turn_capture_kept(self):
+        out = self._run(["guardian_reason"], self._GUARDIAN_PARA, prior=0)
+        assert [p["question_key"] for p in out] == ["guardian_reason"]
+
+    def test_boundary_one_prior_keeps_two_priors_abstain(self):
+        out = self._run(["guardian_reason"], self._GUARDIAN_PARA, prior=1)
+        assert [p["question_key"] for p in out] == ["guardian_reason"]
+        out = self._run(["guardian_reason"], self._GUARDIAN_PARA, prior=2)
+        assert out == []

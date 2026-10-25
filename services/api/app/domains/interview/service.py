@@ -1763,6 +1763,22 @@ def _question_sets_scoped(
     return scoped
 
 
+def _value_shape_ok(question_type: str, value: Any) -> bool:
+    """Whether a proposal's value shape can faithfully fill a field
+    of this pack type. A boolean for a text/notes/person field (the
+    model answering a label's yes/no half — 'Are these up to
+    date?' — instead of the descriptive fact) and a string for a
+    boolean field are never faithful extractions; in A/B set 4 a
+    boolean True PERSISTED as the final answer for both
+    *_beneficiaries_current text fields. Select types carry pack
+    option codes / lists and are deliberately ungated."""
+    if question_type == "boolean":
+        return isinstance(value, bool)
+    if question_type in {"text", "notes", "person"}:
+        return isinstance(value, str)
+    return True
+
+
 def _focus_completeness_proposals(
     *,
     focus_keys: list[str],
@@ -1772,6 +1788,7 @@ def _focus_completeness_proposals(
     assistant_reply: str,
     question_sets: Any,
     answered_keys: set[str] | None = None,
+    prior_proposal_count: int = 0,
 ) -> list[dict[str, Any]]:
     """G3: for each FOCUS field still uncovered after the model and the
     standard fallbacks, run the existing deterministic fallback scoped
@@ -1869,6 +1886,26 @@ def _focus_completeness_proposals(
             # capture must clear the same role bar as a model proposal.
             logger.info(
                 "Completeness fallback skipped cross-role person %r",
+                key,
+            )
+            continue
+        if (
+            fallback_fn is _deterministic_text_proposal
+            and prior_proposal_count + len(proposals) >= 2
+        ):
+            # The text capture's value is the WHOLE message by
+            # construction. It is sanctioned only as a lapse-catcher
+            # (the model proposed ~nothing and the paragraph is this
+            # field's answer — A/B run 4). When this turn already
+            # produced >=2 proposals, the message is multi-topic and
+            # the model demonstrably engaged it: stamping the whole
+            # paragraph into every uncovered notes field of a merged
+            # focus is the set-4 poison (guardian_reason /
+            # living_will_directives / organ_donation_wishes /
+            # poa_additional_powers all = the agents paragraph).
+            # Bundled extraction is the model's job; abstain.
+            logger.info(
+                "Completeness fallback skipped multi-topic text capture %r",
                 key,
             )
             continue
@@ -5271,6 +5308,20 @@ def post_turn(
                 session_id,
             )
             continue
+        if not _value_shape_ok(
+            question_types.get(draft.question_key, ""), draft.value
+        ):
+            # Shape-contradicting values are never faithful (fix
+            # iteration 2): a boolean True for a text field, a prose
+            # string for a boolean gate. The key stays UNCOVERED so
+            # the deterministic fallbacks below can still record the
+            # answer in its proper shape this same turn.
+            logger.warning(
+                "Dropping shape-mismatched proposal for %r (session %s)",
+                draft.question_key,
+                session_id,
+            )
+            continue
         if (
             draft.question_key,
             _canonical_proposal_value(draft.value),
@@ -5413,6 +5464,7 @@ def post_turn(
                 assistant_reply=last_assistant_msg,
                 question_sets=pack.question_sets,
                 answered_keys=set(answers.keys()),
+                prior_proposal_count=len(valid_proposals),
             ):
                 valid_proposals.append(
                     FieldProposalDraft(
