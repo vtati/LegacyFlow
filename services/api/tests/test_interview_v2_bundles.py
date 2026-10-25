@@ -547,3 +547,73 @@ def test_bundle_fill_keys_skip_decided_proposals():
         answers={},
     )
     assert keys == ["healthcare_agent_person"]
+
+
+# --- fix iteration 1: the no-text fallback must render the WHOLE focus -----
+# Production evidence (A/B set 3, 2026-10-25): the model habitually
+# returns tool-calls only, so this fallback IS the ask path — and it
+# asked only the FIRST focus key, silently discarding the merged /
+# batched / sweep focus lists the v7 selector computed. A multi-key
+# focus must render as one numbered multi-ask message; a single
+# askable key keeps the exact legacy rendering.
+
+
+def test_fallback_reply_asks_all_focus_keys(monkeypatch):
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["has_minor_children", "asset_categories_present"],
+        question_labels={
+            "has_minor_children": "Do you have minor children?",
+            "asset_categories_present": "Which assets do you have?",
+            "has_debts": "Do you have any debts?",
+        },
+        focus_keys=["asset_categories_present", "has_debts"],
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    assert "Which assets do you have?" in resp.reply
+    assert "Do you have any debts?" in resp.reply
+    assert "1)" in resp.reply and "2)" in resp.reply
+
+
+def test_fallback_reply_multi_ask_skips_just_proposed(monkeypatch):
+    # The fake model proposes marital_status this turn; a focus that
+    # includes it must not re-ask it in the same reply.
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["marital_status", "has_debts", "has_life_insurance"],
+        question_labels={
+            "marital_status": "What best describes your household?",
+            "has_debts": "Do you have any debts?",
+            "has_life_insurance": "Do you have life insurance?",
+        },
+        focus_keys=["marital_status", "has_debts", "has_life_insurance"],
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    assert "What best describes your household?" not in resp.reply
+    assert "Do you have any debts?" in resp.reply
+    assert "Do you have life insurance?" in resp.reply
+
+
+def test_fallback_reply_single_focus_key_rendering_unchanged(monkeypatch):
+    context = ai_provider.InterviewContext(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        pack_version="2.0.0",
+        missing_required_keys=["has_minor_children", "asset_categories_present"],
+        question_labels={
+            "has_minor_children": "Do you have minor children?",
+            "asset_categories_present": "Which assets do you have?",
+        },
+        focus_keys=["asset_categories_present"],
+    )
+    resp = _chat_with_context(monkeypatch, context)
+    # The fake's marital_status proposal is not in this context's
+    # labels, so the legacy count renders as "that" — the pin is the
+    # exact pre-change string for a single askable focus key.
+    assert resp.reply == (
+        "Thanks — I've recorded that. Next: Which assets do you have?"
+    )

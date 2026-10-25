@@ -777,6 +777,7 @@ def _is_whole_message_copy(
     asked_keys: frozenset[str] | set[str] = frozenset(),
     question_key: str = "",
     focus_authoritative: bool = False,
+    sibling_draft_count: int = 0,
 ) -> bool:
     """True when a text/notes proposal merely copies the user's whole
     (long, multi-topic) message into a field the assistant did not just
@@ -820,7 +821,18 @@ def _is_whole_message_copy(
         # only question is whether the server asked about this key in
         # the last two turns (the persisted focus window).
         if question_key and question_key in asked_keys:
-            return False
+            # The window exemption presumes a single-topic message
+            # answering THIS key. Under v7's merged focus the window
+            # holds many keys and the user answers only some of them;
+            # when the same message grounded >=2 OTHER proposals it
+            # is demonstrably multi-topic, and a whole-message copy
+            # for an unanswered window key is the poison shape, not
+            # a faithful answer (fix iteration 1: A/B set 3 Pruned
+            # run 2 — the agents paragraph copied verbatim into
+            # healthcare_agent_phone / _limitations /
+            # poa_additional_powers, all window keys).
+            if sibling_draft_count < 2:
+                return False
         # A 1-2 word message is a direct answer to SOMETHING; dropping
         # it risks more than the paragraph-scale copies this guard
         # exists for.
@@ -5282,6 +5294,7 @@ def post_turn(
             asked_keys=window_focus_keys if v2_on else prev_focus_keys,
             question_key=draft.question_key,
             focus_authoritative=v2_on,
+            sibling_draft_count=max(0, len(response.proposals) - 1),
         ):
             logger.warning(
                 "Dropping whole-message copy proposal for %r (session %s)",

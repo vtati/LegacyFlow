@@ -1712,3 +1712,56 @@ class TestGuardWiring:
         assert _bundle_fill_keys(
             offer, pending=set(), open_now=set(), decided=set(), answers={}
         ) == ["successor_poa_agent_person"]
+
+
+class TestCopyGuardMultiTopicMessage:
+    """Fix iteration 1 (A/B set 3, Pruned run 2 turn 8): the agents
+    paragraph was proposed VERBATIM as the value for
+    healthcare_agent_phone, healthcare_agent_limitations and
+    poa_additional_powers. All three keys sat in the focus window,
+    so the authoritative path's asked-exemption kept the copies —
+    sound for a single-question focus, unsound under v7's merged
+    focus: the user answered SOME window keys (the agent persons)
+    and the message is demonstrably multi-topic (it grounded many
+    proposals at once). A whole-message copy in a multi-topic turn
+    (>=2 sibling drafts) is poison even for a window key."""
+
+    _AGENTS_PARA = (
+        "For the financial power of attorney, my agent is Maya Lee "
+        "and the successor agent is David Lee. For healthcare, my "
+        "agent is Maya Lee and David Lee is the successor healthcare "
+        "agent."
+    )
+    _WINDOW = frozenset({
+        "poa_agent_person", "successor_poa_agent_person",
+        "healthcare_agent_person", "successor_healthcare_agent_person",
+        "healthcare_agent_phone", "healthcare_agent_limitations",
+        "poa_additional_powers",
+    })
+
+    def _is_copy(self, key, qtype, siblings):
+        from app.domains.interview.service import _is_whole_message_copy
+
+        return _is_whole_message_copy(
+            question_type=qtype,
+            value=self._AGENTS_PARA,
+            user_message=self._AGENTS_PARA,
+            last_assistant_text="Who should be your agents?",
+            question_label="label",
+            asked_keys=self._WINDOW,
+            question_key=key,
+            focus_authoritative=True,
+            sibling_draft_count=siblings,
+        )
+
+    def test_multi_topic_copies_dropped_for_window_keys(self):
+        assert self._is_copy("healthcare_agent_phone", "text", 6) is True
+        assert self._is_copy("healthcare_agent_limitations", "notes", 6) is True
+        assert self._is_copy("poa_additional_powers", "notes", 6) is True
+
+    def test_multi_topic_boundary_two_siblings_drops(self):
+        assert self._is_copy("healthcare_agent_phone", "text", 2) is True
+
+    def test_single_topic_copy_for_window_key_still_kept(self):
+        assert self._is_copy("healthcare_agent_phone", "text", 0) is False
+        assert self._is_copy("healthcare_agent_phone", "text", 1) is False

@@ -436,6 +436,7 @@ class OpenAIChatProvider:
             # A verbatim focus question (a bundle offer) outranks the
             # generic next-item composition entirely.
             focus_text_used = bool(context.focus_question_text)
+            multi_ask_text: str | None = None
             if focus_text_used:
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
@@ -448,14 +449,24 @@ class OpenAIChatProvider:
                 # fall through to the review-cards reply — never escape
                 # to a pack-order question outside the focus (the visible
                 # question must match the turn's intent; review I-1).
-                next_key = next(
-                    (
-                        k
-                        for k in context.focus_keys
-                        if k not in skip and k in labels
-                    ),
-                    None,
-                )
+                askable = [
+                    k
+                    for k in context.focus_keys
+                    if k not in skip and k in labels
+                ]
+                next_key = askable[0] if askable else None
+                if len(askable) >= 2:
+                    # v2 turn economics (fix iteration 1, A/B set 3):
+                    # the focus IS a merged / batched / sweep list —
+                    # asking only its first key silently discarded the
+                    # rest and cost a turn per key in production, where
+                    # this no-text fallback is the habitual ask path.
+                    # Render the whole focus as one numbered ask. A
+                    # single askable key keeps the legacy rendering.
+                    multi_ask_text = " ".join(
+                        f"{i}) {labels[k]}"
+                        for i, k in enumerate(askable, start=1)
+                    )
             else:
                 next_key = next(
                     (
@@ -467,6 +478,11 @@ class OpenAIChatProvider:
                 )
             if focus_text_used:
                 pass  # reply already composed above
+            elif multi_ask_text:
+                reply = (
+                    f"Thanks — I've recorded {recorded}. "
+                    f"Next, a few things: {multi_ask_text}"
+                )
             elif next_key:
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
