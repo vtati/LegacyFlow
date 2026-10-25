@@ -927,27 +927,539 @@ _SUCCESSOR_TAKEOVER_PHRASES: tuple[str, ...] = (
 )
 
 
-def _successor_signal_present(value: str, user_message: str) -> bool:
-    """A sentence containing the proposed name also carries successor
+def _clause_has_successor_signal(clause: str) -> bool:
+    clause_tokens = set(_norm_tokens(clause))
+    if clause_tokens & _SUCCESSOR_SIGNAL_TOKENS:
+        return True
+    normalized_clause = " ".join(_norm_tokens(clause))
+    return any(p in normalized_clause for p in _SUCCESSOR_TAKEOVER_PHRASES)
+
+
+def _split_clauses(sentence: str) -> list[str]:
+    """Clause boundaries for pairing discipline: commas, semicolons,
+    colons, dashes, and the coordinating conjunctions. Colons and
+    dashes segment role lists ("Roles: Maya Lee is my healthcare
+    agent: David Lee is the successor …") exactly like commas do
+    (review round 2, I-3)."""
+    import re
+
+    return re.split(r"[,;:—–]|\s+-\s+|\band\b|\bbut\b", sentence)
+
+
+#: A successor condition stated about the TESTATOR ("… should manage
+#: the trust if I cannot …") pairs the name with successor semantics
+#: as surely as the word "successor" does — the mandate's own
+#: "if … cannot/unable" pattern. Restricted to first-person subjects:
+#: a conditional about the PRIMARY ("if she can't serve") is the
+#: incumbent's clause, not the proposed name's licence.
+_FIRST_PERSON_CONDITIONAL = (
+    r"\bif\s+(i|we)\s+(am\s+|become\s+)?"
+    r"(can\s+t|cannot|can\s+not|unable|incapacitated|no\s+longer)\b"
+    r"|\bwhen\s+(i|we)\s+can\s+no\s+longer\b"
+)
+
+
+def _sentences(text: str) -> list[str]:
+    """Sentence split that does not amputate a clause at a middle
+    initial ("Priya K. Sharma" is one name, not two sentences —
+    review round 3, I-C)."""
+    import re
+
+    protected = re.sub(r"\b([A-Z])\.", r"\1", text)
+    return re.split(r"[.!?]+", protected)
+
+
+#: Finite-verb tokens: an appositive FRAGMENT has none. A clause
+#: carrying one is a predication about somebody, not a parenthetical
+#: about the name next to it.
+_FRAGMENT_VERBS: frozenset[str] = frozenset({
+    "is", "was", "are", "were", "be", "been", "has", "have", "had",
+    "should", "would", "will", "shall", "must",
+})
+_NAME_FILLER_TOKENS: frozenset[str] = frozenset({
+    "my", "the", "a", "an", "as", "is",
+})
+#: Lead-ins that may precede the name in its clause without making
+#: the clause a predication about someone else ("I want Neha
+#: Kapoor, as the backup guardian, …" — review round 4, C-B minor).
+_NAME_LEADIN_TOKENS: frozenset[str] = frozenset({
+    "i", "want", "wish", "hope", "choose", "chose", "pick", "picked",
+    "select",
+})
+
+
+def _appositive_signal_present(sentence: str, name_seq: list[str]) -> bool:
+    """Successor wording in an APPOSITIVE fragment adjacent to the
+    name's clause ("Neha Kapoor, as the backup guardian, …"; "My
+    backup, Amit Sharma, …"; "As backup guardian, Neha Kapoor …").
+    A fragment licenses only when it is a parenthetical, not a
+    predication: it carries successor signal, NO finite verb, and NO
+    other person's name span. Direction discipline: a FOLLOWING
+    fragment licenses only a bare-name clause; a PRECEDING fragment
+    licenses only a clause that starts with the name. Anything else
+    is two clauses about two people — the word-window version of
+    this check crossed exactly those boundaries (semicolons, colons,
+    spaced hyphens, inverted comma order) and re-licensed the
+    incumbent (review round 3, C-B)."""
+    name_tokens = set(name_seq)
+    if not name_tokens:
+        return False
+    clauses = _split_clauses(sentence)
+    clause_tokens = [set(_norm_tokens(c)) for c in clauses]
+    for idx, tokens in enumerate(clause_tokens):
+        if not name_tokens <= tokens:
+            continue
+        remainder = (
+            tokens - name_tokens - _NAME_FILLER_TOKENS - _NAME_LEADIN_TOKENS
+        )
+        # The name's position: everything before it in the clause
+        # must be filler or a lead-in ("I want Neha Kapoor …").
+        clause_seq = _norm_tokens(clauses[idx])
+        try:
+            start = next(
+                i
+                for i in range(len(clause_seq) - len(name_seq) + 1)
+                if clause_seq[i : i + len(name_seq)] == name_seq
+            )
+        except StopIteration:
+            continue
+        prefix_ok = all(
+            t in _NAME_FILLER_TOKENS or t in _NAME_LEADIN_TOKENS
+            for t in clause_seq[:start]
+        )
+        for neighbor_idx, following in ((idx - 1, False), (idx + 1, True)):
+            if not (0 <= neighbor_idx < len(clauses)):
+                continue
+            fragment = clauses[neighbor_idx]
+            if not _clause_has_successor_signal(fragment):
+                continue
+            if clause_tokens[neighbor_idx] & _FRAGMENT_VERBS:
+                continue
+            if _clause_has_name_span(fragment):
+                continue
+            if following and remainder:
+                continue
+            if not following and not (prefix_ok or not remainder):
+                continue
+            return True
+    return False
+
+
+def _successor_signal_present(
+    value: str,
+    user_message: str,
+    *,
+    first_person_conditional_ok: bool = False,
+) -> bool:
+    """A CLAUSE containing the proposed name also carries successor
     wording — the pairing discipline the deterministic person fallback
-    uses for conditional nominations. Pronoun pairings don't count:
-    "If she can't serve, Amit is the backup" pairs the signal with
-    AMIT, not with the incumbent it refers to."""
+    uses for conditional nominations. Clause scope (split on commas,
+    semicolons, colons, dashes, "and"/"but") is load-bearing: a
+    sentence naming BOTH the incumbent and the successor ("my agent is
+    Maya Lee and the successor agent is David Lee") must license
+    DAVID only — the sentence-level version licensed a successor copy
+    of the incumbent, whose rejection made the key decided, starved
+    the bundle fill, and deadlocked a live A/B run (set 1, Pruned run
+    1). Pronoun pairings don't count either: "If she can't serve,
+    Amit is the backup" pairs the signal with AMIT's clause, not the
+    incumbent. Widenings, each bounded: an APPOSITIVE fragment
+    adjacent to the name's clause licenses (review round 2, I-2; the
+    clause-adjacency form replaced a word window that leaked across
+    list punctuation — round 3, C-B); and a first-person conditional
+    in the name's clause ("… manage the trust if I cannot") is
+    successor wording ONLY where the caller says the testator is the
+    incumbent (the trustee) — for agent roles, incapacity wording
+    defines the PRIMARY's activation, not a successor's (round 3,
+    I-A)."""
     name_tokens = {t for t in _norm_tokens(value) if len(t) >= 2}
     if not name_tokens:
         return False
     import re
 
-    for sentence in re.split(r"[.!?]+", user_message):
-        sentence_tokens = set(_norm_tokens(sentence))
-        if not name_tokens <= sentence_tokens:
-            continue
-        if sentence_tokens & _SUCCESSOR_SIGNAL_TOKENS:
-            return True
-        normalized_sentence = " ".join(_norm_tokens(sentence))
-        if any(p in normalized_sentence for p in _SUCCESSOR_TAKEOVER_PHRASES):
+    name_seq = [t for t in _norm_tokens(value) if len(t) >= 2]
+    for sentence in _sentences(user_message):
+        for clause in _split_clauses(sentence):
+            if not name_tokens <= set(_norm_tokens(clause)):
+                continue
+            if _clause_has_successor_signal(clause):
+                return True
+            if first_person_conditional_ok and re.search(
+                _FIRST_PERSON_CONDITIONAL, " ".join(_norm_tokens(clause))
+            ):
+                return True
+        if _appositive_signal_present(sentence, name_seq):
             return True
     return False
+
+
+#: Layperson vocabulary for each role word in a person key (review
+#: round 2, I-1): users say "medical decisions", "power of attorney",
+#: "settle my estate", "manage the trust", "backup guardians" —
+#: whole-token equality with the key's parts dropped every one of
+#: those genuine nominations. Evidence is keyed by the role PART and
+#: TIERED (round 4, I-E): STRONG words speak a role on their own;
+#: WEAK words are ambiguous in isolation ("wishes", "little",
+#: "doctors", "money" appear incidentally in other roles'
+#: paragraphs) and count only in pairs or as part of a PHRASE
+#: ("little ones", "my will", "set aside", "treatment decisions").
+#: Unknown parts speak for themselves (strong).
+_ROLE_EVIDENCE_STRONG: dict[str, frozenset[str]] = {
+    "guardian": frozenset({
+        "guardian", "guardians", "guardianship", "children", "kids",
+        "child",
+    }),
+    "executor": frozenset({
+        "executor", "executors", "executrix", "estate",
+    }),
+    "trustee": frozenset({"trustee", "trustees", "trust"}),
+    "healthcare": frozenset({"healthcare", "health", "medical"}),
+    "poa": frozenset({
+        "poa", "power", "attorney", "financial", "finances",
+    }),
+    "agent": frozenset({"agent", "agents"}),
+}
+_ROLE_EVIDENCE_WEAK: dict[str, frozenset[str]] = {
+    "guardian": frozenset({"little"}),
+    "executor": frozenset({"wishes"}),
+    "trustee": frozenset({"money"}),
+    "healthcare": frozenset({"doctors", "treatment"}),
+    "poa": frozenset({"money", "bills"}),
+    "agent": frozenset(),
+}
+_ROLE_EVIDENCE_PHRASES: dict[str, tuple[str, ...]] = {
+    "guardian": ("little ones",),
+    "executor": ("my will",),
+    "trustee": ("set aside",),
+    "healthcare": ("treatment decisions", "medical decisions"),
+    "poa": (),
+    "agent": (),
+}
+_ROLE_PARTS: frozenset[str] = frozenset({
+    "guardian", "executor", "trustee", "healthcare", "poa", "agent",
+})
+
+
+def _role_part_present(
+    part: str, tokens: set[str], normalized: str
+) -> bool:
+    """Does the text speak this role part? Strong word, weak phrase,
+    or two distinct weak words — a single weak word is scenery."""
+    strong = _ROLE_EVIDENCE_STRONG.get(part)
+    if strong is None:
+        return part in tokens
+    if strong & tokens:
+        return True
+    padded = f" {normalized} "
+    if any(
+        f" {phrase} " in padded
+        for phrase in _ROLE_EVIDENCE_PHRASES.get(part, ())
+    ):
+        # Token boundaries are load-bearing: "my will" hides inside
+        # "my willingness", "set aside" inside "set asides", and
+        # "little ones" inside "little onesie" — a raw substring
+        # match re-licenses exactly the incidental-mention smears
+        # the tier exists to stop (final re-review).
+        return True
+    return len(_ROLE_EVIDENCE_WEAK.get(part, frozenset()) & tokens) >= 2
+
+
+def _key_parts(question_key: str) -> set[str]:
+    return set(question_key.split("_")) - {
+        "primary", "backup", "successor", "person",
+    }
+
+
+def _key_role_present(
+    question_key: str, tokens: set[str], normalized: str
+) -> bool:
+    return any(
+        _role_part_present(part, tokens, normalized)
+        for part in _key_parts(question_key)
+    )
+
+
+def _any_role_present(tokens: set[str], normalized: str) -> bool:
+    return any(
+        _role_part_present(part, tokens, normalized)
+        for part in _ROLE_PARTS
+    )
+
+
+def _assistant_tail(assistant_context: str) -> str:
+    """Only the TAIL of the assistant's last message may supply role
+    context — the question it ends with. Assistant messages recap
+    every role before asking; consulting the whole message would
+    let one generic answer license every role the recap mentioned
+    (review round 4, I-B residual). Lines are respected before
+    sentences: a recap joined to its question by a bare newline has
+    no sentence boundary at all (final re-review, Minor 1)."""
+    lines = [
+        line.strip() for line in assistant_context.splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return ""
+    segments = [s.strip() for s in _sentences(lines[-1]) if s.strip()]
+    return segments[-1] if segments else lines[-1]
+
+
+def _person_role_mismatch(
+    question_key: str, user_message: str, assistant_context: str = ""
+) -> bool:
+    """A fat paragraph that never speaks the key's role — in ANY of
+    the words a layperson would use for it — cannot ground a
+    nomination for it: the model is smearing a name across roles
+    (A/B set 1, Sharma run 2: the guardian paragraph's nominee filed
+    under primary_executor_person; the guardian paragraph contains
+    no executor/estate word, and the executor paragraph no
+    guardian/children word, so the smear still drops). Short
+    messages are exempt: a direct answer's role comes from the
+    question, not the answer. The same applies when the message
+    speaks NO role family at all and the caller supplies the
+    assistant's last message: the asked question supplies the role —
+    but only THIS key's evidence is consulted there, so a smear into
+    a role the question never named still drops (review round 3,
+    I-B/I-E). A message that speaks a DIFFERENT role family is a
+    smear regardless of context."""
+    message_tokens = _norm_tokens(user_message)
+    if len(message_tokens) <= 14:
+        return False
+    if not _key_parts(question_key):
+        return False
+    token_set = set(message_tokens)
+    normalized = " ".join(message_tokens)
+    if _key_role_present(question_key, token_set, normalized):
+        return False
+    if assistant_context and not _any_role_present(token_set, normalized):
+        tail_tokens_list = _norm_tokens(_assistant_tail(assistant_context))
+        return not _key_role_present(
+            question_key,
+            set(tail_tokens_list),
+            " ".join(tail_tokens_list),
+        )
+    return True
+
+
+_STREET_TOKENS: frozenset[str] = frozenset({
+    "street", "avenue", "road", "drive", "lane", "boulevard", "court",
+    "highway", "terrace", "circle", "parkway", "trail", "crossing",
+    "place", "way", "alley", "plaza", "square", "loop",
+    "st", "ave", "rd", "dr", "ln", "blvd", "ct", "hwy", "pl", "aly",
+})
+
+
+#: Words that break a capitalized pair's claim to be a PERSON span:
+#: function words, street/place/institution vocabulary ("Wells
+#: Fargo", "Main Street", "New York" are not nominees — review
+#: round 2, I-6).
+_SPAN_BLOCKED: frozenset[str] = frozenset({
+    "the", "if", "my", "yes", "for", "and", "but", "she", "he",
+    "we", "our", "their", "his", "her",
+    "york", "jersey", "mexico", "carolina", "dakota", "hampshire",
+    "island", "columbia", "wells", "fargo", "bank", "main", "north",
+    "south", "east", "west", "united", "states", "america", "city",
+    "town", "county", "beach",
+    # Financial institutions an estate interview mentions as scenery
+    # (review round 3, I-D — belt-and-braces behind the marker rule).
+    "goldman", "sachs", "schwab", "chase", "vanguard", "fidelity",
+    "merrill", "lynch", "stanley", "morgan",
+}) | _STREET_TOKENS
+
+
+def _clause_has_name_span(raw_clause: str) -> bool:
+    """A plausible two-word person span. Middle initials ("Priya K.
+    Sharma") and hyphenated names ("Mary-Kate Olsen") count (review
+    round 2, I-5); place and institution pairs do not (I-6)."""
+    names = 0
+    for word in raw_clause.split():
+        cleaned = word.strip(".,;:!?()\"“”'")
+        parts = cleaned.split("-")
+        if (
+            len(cleaned) >= 2
+            and all(
+                p and p[0].isupper() and p.isalpha() for p in parts
+            )
+            and cleaned.lower() not in _SPAN_BLOCKED
+            and all(p.lower() not in _SPAN_BLOCKED for p in parts)
+        ):
+            names += 1
+            if names >= 2:
+                return True
+        elif len(cleaned) == 1 and cleaned.isupper():
+            continue  # a middle initial neither makes nor breaks a span
+        else:
+            names = 0
+    return False
+
+
+#: A clause names another nominee only when it carries nomination
+#: language (a role word or a serving verb) AND identifies someone —
+#: a name span, or a RELATION ("my wife should be the executor …"
+#: names the primary without naming her — review round 2, I-5).
+#: A bare capitalized pair in a non-nominating clause ("my accounts
+#: are at Wells Fargo bank") is scenery, not a nominee (I-6).
+_NOMINATION_MARKERS: frozenset[str] = frozenset({
+    "guardian", "guardians", "executor", "executors", "trustee",
+    "trustees", "agent", "agents", "serve", "serves",
+    "handle", "handles", "take", "takes", "care",
+})
+_RELATION_WORDS: frozenset[str] = frozenset({
+    "wife", "husband", "spouse", "brother", "sister", "mother",
+    "father", "friend", "partner", "son", "daughter", "mom", "dad",
+})
+
+
+#: Scenery vocabulary: a clause about accounts/investments naming a
+#: firm is not a nomination, whatever firm it names — a denylist of
+#: institutions loses to the next name (review round 4, I-D). A
+#: clause carrying an actual role word is exempt from the exclusion.
+_SCENERY_TOKENS: frozenset[str] = frozenset({
+    "account", "accounts", "investment", "investments", "brokerage",
+    "portfolio", "fund", "funds", "bank",
+})
+_NOMINEE_ROLE_WORDS: frozenset[str] = frozenset({
+    "guardian", "guardians", "executor", "executors", "trustee",
+    "trustees", "agent", "agents",
+})
+
+
+def _clause_names_another_nominee(clause: str) -> bool:
+    tokens = set(_norm_tokens(clause))
+    if not (tokens & _NOMINATION_MARKERS):
+        return False
+    if (tokens & _SCENERY_TOKENS) and not (tokens & _NOMINEE_ROLE_WORDS):
+        return False
+    return _clause_has_name_span(clause) or bool(tokens & _RELATION_WORDS)
+
+
+def _primary_role_swapped(value: str, user_message: str) -> bool:
+    """The proposed PRIMARY nominee is named only inside
+    successor/backup clauses while another nominee is named in a
+    signal-free clause — the model swapped primary and backup (A/B
+    set 1, Sharma run 2: primary_executor = the backup's name, from
+    the executor paragraph itself)."""
+    name_tokens = {t for t in _norm_tokens(value) if len(t) >= 2}
+    if not name_tokens:
+        return False
+    import re
+
+    clauses: list[str] = []
+    for sentence in _sentences(user_message):
+        clauses.extend(_split_clauses(sentence))
+    name_clauses = [
+        c for c in clauses if name_tokens <= set(_norm_tokens(c))
+    ]
+    if not name_clauses:
+        return False
+    if any(not _clause_has_successor_signal(c) for c in name_clauses):
+        return False
+    for clause in clauses:
+        if name_tokens <= set(_norm_tokens(clause)):
+            continue
+        if _clause_has_successor_signal(clause):
+            continue
+        if _clause_names_another_nominee(clause):
+            return True
+    return False
+
+
+def _canonical_proposal_value(value: Any) -> str:
+    """Canonical form for (key, value) pair comparisons — insensitive
+    to case, punctuation, list order, and numeric formatting, so a
+    fixation cannot escape the rejected-pair block by reformatting
+    (review round 2, M-2)."""
+    import re
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        numeric_form = stripped.lstrip("$").replace(",", "")
+        if re.fullmatch(r"-?(\d+(\.\d+)?|\.\d+)", numeric_form):
+            # A decimal string is a NUMBER, not a digit string:
+            # "25.5" must canonicalize like 25.5, never as "255"
+            # (review round 3, M-2); currency/thousands formatting
+            # is the same number (round 4, Minor).
+            as_float = float(numeric_form)
+            return str(int(as_float)) if as_float.is_integer() else repr(as_float)
+        tokens = _norm_tokens(value)
+        if tokens and all(t.isdigit() for t in tokens):
+            # Digit strings compare digit-for-digit: "512-555-0100"
+            # and "5125550100" are the same phone number.
+            return "".join(tokens)
+        return " ".join(tokens)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    from decimal import Decimal
+
+    if isinstance(value, (int, float, Decimal)):
+        as_float = float(value)
+        return str(int(as_float)) if as_float.is_integer() else repr(as_float)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(
+            sorted(_canonical_proposal_value(v) for v in value)
+        ) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            f"{k}:{_canonical_proposal_value(value[k])}"
+            for k in sorted(value, key=str)
+        ) + "}"
+    import json
+
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _rejected_pair_restated(
+    value: Any, user_message: str, prior_user_messages: list[str]
+) -> bool:
+    """A previously REJECTED (key, value) pair may be proposed again
+    when the user THEMSELVES restates the value in a NEW message —
+    a reversal ("Actually, use Priya Sharma as executor after all")
+    is not model fixation, and blocking it would make the value
+    un-recordable for the rest of the session (review round 2, I-4).
+    A RE-SENT paragraph does not lift the block: the Sharma run-2
+    fixation value was a fragment of a paragraph the user re-sent,
+    and novelty is what separates the two shapes. Novelty is
+    CONTAINMENT, not symmetric similarity: a re-send with one
+    appended sentence ("the page seemed to freeze…") still contains
+    ~all of the prior message's tokens, which defeated a set-Jaccard
+    threshold (review round 3, I-F)."""
+    if isinstance(value, str):
+        stated = _person_name_grounded(
+            value, user_message
+        ) or _short_value_grounded(value, user_message)
+    elif isinstance(value, bool):
+        stated = (
+            len(_norm_tokens(user_message)) <= 12
+            and _parse_yes_no(user_message) == value
+        )
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        stated = (
+            len(_norm_tokens(user_message)) <= 25
+            and _canonical_proposal_value(value)
+            in set(_norm_tokens(user_message))
+        )
+    elif isinstance(value, (list, tuple)):
+        normalized = " ".join(_norm_tokens(user_message))
+        stated = len(_norm_tokens(user_message)) <= 40 and all(
+            _canonical_proposal_value(item) in normalized for item in value
+        )
+    else:
+        stated = False
+    if not stated:
+        return False
+    message_tokens = set(_norm_tokens(user_message))
+    if not message_tokens:
+        return False
+    for prior in prior_user_messages:
+        prior_tokens = set(_norm_tokens(prior))
+        if not prior_tokens:
+            continue
+        if len(prior_tokens) >= 15:
+            containment = len(message_tokens & prior_tokens) / len(prior_tokens)
+            if containment >= 0.9:
+                return False
+        elif message_tokens == prior_tokens:
+            return False
+    return True
 
 
 def _is_bare_name_answer(value: str, user_message: str) -> bool:
@@ -1062,14 +1574,28 @@ _ADDRESS_ROLE_KEYS: frozenset[str] = frozenset({
 
 
 def _successor_value_licensed(
-    value: str, user_message: str, *, primary_covered: bool
+    value: str,
+    user_message: str,
+    *,
+    primary_covered: bool,
+    question_key: str | None = None,
 ) -> bool:
     """A successor/backup slot may take `value` from this message only
     when the message pairs the name with successor wording, or when it
     is a bare-name answer AND the primary role is already settled —
     otherwise the bare name most plausibly answers the PRIMARY
-    question (guard review I-3)."""
-    if _successor_signal_present(value, user_message):
+    question (guard review I-3). The first-person conditional ("…
+    if I cannot …") counts as successor wording only for the
+    successor TRUSTEE: there the testator is the incumbent, while
+    for agent roles the same wording defines the primary's own
+    activation (review round 3, I-A)."""
+    if _successor_signal_present(
+        value,
+        user_message,
+        first_person_conditional_ok=(
+            question_key == "successor_trustee_person"
+        ),
+    ):
         return True
     return primary_covered and _is_bare_name_answer(value, user_message)
 
@@ -1082,6 +1608,7 @@ def _grounding_drop_reason(
     user_message: str,
     primary_covered: bool = False,
     anchor_address: str | None = None,
+    assistant_context: str = "",
 ) -> str | None:
     """Why a MODEL proposal is ungrounded in the current user message,
     or None when it stands. Reasons: "person_name_absent",
@@ -1095,10 +1622,60 @@ def _grounding_drop_reason(
             return None
         if not _person_name_grounded(value, user_message):
             return "person_name_absent"
-        if question_key in SUCCESSOR_PERSON_KEYS and not _successor_value_licensed(
-            value, user_message, primary_covered=primary_covered
-        ):
-            return "successor_unsignalled"
+        role_mismatch = _person_role_mismatch(
+            question_key, user_message, assistant_context=assistant_context
+        )
+        if role_mismatch and question_key in SUCCESSOR_PERSON_KEYS:
+            # A successor nomination whose message speaks NO role
+            # family at all ("My backup, Amit Sharma, should serve
+            # if Priya cannot …") takes its role from the question,
+            # like a short answer — provided the name is genuinely
+            # successor-paired. A message (or, for a role-free
+            # message, the question it answers) that DOES speak a
+            # different role ("… is the backup guardian") still
+            # mismatches a successor proposal for another role:
+            # without that check one generic backup sentence would
+            # license every successor key at once (review round 3,
+            # I-B).
+            key_parts = _key_parts(question_key)
+            message_tokens = set(_norm_tokens(user_message))
+            normalized = " ".join(_norm_tokens(user_message))
+            context_tokens = message_tokens
+            context_normalized = normalized
+            if assistant_context and not _any_role_present(
+                message_tokens, normalized
+            ):
+                tail_tokens_list = _norm_tokens(
+                    _assistant_tail(assistant_context)
+                )
+                context_tokens = message_tokens | set(tail_tokens_list)
+                context_normalized = (
+                    normalized + " " + " ".join(tail_tokens_list)
+                )
+            speaks_other_role = any(
+                _role_part_present(part, context_tokens, context_normalized)
+                for part in _ROLE_PARTS
+                if part not in key_parts
+            )
+            if not speaks_other_role and _successor_value_licensed(
+                value,
+                user_message,
+                primary_covered=primary_covered,
+                question_key=question_key,
+            ):
+                role_mismatch = False
+        if role_mismatch:
+            return "person_role_mismatch"
+        if question_key in SUCCESSOR_PERSON_KEYS:
+            if not _successor_value_licensed(
+                value,
+                user_message,
+                primary_covered=primary_covered,
+                question_key=question_key,
+            ):
+                return "successor_unsignalled"
+        elif _primary_role_swapped(value, user_message):
+            return "primary_role_swapped"
         return None
     if question_type in _SHORT_VALUE_GUARD_TYPES and isinstance(value, str):
         if (
@@ -1111,9 +1688,43 @@ def _grounding_drop_reason(
             # even though the expanded tokens never literally appear
             # (guard review C-1).
             return None
+        if question_key in _ADDRESS_ROLE_KEYS and not _address_shaped(value):
+            # A bare person name is not an address, even when the name
+            # appears in the message (A/B set 1, Pruned run 1:
+            # poa_agent_address = "David Lee").
+            return "value_not_in_message"
         if not _short_value_grounded(value, user_message):
             return "value_not_in_message"
     return None
+
+
+def _address_shaped(value: str) -> bool:
+    """An address value carries a house number or a street token.
+    (Composed anchors always do; "David Lee" never does.) A bare
+    two-word capitalized pair is a person name even when its second
+    word doubles as a street token — "David Lane" and "James Street"
+    are people, not addresses (review round 2, M-1); genuine address
+    values carry a number or a city/state tail, so they never trip
+    this exclusion."""
+    if any(c.isdigit() for c in value):
+        return True
+    if not (set(_norm_tokens(value)) & _STREET_TOKENS):
+        return False
+    raw_words = [w.strip(",.") for w in value.split() if w.strip(",.")]
+    if len(raw_words) == 2 and all(
+        w[:1].isupper() and w.isalpha() for w in raw_words
+    ):
+        return False
+    if (
+        len(raw_words) <= 3
+        and "," not in value
+        and all(w.isalpha() for w in raw_words)
+    ):
+        # "Anna Maria Lane" is a person (or a bare street fragment):
+        # a genuine address value carries a number or a city/state
+        # tail after a comma (review round 3, M-1 residual).
+        return False
+    return True
 
 
 def _question_sets_scoped(
@@ -1215,6 +1826,7 @@ def _focus_completeness_proposals(
             str(fallback["value"]),
             user_message,
             primary_covered=primary_key is not None and primary_key in answered,
+            question_key=key,
         ):
             # The person fallback extracts the message's main-clause
             # nominee — for a successor key that is usually the
@@ -1223,6 +1835,28 @@ def _focus_completeness_proposals(
             # fallback output too before it may fill a successor slot.
             logger.info(
                 "Completeness fallback skipped unsignalled successor %r",
+                key,
+            )
+            continue
+        if (
+            fallback_fn is _deterministic_person_proposal
+            and key not in SUCCESSOR_PERSON_KEYS
+            and (
+                _person_role_mismatch(
+                    key, user_message, assistant_context=assistant_reply
+                )
+                or _primary_role_swapped(str(fallback["value"]), user_message)
+            )
+        ):
+            # Review round 2, C-1: post_turn's covered-set subtraction
+            # un-covers a key whose MODEL proposal was just dropped as
+            # a cross-role smear — without the same discipline here,
+            # G3 re-mints that exact smear at 0.80 in the same turn
+            # (the guardian paragraph yields Amit, and a scoped
+            # executor capture would file him as executor). A scoped
+            # capture must clear the same role bar as a model proposal.
+            logger.info(
+                "Completeness fallback skipped cross-role person %r",
                 key,
             )
             continue
@@ -1621,6 +2255,137 @@ _BUNDLE_ROLE_NAMES: dict[str, str] = {
     "healthcare_agent_address": "your healthcare agent",
     "successor_healthcare_agent_address": "your successor healthcare agent",
 }
+
+
+#: Wording that marks a clause as speaking about the bundle offer
+#: itself ("all of those roles", "same person for all", "also
+#: serve"). In a turn where an offer is awaiting its verdict, such a
+#: clause can carry the verdict — but only the clause (review
+#: round 3, C-A: deciding by the whole SENTENCE accepted negated
+#: bundle sentences as YES and declined the offer over a details
+#: sentence that merely mentioned the roles).
+_BUNDLE_REF_PATTERN = (
+    r"\b(all of those|those roles|all of them|all the roles|"
+    r"those positions|for all of|same person|also serve|"
+    r"each of those)\b"
+)
+_BUNDLE_ACTION_PATTERN = r"\b(serve|serves|serving|use|using|handle|handles)\b"
+_BUNDLE_NEGATION_PATTERN = r"\b(no|not|never|don'?t|doesn'?t|wouldn'?t|won'?t)\b"
+_BUNDLE_UNCERTAINTY_PATTERN = (
+    r"\b(not sure|not certain|unsure|maybe|perhaps|let me think|"
+    r"need to think|don'?t know)\b"
+)
+_BUNDLE_AFFIRMATIVE_PATTERN = (
+    r"\b(yes|yeah|sure|absolutely|definitely|please do)\b"
+    r"|\bsame person for all\b"
+)
+#: Details-state vocabulary: sentences reporting the STATE of the
+#: roles' details ("unchanged", "details", "phone", "address",
+#: "contact") are fact reports, not bundle verdicts, unless they
+#: also carry bundle action wording.
+_DETAILS_STATE_TOKENS: frozenset[str] = frozenset({
+    "unchanged", "details", "phone", "contact", "address",
+})
+
+
+def _bundle_verdict(message: str) -> bool | None:
+    """The yes/no verdict for a pending bundle offer. Two shapes
+    decide (review round 2, I-7; clause discipline tightened in
+    round 3, C-A):
+
+    1. A head-block sentence containing a bundle-ref CLAUSE that is
+       itself verdict-shaped: the clause parses as yes/no directly,
+       or it carries bundle action wording ("… also serve in all of
+       those roles") / is short enough to BE the reference ("for all
+       of those roles") while the sentence carries an affirmative.
+       This saves the verdict when a terse "No …" about ANOTHER
+       topic leads ("No additional powers. Yes, use him for all of
+       those roles please") and when a clear verdict runs long. A
+       negated bundle-ref clause is a DECLINE ("Not the same person
+       for all of those roles …"); an uncertain one defers. A
+       sentence that merely mentions the roles inside a substantive
+       clause (contact details "for all of those roles … are
+       unchanged") decides nothing.
+    2. A short standalone head (<=12 words — the whole opening block,
+       or its first line when a ride-along follows on the next line).
+
+    A substantive paragraph that merely CONTAINS an early "no …"
+    about another topic is not a verdict — consuming it as one
+    recorded a decline for an offer the user never declined and
+    deadlocked both Pruned A/B runs in set 1 (their details
+    paragraph answered the offer's turn). Anything else defers."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return None
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    for sentence in sentences:
+        clauses = _split_clauses(sentence)
+        ref_clauses = [
+            c for c in clauses if re.search(_BUNDLE_REF_PATTERN, c.lower())
+        ]
+        if not ref_clauses:
+            continue
+        lowered_sentence = sentence.lower()
+        if any(
+            re.search(_BUNDLE_UNCERTAINTY_PATTERN, c.lower())
+            for c in clauses
+        ):
+            # An uncertain sentence is not a verdict in either
+            # direction ("Maybe yes, use him …" / "I am not sure …").
+            continue
+        sentence_tokens = set(_norm_tokens(sentence))
+        if (sentence_tokens & _DETAILS_STATE_TOKENS) and not (
+            re.search(_BUNDLE_ACTION_PATTERN, lowered_sentence)
+            or "same person" in lowered_sentence
+        ):
+            # A details-state sentence ("my address for all of those
+            # roles is unchanged") reports facts ABOUT the roles; it
+            # does not decide the bundle — at any length (review
+            # round 4, C-A residual: length was the only thing saving
+            # the long forms).
+            continue
+        for clause in ref_clauses:
+            parsed = _parse_yes_no(clause)
+            if parsed is not None:
+                return parsed
+        for clause in ref_clauses:
+            lowered = clause.lower()
+            if re.search(_BUNDLE_UNCERTAINTY_PATTERN, lowered):
+                continue
+            if re.search(_BUNDLE_NEGATION_PATTERN, lowered):
+                return False
+            verdict_shaped = (
+                re.search(_BUNDLE_ACTION_PATTERN, lowered)
+                or "same person" in lowered
+                or len(clause.split()) <= 10
+            )
+            if not verdict_shaped:
+                continue
+            if re.search(_BUNDLE_AFFIRMATIVE_PATTERN, lowered):
+                return True
+            if any(
+                re.search(_BUNDLE_AFFIRMATIVE_PATTERN, c.lower())
+                and not re.search(_BUNDLE_NEGATION_PATTERN, c.lower())
+                for c in clauses
+            ):
+                return True
+    if len(block.split()) <= 12:
+        head = block.split("\n", 1)[0]
+        head_tokens = set(_norm_tokens(head))
+        if (head_tokens & _DETAILS_STATE_TOKENS) and not (
+            re.search(_BUNDLE_ACTION_PATTERN, head.lower())
+            or "same person" in head.lower()
+        ):
+            # The short-head fallback obeys the same details-state
+            # exclusion as step 1.
+            return None
+        return _parse_yes_no(head)
+    return None
 
 
 def _bundle_question_text(offer: dict[str, Any]) -> str:
@@ -2270,6 +3035,19 @@ def post_turn(
     valid_proposals = []
     dropped_copy_keys: set[str] = set()
     dropped_grounding_keys: set[str] = set()
+    dropped_rejected_keys: set[str] = set()
+    # (key, value) pairs the decider already REJECTED in this session:
+    # re-proposing the identical pair is fixation, not extraction.
+    # Fail-open — a read error must never break the turn.
+    try:
+        rejected_pairs = {
+            (key, _canonical_proposal_value(value))
+            for key, value in repo.rejected_proposal_values(conn, session_id)
+        }
+    except Exception:
+        logger.warning("rejected-proposal read failed", exc_info=True)
+        rejected_pairs = set()
+    _prior_user_messages = [m.content for m in history if m.role == "user"]
     for draft in response.proposals:
         if draft.question_key not in known_keys:
             logger.warning(
@@ -2284,6 +3062,19 @@ def post_turn(
                 draft.question_key,
                 session_id,
             )
+            continue
+        if (
+            draft.question_key,
+            _canonical_proposal_value(draft.value),
+        ) in rejected_pairs and not _rejected_pair_restated(
+            draft.value, message, _prior_user_messages
+        ):
+            logger.warning(
+                "Dropping re-proposal of a previously_rejected value for %r (session %s)",
+                draft.question_key,
+                session_id,
+            )
+            dropped_rejected_keys.add(draft.question_key)
             continue
         if _is_whole_message_copy(
             question_type=question_types.get(draft.question_key, ""),
@@ -2320,6 +3111,7 @@ def post_turn(
                 PRIMARY_COUNTERPART.get(draft.question_key) in answers
             ),
             anchor_address=_anchor_address,
+            assistant_context=last_assistant_text,
         )
         if grounding_reason is not None:
             logger.warning(
@@ -2350,7 +3142,7 @@ def post_turn(
         # them is what made the interview loop and resurrected rejected
         # fabrications in the 2026-10-24 E2E run.
         decided_keys = repo.decided_proposal_keys(conn, session_id)
-        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys | dropped_grounding_keys
+        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys | dropped_grounding_keys | dropped_rejected_keys
 
         # Try boolean fallback first, then person-name, then text/notes.
         for fallback_fn in (
@@ -2398,7 +3190,15 @@ def post_turn(
 
             for fb in _focus_completeness_proposals(
                 focus_keys=focus_keys,
-                covered_keys=all_covered,
+                # NOT covered: keys whose MODEL proposal was just
+                # guard-dropped. The drops judge the model's assertion
+                # (an unasked copy, an unsignalled successor); G3's
+                # scoped capture for a field the server itself asked
+                # about is a different, sanctioned act — inheriting
+                # the dropped keys cost a full re-send turn in A/B
+                # set 1 (Sharma run 1, turns 19-20). Pending, answered,
+                # decided and model-proposed keys still cover.
+                covered_keys=all_covered - dropped_copy_keys - dropped_grounding_keys,
                 question_types=question_types,
                 user_message=message,
                 assistant_reply=last_assistant_msg,
@@ -2494,7 +3294,7 @@ def post_turn(
     active_offer = verdict_offer or bundle_offer
     if active_offer is not None and active_offer.get("presented_before"):
         bundle_offer = active_offer
-        verdict = _parse_yes_no(message)
+        verdict = _bundle_verdict(message)
         if verdict is True:
             # Fresh read at fill time (review I-1): never stack a bundle
             # proposal on top of an already-open proposal for the same

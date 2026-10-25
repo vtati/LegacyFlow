@@ -423,6 +423,23 @@ def decided_proposal_keys(conn: Any, session_id: UUID) -> set[str]:
         return {str(row["question_key"]) for row in cur.fetchall()}
 
 
+def rejected_proposal_values(conn: Any, session_id: UUID) -> list[tuple[str, Any]]:
+    """(question_key, proposed_value) pairs the decider REJECTED in
+    this session. Re-proposing the identical pair is fixation, not
+    extraction (A/B set 1, Sharma run 2: the same residuary fragment
+    proposed three turns running after three rejections)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT question_key, proposed_value FROM field_proposals "
+            "WHERE session_id = %s AND status = 'rejected'",
+            (str(session_id),),
+        )
+        return [
+            (str(row["question_key"]), row["proposed_value"])
+            for row in cur.fetchall()
+        ]
+
+
 def open_proposal_keys(conn: Any, session_id: UUID) -> set[str]:
     with conn.cursor() as cur:
         cur.execute(
