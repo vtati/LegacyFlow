@@ -315,7 +315,21 @@ def _deterministic_boolean_proposal(
     elif len(topic) == 1:
         idx, topic_clause = topic[0]
         value = _parse_yes_no(topic_clause)
-        if value is None and idx > 0 and separators[idx - 1] == ",":
+        # The separator chain between the polarity fragment and the
+        # topic clause must be commas/semicolons/"and" only (the
+        # natural "Yes, and ..." shape produces an empty fragment
+        # between "," and "and" — walk back over empties). A period
+        # or other sentence boundary anywhere in the chain blocks
+        # the borrow.
+        k = idx - 1
+        while k >= 0 and not clauses[k].strip():
+            k -= 1
+        chain_ok = (
+            k >= 0
+            and all(s in {",", ";", "and"} for s in separators[k:idx])
+            and len(separators[k:idx]) >= 1
+        )
+        if value is None and chain_ok:
             # "Yes, I expect some disagreement." — the comma split
             # strands the polarity word in the preceding fragment.
             # Borrow it ONLY when that fragment is genuinely
@@ -323,7 +337,7 @@ def _deterministic_boolean_proposal(
             # pronoun / aux tokens): "no business interests" carries
             # another topic's noun and must never lend its polarity
             # across topics (fallback review I-1).
-            prev = clauses[idx - 1].strip()
+            prev = clauses[k].strip()
             remainder = [
                 t
                 for t in prev.split()
@@ -1084,6 +1098,32 @@ def pending_bundle_offer(
     return None
 
 
+def _bundle_fill_keys(
+    offer: dict[str, Any],
+    *,
+    pending: set[str],
+    open_now: set[str],
+    decided: set[str],
+    answers: dict[str, Any],
+) -> list[str]:
+    """The fill keys a consumed bundle YES may actually fill.
+
+    Skips keys with an open proposal (pending/open_now), keys already
+    answered, and keys the user already DECIDED on a card — confirmed,
+    corrected, or rejected: a rejected fill must never be resurrected
+    by a later bundle verdict (batch review I-1; the fallbacks hold
+    the same guard since the E2E rejected-fabrication incident).
+    """
+    return [
+        k
+        for k in offer["fill_keys"]
+        if k not in pending
+        and k not in open_now
+        and k not in decided
+        and not qs.is_answered(answers.get(k))
+    ]
+
+
 def _bundle_offer_for_turn(
     conn: Any,
     *,
@@ -1113,7 +1153,12 @@ def _bundle_offer_for_turn(
     if offer is None:
         return None, state
     offered = dict(state.get("bundles_offered") or {})
-    presentations = int(offered.get(offer["decline_key"], 0))
+    try:
+        presentations = int(offered.get(offer["decline_key"], 0))
+    except (TypeError, ValueError):
+        # Corrupt bookkeeping must never kill a turn (batch review
+        # M-2): treat an unreadable count as never presented.
+        presentations = 0
     if presentations >= MAX_BUNDLE_OFFERS:
         # Cap reached: never PRESENTED again, but the answer to the
         # final presentation is still owed a verdict read (gating
@@ -1729,9 +1774,10 @@ def post_turn(
                     conn, scope.matter.get("household_id")
                 )
         if bundle_offer is not None:
-            bundle_state["last_focus_keys"] = sorted(
-                {bundle_offer["anchor_key"], *bundle_offer["fill_keys"]}
-            )
+            # Fill keys only: the anchor is already answered, and
+            # keeping it in the guard's asked-set would preserve
+            # redundant copy proposals for it (batch review M-5).
+            bundle_state["last_focus_keys"] = sorted(bundle_offer["fill_keys"])
         elif cluster_gap is not None:
             bundle_state["last_focus_keys"] = sorted(
                 str(q["key"]) for q in cluster_gap["questions"]
@@ -1990,13 +2036,14 @@ def post_turn(
             # key — the turn-start snapshot in pending_key_set can miss
             # proposals stored by other paths since.
             open_now = repo.open_proposal_keys(conn, session_id)
-            for fill_key in bundle_offer["fill_keys"]:
-                if (
-                    fill_key in pending_key_set
-                    or fill_key in open_now
-                    or qs.is_answered(answers.get(fill_key))
-                ):
-                    continue
+            decided_now = repo.decided_proposal_keys(conn, session_id)
+            for fill_key in _bundle_fill_keys(
+                bundle_offer,
+                pending=pending_key_set,
+                open_now=open_now,
+                decided=decided_now,
+                answers=answers,
+            ):
                 row = repo.insert_proposal(
                     conn,
                     session_id=session_id,

@@ -515,3 +515,35 @@ def test_state_read_failure_returns_no_offer_and_flags_state(monkeypatch):
     )
     assert offer is None
     assert state.get("_state_unavailable") is True
+
+
+def test_corrupt_offered_count_does_not_kill_the_turn(monkeypatch):
+    # Batch review M-2: a corrupt bundles_offered value must coerce
+    # defensively instead of raising out of _bundle_offer_for_turn.
+    offer, _state = _offer_for(
+        {"bundles_offered": {"primary:priya sharma": "not-a-number"}},
+        monkeypatch,
+    )
+    assert offer is not None
+    assert offer["presented_before"] is False
+
+
+def test_bundle_fill_keys_skip_decided_proposals():
+    # Batch review I-1: a fill key the user already adjudicated
+    # (confirmed / corrected / REJECTED on its card) must never be
+    # re-filled by a later bundle YES — the fallbacks got this guard
+    # after the E2E rejected-fabrication incident; the verdict path
+    # must hold it too.
+    from app.domains.interview.service import _bundle_fill_keys
+
+    offer = {
+        "fill_keys": ["poa_agent_person", "healthcare_agent_person"],
+    }
+    keys = _bundle_fill_keys(
+        offer,
+        pending=set(),
+        open_now=set(),
+        decided={"poa_agent_person"},
+        answers={},
+    )
+    assert keys == ["healthcare_agent_person"]

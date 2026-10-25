@@ -1043,3 +1043,40 @@ class TestBooleanBorrowReviewFixes:
         )
         assert result is not None
         assert result["value"] is False
+
+
+class TestBooleanBorrowSeparatorShapes:
+    """Batch review M-1: the borrow must survive the natural
+    'Yes, and ...' / 'Yes; ...' shapes while still refusing to cross
+    a sentence boundary."""
+
+    def test_borrow_across_comma_and(self):
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "Yes, and I expect disagreement among family members "
+                "about the plan."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["question_key"] == "expects_family_conflict"
+        assert result["value"] is True
+
+    def test_borrow_across_semicolon(self):
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "Yes; I expect disagreement among family members "
+                "about the plan."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["value"] is True
