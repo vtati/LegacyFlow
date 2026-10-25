@@ -695,6 +695,7 @@ def _deterministic_text_proposal(
     assistant_reply: str,
     question_sets: dict[str, dict[str, Any]],
     existing_proposal_keys: set[str],
+    allow_bundled: bool = False,
 ) -> dict[str, Any] | None:
     """Deterministic fallback for text/notes questions: for these
     types the user's answer IS the value (an address, a residuary note).
@@ -744,12 +745,16 @@ def _deterministic_text_proposal(
         candidates = _candidates(user_message.lower())
     if len(candidates) != 1:
         return None
-    if not from_assistant and len(message.split()) > 25:
+    if not from_assistant and not allow_bundled and len(message.split()) > 25:
         # Channel 2 (the message names the topic) with a LONG message is
         # a bundled v2 paragraph, not a single drifted answer: storing
         # the whole paragraph as one field's value is garbage (Part 3
         # live run: poa_agent_address = the entire identity paragraph).
         # The model owns bundled extraction; the fallback abstains.
+        # allow_bundled is set ONLY by the G3 completeness sweep, which
+        # runs scoped to a single focus field the server itself asked
+        # about and the model proposed nothing for — the one case where
+        # a paragraph value at 0.80 beats silently losing the answer.
         return None
 
     return {
@@ -771,6 +776,7 @@ def _is_whole_message_copy(
     prior_assistant_text: str = "",
     asked_keys: frozenset[str] | set[str] = frozenset(),
     question_key: str = "",
+    focus_authoritative: bool = False,
 ) -> bool:
     """True when a text/notes proposal merely copies the user's whole
     (long, multi-topic) message into a field the assistant did not just
@@ -778,14 +784,20 @@ def _is_whole_message_copy(
     open proposal blocks its key for the rest of the interview (A/B
     run 1: the guardian paragraph became trust_marital_share). A genuine
     single-topic answer the model faithfully copies is kept: its key WAS
-    the asked question."""
+    the asked question.
+
+    With focus_authoritative (v2 turns), the asked-test is the server's
+    persisted focus window and NOTHING else: no label-word archaeology
+    and no length exemption. The A/B showed why — run 4's marital-share
+    copy was saved by label "drift" against a summary reply that merely
+    mentioned spouse/trust/share, and the confirmation run's
+    distribution-age copy was a 24-word message that escaped through
+    the <=25-word cap below (extraction guards G2, 2026-10-24)."""
     import re
 
     if question_type not in {"text", "notes"}:
         return False
     if not isinstance(value, str):
-        return False
-    if len(user_message.split()) <= 25:
         return False
 
     def _norm(s: str) -> str:
@@ -803,6 +815,18 @@ def _is_whole_message_copy(
 
         if difflib.SequenceMatcher(None, val_norm, msg_norm).ratio() < 0.88:
             return False
+    if focus_authoritative:
+        # The value IS (nearly) the whole message. On a v2 turn the
+        # only question is whether the server asked about this key in
+        # the last two turns (the persisted focus window).
+        if question_key and question_key in asked_keys:
+            return False
+        # A 1-2 word message is a direct answer to SOMETHING; dropping
+        # it risks more than the paragraph-scale copies this guard
+        # exists for.
+        return len(msg_norm.split()) >= 3
+    if len(user_message.split()) <= 25:
+        return False
     # The server KNOWS what it asked last turn (the persisted focus):
     # membership beats prose archaeology (guard review I-3).
     if question_key and question_key in asked_keys:
@@ -844,6 +868,368 @@ def _is_whole_message_copy(
         }
         asked = len(prior_matched) >= 2
     return not asked
+
+
+# --- Deterministic extraction guards (Interview v2, A/B follow-up) --------
+# The 2026-10-24 A/B (runs 1-7) pinned the remaining failure classes to
+# model extraction variance, not the deterministic machinery:
+#   * successor slots filled with the PRIMARY person's name, copied from
+#     context (run 4: both successors = "Priya Sharma" at a turn whose
+#     message named nobody; confirmation run: successor_trustee =
+#     "Priya Sharma" from the executor paragraph);
+#   * short values asserted for facts the current message never states
+#     (run 4: trust_initial_property = "All assets" from the money
+#     paragraph);
+#   * focus fields the model simply skipped, forcing verbatim re-sends
+#     (run 4 turns 4 and 11 stored zero proposals).
+# G1/G1c ground model proposals in the CURRENT user message — prior
+# turns are context, not evidence — and G3 re-runs the existing
+# fallbacks scoped to one focus field. Bundle-verdict fills are
+# server-generated (source "bundle", inserted directly by post_turn)
+# and never pass through these guards: the user's YES is their
+# grounding.
+
+
+def _norm_tokens(text: str) -> list[str]:
+    import re
+
+    return re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()
+
+
+def _person_name_grounded(value: str, user_message: str) -> bool:
+    """Every name token of the proposed value appears in the current
+    user message (order-free, so "Sharma, Priya" and parenthetical
+    re-statements still ground)."""
+    name_tokens = [t for t in _norm_tokens(value) if len(t) >= 2]
+    if not name_tokens:
+        return False
+    message_tokens = set(_norm_tokens(user_message))
+    return all(t in message_tokens for t in name_tokens)
+
+
+#: Person fields that name a BACKUP for another role. Reuse across
+#: roles is a confirmation (the bundle verdict), never an inference —
+#: a model proposal for one of these keys needs the current message to
+#: pair the name with successor wording (or be a bare-name answer).
+SUCCESSOR_PERSON_KEYS: frozenset[str] = frozenset({
+    "backup_guardian_person",
+    "backup_executor_person",
+    "successor_trustee_person",
+    "successor_poa_agent_person",
+    "successor_healthcare_agent_person",
+})
+_SUCCESSOR_SIGNAL_TOKENS: frozenset[str] = frozenset({
+    "successor", "backup", "alternate", "alternative", "secondary",
+    "contingent", "contingency", "replacement",
+})
+_SUCCESSOR_TAKEOVER_PHRASES: tuple[str, ...] = (
+    "take over", "step in", "step up", "fill in",
+)
+
+
+def _successor_signal_present(value: str, user_message: str) -> bool:
+    """A sentence containing the proposed name also carries successor
+    wording — the pairing discipline the deterministic person fallback
+    uses for conditional nominations. Pronoun pairings don't count:
+    "If she can't serve, Amit is the backup" pairs the signal with
+    AMIT, not with the incumbent it refers to."""
+    name_tokens = {t for t in _norm_tokens(value) if len(t) >= 2}
+    if not name_tokens:
+        return False
+    import re
+
+    for sentence in re.split(r"[.!?]+", user_message):
+        sentence_tokens = set(_norm_tokens(sentence))
+        if not name_tokens <= sentence_tokens:
+            continue
+        if sentence_tokens & _SUCCESSOR_SIGNAL_TOKENS:
+            return True
+        normalized_sentence = " ".join(_norm_tokens(sentence))
+        if any(p in normalized_sentence for p in _SUCCESSOR_TAKEOVER_PHRASES):
+            return True
+    return False
+
+
+def _is_bare_name_answer(value: str, user_message: str) -> bool:
+    """The message is (nearly) just the proposed name — a direct answer
+    to the pending successor question ("Amit Sharma", "Yes, Amit
+    Sharma"). A nomination sentence for another role is NOT bare: its
+    extra role words keep it from licensing a successor copy."""
+    tokens = _norm_tokens(user_message)
+    if not tokens or len(tokens) > 6:
+        return False
+    name_tokens = set(_norm_tokens(value))
+    filler = {"yes", "please", "ok", "okay", "sure", "the", "a", "an"}
+    return name_tokens <= set(tokens) and all(
+        t in name_tokens or t in filler for t in tokens
+    )
+
+
+_SHORT_VALUE_GUARD_TYPES: frozenset[str] = frozenset({
+    "text", "notes", "single_select",
+})
+
+#: Token equivalences for grounding (guard review I-2): the model
+#: normalizes the user's words — spouse for "my wife", a semantic
+#: "None" for "I don't want any …", a written-out date for digits.
+#: A value token counts as stated when any equivalent appears.
+_TOKEN_EQUIVALENCE_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"wife", "husband", "spouse"}),
+    frozenset({"everything", "all", "entire", "whole"}),
+    frozenset({"none", "no", "not", "never", "nothing", "neither", "nobody"}),
+)
+#: Apostrophe stems of negations ("don't" tokenizes to "don" + "t").
+_NEGATION_STEMS: frozenset[str] = frozenset({
+    "don", "doesn", "didn", "isn", "aren", "wasn", "weren", "won",
+    "haven", "hasn", "hadn", "couldn", "wouldn", "shouldn", "mustn",
+})
+_MONTH_NUMBERS: dict[str, str] = {
+    "january": "1", "february": "2", "march": "3", "april": "4",
+    "may": "5", "june": "6", "july": "7", "august": "8",
+    "september": "9", "october": "10", "november": "11", "december": "12",
+}
+
+
+def _expand_equivalents(tokens: set[str]) -> set[str]:
+    expanded = set(tokens)
+    for group in _TOKEN_EQUIVALENCE_GROUPS:
+        if expanded & group:
+            expanded |= group
+    if expanded & _NEGATION_STEMS:
+        expanded |= {"none", "no", "not", "never", "nothing", "neither", "nobody"}
+    for name, number in _MONTH_NUMBERS.items():
+        if name in expanded:
+            expanded.add(number)
+        if number in expanded:
+            expanded.add(name)
+    return expanded
+
+
+def _short_value_grounded(value: str, user_message: str) -> bool:
+    """A short text/notes/select value must be stated in the current
+    message (the strict form for <=5 judgeable tokens; longer values
+    need >=80% present — review I-2's uniform fraction in place of a
+    hard cliff in both directions). Long faithful notes are the copy
+    guard's domain, values with no judgeable tokens pass, and
+    code-shaped select values (underscores) are pack data, not prose,
+    and are not judged at all (review M-1)."""
+    if "_" in value:
+        return True
+    content_tokens = [
+        t for t in _norm_tokens(value) if len(t) > 3 or any(c.isdigit() for c in t)
+    ]
+    if not content_tokens:
+        return True
+    message_tokens = set(_norm_tokens(user_message))
+    expanded_message = _expand_equivalents(message_tokens)
+    present = sum(1 for t in content_tokens if t in expanded_message)
+    if len(content_tokens) <= 5:
+        if present == len(content_tokens):
+            return True
+    elif present >= 0.8 * len(content_tokens):
+        return True
+    if any(c.isdigit() for c in value):
+        # Phone/ID-shaped values: punctuation variants of the same
+        # digits ("5125550100" for "512-555-0100") are grounded.
+        import re
+
+        squashed_value = re.sub(r"[^a-z0-9]", "", value.lower())
+        squashed_message = re.sub(r"[^a-z0-9]", "", user_message.lower())
+        if len(squashed_value) >= 4 and squashed_value in squashed_message:
+            return True
+    return False
+
+
+#: The primary role each successor/backup person field backs up.
+PRIMARY_COUNTERPART: dict[str, str] = {
+    "backup_guardian_person": "primary_guardian_person",
+    "backup_executor_person": "primary_executor_person",
+    "successor_poa_agent_person": "poa_agent_person",
+    "successor_healthcare_agent_person": "healthcare_agent_person",
+    # successor_trustee_person has no primary counterpart field: the
+    # testator is the initial trustee.
+}
+
+#: Role-address fields whose natural value is the address bundle's
+#: composed anchor ("123 Main Street, Austin, Texas").
+_ADDRESS_ROLE_KEYS: frozenset[str] = frozenset({
+    "primary_executor_address",
+    "poa_agent_address",
+    "primary_guardian_address",
+    "healthcare_agent_address",
+    "successor_healthcare_agent_address",
+})
+
+
+def _successor_value_licensed(
+    value: str, user_message: str, *, primary_covered: bool
+) -> bool:
+    """A successor/backup slot may take `value` from this message only
+    when the message pairs the name with successor wording, or when it
+    is a bare-name answer AND the primary role is already settled —
+    otherwise the bare name most plausibly answers the PRIMARY
+    question (guard review I-3)."""
+    if _successor_signal_present(value, user_message):
+        return True
+    return primary_covered and _is_bare_name_answer(value, user_message)
+
+
+def _grounding_drop_reason(
+    *,
+    question_key: str,
+    value: Any,
+    question_type: str,
+    user_message: str,
+    primary_covered: bool = False,
+    anchor_address: str | None = None,
+) -> str | None:
+    """Why a MODEL proposal is ungrounded in the current user message,
+    or None when it stands. Reasons: "person_name_absent",
+    "successor_unsignalled", "value_not_in_message". Applied in
+    post_turn's validation loop; dropped keys join the turn's covered
+    set so the deterministic fallbacks cannot re-create them (the
+    022fddc Critical). Deterministic fallback proposals themselves are
+    extracted FROM the message and are not re-judged here."""
+    if question_type == "person":
+        if not isinstance(value, str) or not value.strip():
+            return None
+        if not _person_name_grounded(value, user_message):
+            return "person_name_absent"
+        if question_key in SUCCESSOR_PERSON_KEYS and not _successor_value_licensed(
+            value, user_message, primary_covered=primary_covered
+        ):
+            return "successor_unsignalled"
+        return None
+    if question_type in _SHORT_VALUE_GUARD_TYPES and isinstance(value, str):
+        if (
+            anchor_address
+            and question_key in _ADDRESS_ROLE_KEYS
+            and " ".join(_norm_tokens(value)) == " ".join(_norm_tokens(anchor_address))
+        ):
+            # The value IS the server-composed bundle anchor; a user
+            # pasting it with abbreviations ("St.", "TX") stated it
+            # even though the expanded tokens never literally appear
+            # (guard review C-1).
+            return None
+        if not _short_value_grounded(value, user_message):
+            return "value_not_in_message"
+    return None
+
+
+def _question_sets_scoped(
+    question_sets: Any, keys: set[str]
+) -> dict[str, Any]:
+    """The question sets restricted to `keys`, structure preserved, so
+    a fallback's exactly-one-candidate discipline operates within a
+    single-field universe."""
+    scoped: dict[str, Any] = {}
+    if not isinstance(question_sets, dict):
+        return scoped
+    for set_id, qset in question_sets.items():
+        sections = []
+        for section in (qset or {}).get("sections") or []:
+            kept = [
+                q
+                for q in section.get("questions") or []
+                if str(q.get("key")) in keys
+            ]
+            if kept:
+                sections.append({**section, "questions": kept})
+        if sections:
+            scoped[set_id] = {**qset, "sections": sections}
+    return scoped
+
+
+def _focus_completeness_proposals(
+    *,
+    focus_keys: list[str],
+    covered_keys: set[str],
+    question_types: dict[str, str],
+    user_message: str,
+    assistant_reply: str,
+    question_sets: Any,
+    answered_keys: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """G3: for each FOCUS field still uncovered after the model and the
+    standard fallbacks, run the existing deterministic fallback scoped
+    to that one field. The unscoped pass abstains exactly where G3 must
+    not: when several undecided questions compete for one message.
+    Scoped to a single asked field, the same machinery is safe — and a
+    captured value at 0.80 beats a verbatim re-send next turn (A/B
+    run 4 turns 4 and 11 stored zero proposals)."""
+    fallbacks = {
+        "boolean": _deterministic_boolean_proposal,
+        "person": _deterministic_person_proposal,
+        "text": _deterministic_text_proposal,
+        "notes": _deterministic_text_proposal,
+    }
+    covered = set(covered_keys)
+    answered = set(answered_keys or set())
+    proposals: list[dict[str, Any]] = []
+    for key in focus_keys:
+        if key in covered:
+            continue
+        fallback_fn = fallbacks.get(question_types.get(key) or "")
+        if fallback_fn is None:
+            continue
+        scoped = _question_sets_scoped(question_sets, {key})
+        if not scoped:
+            continue
+        kwargs: dict[str, Any] = {
+            "user_message": user_message,
+            "assistant_reply": assistant_reply,
+            "question_sets": scoped,
+            "existing_proposal_keys": set(),
+        }
+        if fallback_fn is _deterministic_text_proposal:
+            kwargs["allow_bundled"] = True
+        fallback = fallback_fn(**kwargs)
+        if fallback is None or fallback.get("question_key") != key:
+            continue
+        if fallback_fn is _deterministic_boolean_proposal:
+            # Scoping removes the exactly-one-candidate competition
+            # that disciplines the unscoped pass: the assistant channel
+            # matches trivially (the server DID ask about this key),
+            # and a sibling clause carrying two label words could mint
+            # a polarity. Accept the capture only when the USER's own
+            # words independently clear the candidate bar — a second
+            # call with no assistant text must agree (review I-1).
+            corroborated = _deterministic_boolean_proposal(
+                user_message=user_message,
+                assistant_reply="",
+                question_sets=scoped,
+                existing_proposal_keys=set(),
+            )
+            if (
+                corroborated is None
+                or corroborated.get("question_key") != key
+                or corroborated.get("value") != fallback.get("value")
+            ):
+                logger.info(
+                    "Completeness fallback skipped uncorroborated boolean %r",
+                    key,
+                )
+                continue
+        primary_key = PRIMARY_COUNTERPART.get(key)
+        if key in SUCCESSOR_PERSON_KEYS and not _successor_value_licensed(
+            str(fallback["value"]),
+            user_message,
+            primary_covered=primary_key is not None and primary_key in answered,
+        ):
+            # The person fallback extracts the message's main-clause
+            # nominee — for a successor key that is usually the
+            # PRIMARY's name (the guardian paragraph yields Amit, not
+            # the backup Neha). G1's pairing discipline applies to
+            # fallback output too before it may fill a successor slot.
+            logger.info(
+                "Completeness fallback skipped unsignalled successor %r",
+                key,
+            )
+            continue
+        logger.info("Completeness fallback captured focus field %r", key)
+        proposals.append(fallback)
+        covered.add(key)
+    return proposals
 
 
 def _answers_map(conn: Any, matter_id: UUID) -> dict[str, Any]:
@@ -1747,7 +2133,12 @@ def post_turn(
     # as answering the asked question — membership beats guessing
     # from prose (guard review I-3).
     prev_focus_keys: frozenset[str] = frozenset()
-    if _v2_enabled(conn, firm_id=firm_id, pack=pack):
+    # The two-turn focus window (this turn's user message may answer
+    # the question from the turn before last — drift): the G2
+    # focus-authoritative asked-test uses the window, and only it.
+    window_focus_keys: frozenset[str] = frozenset()
+    v2_on = _v2_enabled(conn, firm_id=firm_id, pack=pack)
+    if v2_on:
         bundle_offer, bundle_state = _bundle_offer_for_turn(
             conn,
             session_id=session_id,
@@ -1757,6 +2148,13 @@ def post_turn(
         )
         state_unavailable = bool(bundle_state.pop("_state_unavailable", False))
         prev_focus_keys = frozenset(bundle_state.get("last_focus_keys") or [])
+        window_focus_keys = prev_focus_keys | frozenset(
+            bundle_state.get("prev_focus_keys") or []
+        )
+        # Shift the window: this turn's incoming last_focus becomes
+        # next turn's prev_focus (persisted with the state write at
+        # the end of this block).
+        bundle_state["prev_focus_keys"] = sorted(prev_focus_keys)
         if bundle_offer is not None and bundle_offer.get("verdict_only"):
             # Verdict-only: never presented, never the prompt focus —
             # it exists solely so the verdict block can consume the
@@ -1853,11 +2251,25 @@ def post_turn(
         str(question.get("key")): str(question.get("type") or "")
         for _, _, question in qs.iter_questions(pack.question_sets)
     }
+    # The address bundle's composed anchor (same composition as
+    # pending_bundle_offer): role-address proposals equal to it are
+    # grounded by the server's own composition (guard review C-1).
+    _addr_parts = (
+        answers.get("testator_street_address"),
+        answers.get("testator_city"),
+        answers.get("primary_residence_state"),
+    )
+    _anchor_address = (
+        f"{_addr_parts[0].strip()}, {_addr_parts[1].strip()}, {_addr_parts[2].strip()}"
+        if all(isinstance(v, str) and v.strip() for v in _addr_parts)
+        else None
+    )
     _assistant_texts = [m.content for m in history if m.role == "assistant"]
     last_assistant_text = _assistant_texts[-1] if _assistant_texts else ""
     prior_assistant_text = _assistant_texts[-2] if len(_assistant_texts) >= 2 else ""
     valid_proposals = []
     dropped_copy_keys: set[str] = set()
+    dropped_grounding_keys: set[str] = set()
     for draft in response.proposals:
         if draft.question_key not in known_keys:
             logger.warning(
@@ -1880,8 +2292,9 @@ def post_turn(
             last_assistant_text=last_assistant_text,
             question_label=question_labels.get(draft.question_key, ""),
             prior_assistant_text=prior_assistant_text,
-            asked_keys=prev_focus_keys,
+            asked_keys=window_focus_keys if v2_on else prev_focus_keys,
             question_key=draft.question_key,
+            focus_authoritative=v2_on,
         ):
             logger.warning(
                 "Dropping whole-message copy proposal for %r (session %s)",
@@ -1892,6 +2305,30 @@ def post_turn(
             # deterministic fallbacks run next and must not re-create
             # the same poison card at 0.80 (guard review Critical #1).
             dropped_copy_keys.add(draft.question_key)
+            continue
+        # G1/G1c grounding: a model proposal must be grounded in the
+        # CURRENT user message — prior turns are context, not evidence
+        # (successor copies of the primary's name; "All assets"
+        # asserted from a paragraph about bank accounts). Same
+        # covered-set discipline as the copy guard above.
+        grounding_reason = _grounding_drop_reason(
+            question_key=draft.question_key,
+            value=draft.value,
+            question_type=question_types.get(draft.question_key, ""),
+            user_message=message,
+            primary_covered=(
+                PRIMARY_COUNTERPART.get(draft.question_key) in answers
+            ),
+            anchor_address=_anchor_address,
+        )
+        if grounding_reason is not None:
+            logger.warning(
+                "Dropping ungrounded proposal for %r (%s) (session %s)",
+                draft.question_key,
+                grounding_reason,
+                session_id,
+            )
+            dropped_grounding_keys.add(draft.question_key)
             continue
         valid_proposals.append(draft)
 
@@ -1913,7 +2350,7 @@ def post_turn(
         # them is what made the interview loop and resurrected rejected
         # fabrications in the 2026-10-24 E2E run.
         decided_keys = repo.decided_proposal_keys(conn, session_id)
-        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys
+        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys | dropped_grounding_keys
 
         # Try boolean fallback first, then person-name, then text/notes.
         for fallback_fn in (
@@ -1949,6 +2386,34 @@ def post_turn(
                 # remaining fallbacks run for OTHER keys instead of
                 # stopping at the first hit.
                 all_covered.add(fallback["question_key"])
+
+        # G3 completeness sweep: on a pure cluster turn (no bundle
+        # offer/verdict in play — the bundle machinery owns those
+        # turns, and its fill keys must never be raced), any focus
+        # field still uncovered gets one scoped deterministic capture
+        # so the answer is recorded THIS turn instead of forcing a
+        # verbatim re-send (A/B run 4 turns 4 and 11).
+        if v2_on and bundle_offer is None and verdict_offer is None:
+            from app.domains.ai.provider import FieldProposalDraft
+
+            for fb in _focus_completeness_proposals(
+                focus_keys=focus_keys,
+                covered_keys=all_covered,
+                question_types=question_types,
+                user_message=message,
+                assistant_reply=last_assistant_msg,
+                question_sets=pack.question_sets,
+                answered_keys=set(answers.keys()),
+            ):
+                valid_proposals.append(
+                    FieldProposalDraft(
+                        question_key=fb["question_key"],
+                        value=fb["value"],
+                        confidence=fb["confidence"],
+                        source_snippet=fb["source_snippet"],
+                    )
+                )
+                all_covered.add(fb["question_key"])
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
     _store_turn(
