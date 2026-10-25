@@ -1915,22 +1915,18 @@ def _gate_keys_for_pending(
     return gates
 
 
-def next_gap_cluster(
+def _gaps_by_cluster(
     question_sets: Any,
     answers: dict[str, Any],
     pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
-) -> dict[str, Any] | None:
-    """The first cluster (in CLUSTER_ORDER) with unanswered work.
+) -> dict[str, list[dict[str, str]]]:
+    """Applicable-missing REQUIRED questions (plus unanswered gate
+    questions that pending content waits on), grouped by cluster.
 
     `question_sets` is the LoadedPack mapping (set id -> set dict), as
-    accepted by partition_questions / iter_questions.
-
-    Work = applicable-missing REQUIRED questions, plus unanswered gate
-    questions that pending content waits on (the document-choice gates —
-    without them the POA/healthcare sections can never become applicable).
-    Pruned questions never appear. Returns
-    {"cluster": name, "questions": [{"key", "label", "type"}]} or None when
-    every applicable required question is answered.
+    accepted by partition_questions / iter_questions. Pruned questions
+    never appear; keys with an open proposal never appear (awaiting
+    confirmation is not a gap).
     """
     applicable, pending, _pruned = qs.partition_questions(question_sets, answers)
     by_cluster: dict[str, list[dict[str, str]]] = {}
@@ -1970,10 +1966,102 @@ def next_gap_cluster(
             gate_question = by_key.get(gate_key)
             if gate_question is not None and gate_key in applicable_keys:
                 _add(gate_question)
+    return by_cluster
+
+
+def next_gap_cluster(
+    question_sets: Any,
+    answers: dict[str, Any],
+    pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """The first cluster (in CLUSTER_ORDER) with unanswered work.
+
+    Work = applicable-missing REQUIRED questions, plus unanswered gate
+    questions that pending content waits on (the document-choice gates —
+    without them the POA/healthcare sections can never become applicable).
+    Pruned questions never appear. Returns
+    {"cluster": name, "questions": [{"key", "label", "type"}]} or None when
+    every applicable required question is answered.
+    """
+    by_cluster = _gaps_by_cluster(question_sets, answers, pending_proposal_keys)
     for cluster in CLUSTER_ORDER:
         if by_cluster.get(cluster):
             return {"cluster": cluster, "questions": by_cluster[cluster]}
     return None
+
+
+#: Turn-count economics (A/B follow-up iteration): when the first gap
+#: cluster is small, the NEXT cluster rides along in the same ask — one
+#: message, a numbered list, several fields answered per reply (L1/L3).
+MERGE_FOCUS_MAX_QUESTIONS = 10
+#: When this few applicable required fields remain in total, the focus
+#: becomes one consolidated sweep of all of them (L4) instead of
+#: walking the remaining clusters one per turn.
+SWEEP_MAX_REMAINING = 6
+
+
+def next_gap_focus(
+    question_sets: Any,
+    answers: dict[str, Any],
+    pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """The turn's question focus: like next_gap_cluster, but denser.
+
+    Returns {"cluster": first cluster name, "clusters": [names],
+    "questions": [...], optionally "sweep": True}:
+
+    - SWEEP: when <= SWEEP_MAX_REMAINING applicable required fields
+      remain overall, the focus is ALL of them across clusters.
+    - MERGE: otherwise, when the first cluster plus the next one fit
+      within MERGE_FOCUS_MAX_QUESTIONS, both clusters are the focus.
+    - Otherwise the first cluster alone (next_gap_cluster's answer,
+      plus the "clusters" bookkeeping key).
+    """
+    by_cluster = _gaps_by_cluster(question_sets, answers, pending_proposal_keys)
+    gaps = [
+        {"cluster": cluster, "questions": by_cluster[cluster]}
+        for cluster in CLUSTER_ORDER
+        if by_cluster.get(cluster)
+    ]
+    if not gaps:
+        return None
+    total = sum(len(g["questions"]) for g in gaps)
+    if total <= SWEEP_MAX_REMAINING:
+        return {
+            "cluster": gaps[0]["cluster"],
+            "clusters": [g["cluster"] for g in gaps],
+            "questions": [q for g in gaps for q in g["questions"]],
+            "sweep": True,
+        }
+    first = gaps[0]
+    questions = list(first["questions"])
+    clusters = [first["cluster"]]
+    if len(gaps) > 1 and len(questions) + len(gaps[1]["questions"]) <= (
+        MERGE_FOCUS_MAX_QUESTIONS
+    ):
+        questions += gaps[1]["questions"]
+        clusters.append(gaps[1]["cluster"])
+    return {"cluster": first["cluster"], "clusters": clusters, "questions": questions}
+
+
+def _gap_without_keys(
+    gap: dict[str, Any] | None, excluded_keys: set[str]
+) -> dict[str, Any] | None:
+    """A focus gap minus `excluded_keys` (None when nothing remains).
+
+    Used for the verdict turn's "then ask" set: a bundle fill key is
+    unanswered and applicable, so it is a legitimate gap question —
+    but it is being resolved by THIS turn's verdict, and asking it in
+    the same reply would visibly re-ask a just-confirmed field
+    (review I-2)."""
+    if gap is None:
+        return None
+    questions = [
+        q for q in gap["questions"] if str(q["key"]) not in excluded_keys
+    ]
+    if not questions:
+        return None
+    return {**gap, "questions": questions}
 
 
 def _v2_enabled(conn: Any, *, firm_id: UUID, pack: LoadedPack) -> bool:
@@ -2003,6 +2091,24 @@ def _cluster_gap_for_turn(
     if not _v2_enabled(conn, firm_id=firm_id, pack=pack):
         return None
     return next_gap_cluster(pack.question_sets, answers)
+
+
+def _focus_for_turn(
+    conn: Any,
+    *,
+    firm_id: UUID,
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """The dense question focus for this turn when the interview_v2
+    flag is on for the matter's firm + pack; None (the v5 path)
+    otherwise. Same fail-safe posture as _cluster_gap_for_turn."""
+    if not _v2_enabled(conn, firm_id=firm_id, pack=pack):
+        return None
+    return next_gap_focus(
+        pack.question_sets, answers, pending_proposal_keys=pending_proposal_keys
+    )
 
 
 # --- Role bundles (Interview v2, Part 3) -------------------------------------
@@ -2039,13 +2145,14 @@ ADDRESS_BUNDLE_KEYS: tuple[str, ...] = (
 MAX_BUNDLE_OFFERS = 2
 
 
-def pending_bundle_offer(
+def pending_bundle_offers(
     question_sets: Any,
     answers: dict[str, Any],
     *,
     declined: frozenset[str] | set[str] = frozenset(),
-) -> dict[str, Any] | None:
-    """The pending bundle offer for this answer state, or None.
+) -> list[dict[str, Any]]:
+    """ALL pending bundle offers for this answer state, in priority
+    order (primary, backup, address).
 
     Role bundles: exactly one member answered (the anchor) and at least
     one member unanswered AND applicable — pruned members are never fill
@@ -2053,10 +2160,16 @@ def pending_bundle_offer(
     and at least one role address is missing and applicable. Declined offers (by decline_key) never reappear. Decline keys are
     "<bundle>:<anchor name lower>" for role bundles and
     "address:<composed address lower>" for the address bundle.
+
+    Turn-count economics: the offers are independent — presenting only
+    the first cost one presentation + verdict exchange PER offer in
+    the A/B (up to three extra turns). post_turn presents all of them
+    in one message and resolves them from one reply.
     """
     applicable, _pending, pruned = qs.partition_questions(question_sets, answers)
     applicable_keys = {str(q.get("key")) for _s, _sec, q in applicable}
     pruned_keys = {str(q.get("key")) for _s, _sec, q in pruned}
+    offers: list[dict[str, Any]] = []
 
     for bundle_name, members in _ROLE_BUNDLES:
         # Pruned members are out of the plan entirely: an answered but
@@ -2085,14 +2198,16 @@ def pending_bundle_offer(
             and k in applicable_keys
         ]
         if fill_keys:
-            return {
-                "bundle": bundle_name,
-                "anchor_key": anchor_key,
-                "anchor_name": anchor_name,
-                "fill_keys": fill_keys,
-                "fill_value": anchor_name,
-                "decline_key": decline_key,
-            }
+            offers.append(
+                {
+                    "bundle": bundle_name,
+                    "anchor_key": anchor_key,
+                    "anchor_name": anchor_name,
+                    "fill_keys": fill_keys,
+                    "fill_value": anchor_name,
+                    "decline_key": decline_key,
+                }
+            )
 
     street = answers.get("testator_street_address")
     city = answers.get("testator_city")
@@ -2107,15 +2222,29 @@ def pending_bundle_offer(
                 if not qs.is_answered(answers.get(k)) and k in applicable_keys
             ]
             if fill_keys:
-                return {
-                    "bundle": "address",
-                    "anchor_key": "testator_street_address",
-                    "anchor_name": composed,
-                    "fill_keys": fill_keys,
-                    "fill_value": composed,
-                    "decline_key": decline_key,
-                }
-    return None
+                offers.append(
+                    {
+                        "bundle": "address",
+                        "anchor_key": "testator_street_address",
+                        "anchor_name": composed,
+                        "fill_keys": fill_keys,
+                        "fill_value": composed,
+                        "decline_key": decline_key,
+                    }
+                )
+    return offers
+
+
+def pending_bundle_offer(
+    question_sets: Any,
+    answers: dict[str, Any],
+    *,
+    declined: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """The first pending bundle offer, or None (the single-offer view
+    of pending_bundle_offers, kept for the original callers/tests)."""
+    offers = pending_bundle_offers(question_sets, answers, declined=declined)
+    return offers[0] if offers else None
 
 
 def _bundle_fill_keys(
@@ -2144,20 +2273,32 @@ def _bundle_fill_keys(
     ]
 
 
-def _bundle_offer_for_turn(
+def _bundle_offers_for_turn(
     conn: Any,
     *,
     session_id: UUID,
     pack: LoadedPack,
     answers: dict[str, Any],
     question_labels: dict[str, str],
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """The offer to present this turn + the session state (mutated when an
-    offer is presented, so the caller can persist it).
+    limit: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """The offers to present this turn + the verdict-only offers + the
+    session state (mutated when an offer is presented, so the caller
+    can persist it). Returns (presentable, verdict_only, state).
 
-    Suppression: declined offers never return; an offer already presented
-    MAX_BUNDLE_OFFERS times without resolution stops being offered (the
-    cluster flow then asks the roles one by one)."""
+    Per-offer bookkeeping (the single-offer rules, applied to each
+    pending offer independently): declined offers never return; an
+    offer already presented MAX_BUNDLE_OFFERS times without resolution
+    stops being offered (the cluster flow then asks the roles one by
+    one) — except that the answer to its final presentation is still
+    owed a verdict read on exactly the next turn boundary, proven by
+    turn-count freshness (count_turns counts ROWS and every completed
+    turn stores a user + assistant pair, so the very next turn's count
+    is presented_at + 2; any other count means another visible
+    exchange intervened and the offer is retired — batch reviews
+    C-1 + I-1). `limit` caps how many pending offers are considered
+    (the legacy single-offer seam passes 1).
+    """
     try:
         state = repo.get_session_state(conn, session_id)
     except Exception:
@@ -2167,77 +2308,124 @@ def _bundle_offer_for_turn(
         # (batch review I-1). The sentinel tells post_turn to skip
         # its state write entirely this turn.
         logger.warning("bundle state read failed", exc_info=True)
-        return None, {"_state_unavailable": True}
+        return [], [], {"_state_unavailable": True}
     declined = set(state.get("bundles_declined") or [])
-    offer = pending_bundle_offer(pack.question_sets, answers, declined=declined)
-    if offer is None:
-        return None, state
-    offered = dict(state.get("bundles_offered") or {})
-    try:
-        presentations = int(offered.get(offer["decline_key"], 0))
-    except (TypeError, ValueError):
-        # Corrupt bookkeeping must never kill a turn (batch review
-        # M-2): treat an unreadable count as never presented.
-        presentations = 0
-    if presentations >= MAX_BUNDLE_OFFERS:
-        # Cap reached: never PRESENTED again, but the answer to the
-        # final presentation is still owed a verdict read (gating
-        # review I-1) — on exactly the next turn boundary, proven by
-        # turn-count freshness: count_turns counts ROWS and every
-        # completed turn (including an advice refusal) stores a user +
-        # assistant pair, so the very next turn's count is
-        # presented_at + 2. A failed turn stores nothing, so a retry
-        # of the same answer still reads fresh — correctly, since no
-        # visible question intervened.
-        # Any other count means another visible exchange intervened
-        # (an advice refusal, a failed turn, a deferral cycle): the
-        # offer is retired, never left consumable against a question
-        # the user is no longer answering (batch reviews C-1 + I-1).
-        presented_map = state.get("bundles_last_presented") or {}
-        presented_at = presented_map.get(offer["decline_key"])
+    offers = pending_bundle_offers(pack.question_sets, answers, declined=declined)
+    if limit is not None:
+        offers = offers[:limit]
+    if not offers:
+        return [], [], state
+    # Corrupt bookkeeping must never kill a turn: a non-dict stored
+    # value reads as empty rather than raising out of dict().
+    _raw_offered = state.get("bundles_offered")
+    offered = dict(_raw_offered) if isinstance(_raw_offered, dict) else {}
+    _raw_presented = state.get("bundles_last_presented")
+    presented_map = (
+        dict(_raw_presented) if isinstance(_raw_presented, dict) else {}
+    )
+    turns_now: int | None = None
+
+    def _turns_now() -> int | None:
+        # Cache successes only: a transient count failure is retried
+        # at the next call site rather than suppressing every
+        # freshness check and stamp for the rest of the turn.
+        nonlocal turns_now
+        if turns_now is None:
+            try:
+                turns_now = repo.count_turns(conn, session_id)
+            except Exception:
+                return None
+        return turns_now
+
+    presentable: list[dict[str, Any]] = []
+    verdict_only: list[dict[str, Any]] = []
+    state_dirty = False
+    stamped = False
+    for offer in offers:
         try:
-            turns_now = repo.count_turns(conn, session_id)
-        except Exception:
-            turns_now = None
-        if (
-            presented_at is not None
-            and turns_now is not None
-            and turns_now == presented_at + 2
-        ):
-            offer["presented_before"] = True
-            offer["verdict_only"] = True
-            offer["fill_labels"] = [
-                question_labels.get(k, k) for k in offer["fill_keys"]
-            ]
-            return offer, state
-        return None, state
-    # A yes/no verdict may only be consumed once the offer was presented
-    # in an EARLIER turn: on its first presentation the user's message is
-    # still answering the previous visible question (live Part 3 drive:
-    # an address bundle filled on a "Yes" that answered the children
-    # question, because the visible question had diverged from the
-    # prompt's intent).
-    offer["presented_before"] = presentations >= 1
-    offered[offer["decline_key"]] = presentations + 1
-    state["bundles_offered"] = offered
-    if presentations + 1 >= MAX_BUNDLE_OFFERS:
-        # Record WHEN the final presentation happens: the verdict
-        # window at the cap is exactly the next turn boundary, and
-        # only turn-count freshness can prove no other visible
-        # question (a refusal, a failed turn) intervened (batch
-        # re-review I-1).
-        try:
-            last_presented = dict(state.get("bundles_last_presented") or {})
-            last_presented[offer["decline_key"]] = repo.count_turns(
-                conn, session_id
-            )
-            state["bundles_last_presented"] = last_presented
-        except Exception:
-            logger.warning("bundle presentation stamp failed", exc_info=True)
-    offer["fill_labels"] = [
-        question_labels.get(k, k) for k in offer["fill_keys"]
-    ]
-    return offer, state
+            presentations = int(offered.get(offer["decline_key"], 0))
+        except (TypeError, ValueError):
+            # Corrupt bookkeeping must never kill a turn (batch review
+            # M-2): treat an unreadable count as never presented.
+            presentations = 0
+        if presentations >= MAX_BUNDLE_OFFERS:
+            _raw_at = presented_map.get(offer["decline_key"])
+            try:
+                presented_at = int(_raw_at) if _raw_at is not None else None
+            except (TypeError, ValueError):
+                # A corrupt stored stamp reads as never presented
+                # rather than raising out of the freshness comparison.
+                presented_at = None
+            now = _turns_now()
+            if (
+                presented_at is not None
+                and now is not None
+                and now == presented_at + 2
+            ):
+                offer["presented_before"] = True
+                offer["verdict_only"] = True
+                offer["fill_labels"] = [
+                    question_labels.get(k, k) for k in offer["fill_keys"]
+                ]
+                verdict_only.append(offer)
+            continue
+        # A yes/no verdict may only be consumed once the offer was
+        # presented in an EARLIER turn: on its first presentation the
+        # user's message is still answering the previous visible
+        # question (live Part 3 drive: an address bundle filled on a
+        # "Yes" that answered the children question, because the
+        # visible question had diverged from the prompt's intent).
+        offer["presented_before"] = presentations >= 1
+        offered[offer["decline_key"]] = presentations + 1
+        state_dirty = True
+        if presentations + 1 >= MAX_BUNDLE_OFFERS:
+            # Record WHEN the final presentation happens: the verdict
+            # window at the cap is exactly the next turn boundary, and
+            # only turn-count freshness can prove no other visible
+            # question (a refusal, a failed turn) intervened (batch
+            # re-review I-1).
+            now = _turns_now()
+            if now is not None:
+                presented_map[offer["decline_key"]] = now
+                stamped = True
+            else:
+                logger.warning("bundle presentation stamp failed", exc_info=True)
+        offer["fill_labels"] = [
+            question_labels.get(k, k) for k in offer["fill_keys"]
+        ]
+        presentable.append(offer)
+    if state_dirty:
+        state["bundles_offered"] = offered
+        if stamped:
+            state["bundles_last_presented"] = presented_map
+    return presentable, verdict_only, state
+
+
+def _bundle_offer_for_turn(
+    conn: Any,
+    *,
+    session_id: UUID,
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    question_labels: dict[str, str],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """The single-offer seam over _bundle_offers_for_turn (limit=1):
+    the first pending offer only, with its exact original bookkeeping
+    semantics. post_turn uses the multi-offer version; this wrapper
+    remains for the original callers/tests."""
+    presentable, verdict_only, state = _bundle_offers_for_turn(
+        conn,
+        session_id=session_id,
+        pack=pack,
+        answers=answers,
+        question_labels=question_labels,
+        limit=1,
+    )
+    if presentable:
+        return presentable[0], state
+    if verdict_only:
+        return verdict_only[0], state
+    return None, state
 
 
 #: Short role names for composing the visible bundle question.
@@ -2405,6 +2593,1957 @@ def _bundle_question_text(offer: dict[str, Any]) -> str:
         f"Quick question: would you like {offer['anchor_name']} to also "
         f"serve as {roles}?"
     )
+
+
+def _bundle_questions_text(offers: list[dict[str, Any]]) -> str:
+    """Every pending offer's question, one per line — the merged
+    presentation text for the provider's no-text fallback (the model
+    path gets the same texts verbatim via the v7 prompt block)."""
+    return "\n".join(_bundle_question_text(offer) for offer in offers)
+
+
+#: Given names that are also common English words: a bare "will" or
+#: "may" in a sentence is far more likely the verb than the person,
+#: so these anchors are referenced by full name only.
+_COMMON_WORD_GIVEN_NAMES: frozenset[str] = frozenset({
+    "will", "may", "mark", "art", "bill", "grant", "chase", "reed",
+    "hope", "faith", "grace",
+})
+
+
+def _offer_reference_markers(
+    offer: dict[str, Any], all_offers: list[dict[str, Any]]
+) -> list[str]:
+    """Reference markers for an offer's anchor, matched as normalized
+    token subsequences (case/punctuation-insensitive: "Will K Smith"
+    matches the anchor "Will K. Smith").
+
+    Deliberately anchor-based, not role-based: role vocabulary
+    overlaps across offers ("healthcare" is a primary fill and half
+    of "successor healthcare"), while the anchor distinguishes them.
+    The FULL name always marks. The given name marks only when it is
+    unambiguous across the offers in play — a shared given name
+    (Priya Sharma vs Priya Nair) or a common-word name (Will, May)
+    would otherwise let one offer's sentence decide another's
+    (review I-1). The surname marks under the same uniqueness rule
+    ("Yes, Lee can serve" decides when only one Lee is an anchor,
+    and nobody when two are). The address offer is marked by the
+    word "address" alone: street tokens ("main", "austin") appear
+    in sentences about people too.
+    """
+    if offer.get("bundle") == "address":
+        return ["address"]
+    anchor = str(offer.get("anchor_name") or "").lower()
+    tokens = _norm_tokens(anchor)
+    if not tokens:
+        return []
+    markers = [anchor]
+    given_names: list[str] = []
+    surnames: list[str] = []
+    for other in all_offers:
+        if other.get("bundle") == "address":
+            continue
+        other_tokens = _norm_tokens(str(other.get("anchor_name") or "").lower())
+        if other_tokens:
+            given_names.append(other_tokens[0])
+            if len(other_tokens) >= 2:
+                surnames.append(other_tokens[-1])
+    given = tokens[0]
+    if (
+        given_names.count(given) == 1
+        and given not in _COMMON_WORD_GIVEN_NAMES
+        and len(given) > 2
+    ):
+        markers.append(given)
+    if len(tokens) >= 2:
+        surname = tokens[-1]
+        if (
+            surnames.count(surname) == 1
+            and surname not in _COMMON_WORD_GIVEN_NAMES
+            and len(surname) > 2
+        ):
+            markers.append(surname)
+    return markers
+
+
+def _is_token_subsequence(needle: list[str], haystack: list[str]) -> bool:
+    if not needle or len(needle) > len(haystack):
+        return False
+    n = len(needle)
+    return any(haystack[i : i + n] == needle for i in range(len(haystack) - n + 1))
+
+
+def _references_offer(
+    text_lower: str, offer: dict[str, Any], all_offers: list[dict[str, Any]]
+) -> bool:
+    text_tokens = _norm_tokens(text_lower)
+    if not text_tokens:
+        return False
+    return any(
+        _is_token_subsequence(_norm_tokens(marker), text_tokens)
+        for marker in _offer_reference_markers(offer, all_offers)
+    )
+
+
+#: Capitalized words that legitimately OPEN a verdict reply without
+#: naming a person. A capitalized non-initial token outside this set
+#: (or a non-starter opening token) is treated as a person-shaped
+#: reference: the reply is then NOT undifferentiated, however the
+#: name relates to the candidate anchors.
+_SENTENCE_STARTERS: frozenset[str] = frozenset({
+    "yes", "no", "sure", "absolutely", "definitely", "please",
+    "thanks", "thank", "okay", "ok", "well", "both", "all", "use",
+    "make", "have", "let", "the", "that", "this", "it", "he", "she",
+    "they", "we", "keep", "put", "give", "for", "and", "but", "if",
+    "when", "while", "after", "before", "also", "just", "only",
+    "quick", "correct", "right", "agreed", "actually", "however",
+    "instead", "anyway", "meanwhile", "finally", "honestly",
+    "basically", "so", "now", "then",
+    # First-person possessive determiners are never person
+    # names, but at sentence start they capitalize like one
+    # ("My old primary home address should not be used." was
+    # skipped as person-shaped — round-15 MN15-1). ONLY the
+    # first person: "His/Her/Their address…" is a third
+    # person's address, not the offer (round-16 CR16-4), and
+    # "Your" is the addressee's, not the speaker's.
+    "my", "our",
+})
+
+#: Capitalized tokens that name places or times, not people: US
+#: state names and month names. (A candidate anchor carrying one of
+#: these names is still matched by the candidate markers first —
+#: this set only governs NON-candidate shape detection.)
+_NON_PERSON_CAPITALS: frozenset[str] = frozenset({
+    "alabama", "alaska", "arizona", "arkansas", "california",
+    "colorado", "connecticut", "delaware", "florida", "georgia",
+    "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas",
+    "kentucky", "louisiana", "maine", "maryland", "massachusetts",
+    "michigan", "minnesota", "mississippi", "missouri", "montana",
+    "nebraska", "nevada", "hampshire", "jersey", "mexico",
+    "carolina", "dakota", "ohio", "oklahoma", "oregon",
+    "pennsylvania", "rhode", "island", "tennessee", "texas",
+    "utah", "vermont", "virginia", "washington", "wisconsin",
+    "wyoming", "columbia",
+    "january", "february", "march", "april", "june", "july",
+    "august", "september", "october", "november", "december",
+})
+
+_I_CONTRACTIONS: frozenset[str] = frozenset({"i", "i'm", "i'll", "i'd", "i've"})
+
+
+def _has_person_shape(text: str) -> bool:
+    """A person-shaped reference in `text`: a capitalized token that
+    is not a known sentence starter, place/time name, or the
+    pronoun I (incl. contractions). Catches names that are NOT
+    candidate anchors (a third person the user names instead), bare
+    surnames, and middle-name variants — all of which make a reply
+    differentiated even when no candidate marker matches."""
+    import re
+
+    tokens = re.findall(r"[A-Za-z']+", text)
+    for i, tok in enumerate(tokens):
+        if len(tok) < 2 or not tok[0].isupper():
+            continue
+        lowered = tok.lower()
+        if lowered in _I_CONTRACTIONS or lowered in _NON_PERSON_CAPITALS:
+            continue
+        if i == 0 and lowered in _SENTENCE_STARTERS:
+            continue
+        return True
+    return False
+
+
+def _clause_owner(
+    clause: str, all_offers: list[dict[str, Any]]
+) -> set[str]:
+    """Who a clause is ABOUT: the decline_keys of the person offers
+    whose anchor it references; {"other"} when it references a
+    person-shaped name that is no candidate's anchor; empty when it
+    references nobody (a bare "yes", a connective fragment)."""
+    lowered = clause.lower()
+    refs = {
+        o["decline_key"]
+        for o in all_offers
+        if o.get("bundle") != "address"
+        and _references_offer(lowered, o, all_offers)
+    }
+    if refs:
+        return refs
+    if _has_person_shape(clause):
+        return {"other"}
+    return set()
+
+
+#: Uncertainty for the scoped reads: the shared bundle pattern plus
+#: explicit non-decision phrasing. An explicit deferral ("no decision
+#: on David yet") must never be persisted as a decline (review C-3).
+_SCOPED_UNCERTAINTY_EXTRA = (
+    r"\b(no decision|not decided|haven'?t decided|have not decided|"
+    r"still deciding|not ready to decide|need more time)\b"
+)
+
+
+def _scoped_uncertain(text_lower: str) -> bool:
+    import re
+
+    return bool(
+        re.search(_BUNDLE_UNCERTAINTY_PATTERN, text_lower)
+        or re.search(_SCOPED_UNCERTAINTY_EXTRA, text_lower)
+    )
+
+
+_FRAGMENT_STOPWORDS: frozenset[str] = frozenset({
+    "for", "the", "a", "an", "as", "to", "be", "is", "was", "are",
+    "my", "your", "should", "would", "can", "could", "shall", "will",
+    "also", "please", "thanks", "thank", "just",
+})
+_FRAGMENT_AFFIRM: frozenset[str] = frozenset({"yes", "yeah", "yep"})
+_FRAGMENT_NEGATE: frozenset[str] = frozenset({"no", "not", "never"})
+
+
+def _pure_fragment_verdict(
+    clause: str, offer: dict[str, Any], all_offers: list[dict[str, Any]]
+) -> bool | None:
+    """Verdict from a PURE verdict fragment: a short clause that
+    references exactly this one candidate and, once the anchor's
+    name and stopwords are removed, reduces to a single verdict
+    token ("David yes" -> True, "Maya no" -> False, "David should
+    not" -> False). Anything with content left over defers:
+    "Priya is not only executor" leaves {not, only, executor} and
+    is a fact sentence, not a verdict (review C-4); a clause naming
+    two anchors is neither's fragment (review I-1)."""
+    if len(clause.split()) > 7:
+        return None
+    lowered = clause.lower()
+    refs = [
+        o
+        for o in all_offers
+        if o.get("bundle") != "address"
+        and _references_offer(lowered, o, all_offers)
+    ]
+    if len(refs) != 1 or refs[0]["decline_key"] != offer["decline_key"]:
+        return None
+    tokens = set(_norm_tokens(clause))
+    name_tokens = set(_norm_tokens(str(offer.get("anchor_name") or "").lower()))
+    leftover = tokens - name_tokens - _FRAGMENT_STOPWORDS
+    if len(leftover) != 1:
+        return None
+    token = next(iter(leftover))
+    if token in _FRAGMENT_AFFIRM:
+        return True
+    if token in _FRAGMENT_NEGATE:
+        return False
+    return None
+
+
+_BARE_VERDICT_EXTRA_TOKENS: frozenset[str] = frozenset({
+    "actually", "well", "so", "now", "then", "however", "anyway",
+    "instead", "hmm", "oh", "please",
+})
+_BARE_AFFIRM: frozenset[str] = _FRAGMENT_AFFIRM | {"sure"}
+
+
+def _bare_verdict(clause: str) -> bool | None:
+    """A clause that is ONLY a verdict: "Yes", "No", "Yes please",
+    "Actually no". Short, and reduces (minus discourse/stopwords)
+    to a single yes/no token. Anything with real content attached
+    is not bare and never decides via this path."""
+    if len(clause.split()) > 5:
+        return None
+    tokens = set(_norm_tokens(clause))
+    leftover = tokens - _FRAGMENT_STOPWORDS - _BARE_VERDICT_EXTRA_TOKENS
+    if len(leftover) != 1:
+        return None
+    token = next(iter(leftover))
+    if token in _BARE_AFFIRM:
+        return True
+    if token in _FRAGMENT_NEGATE:
+        return False
+    return None
+
+
+def _has_bundle_ref(lowered: str) -> bool:
+    """A genuine bundle reference in a segment. "same person"
+    counts only in its bundle form ("same person for all …") —
+    as a bare identity statement ("Maya is the same person as the
+    account holder") it is a fact, not a reference (round-4)."""
+    import re
+
+    scrubbed = re.sub(r"same person(?!\s+for\b)", "", lowered)
+    return bool(re.search(_BUNDLE_REF_PATTERN, scrubbed))
+
+
+_MODAL_TOKENS: frozenset[str] = frozenset({
+    "should", "would", "could", "can", "shall", "must", "will",
+})
+
+
+def _offer_role_phrases(offer: dict[str, Any]) -> list[str]:
+    """The offer's role names as PHRASES ("healthcare agent",
+    "successor trustee", …) from its display names. Phrases, not
+    single tokens: "agent" alone collides with "real estate
+    agent" (round-4 C-R4-4)."""
+    import re
+
+    phrases: list[str] = []
+    for fill_key in offer.get("fill_keys") or []:
+        name = _BUNDLE_ROLE_NAMES.get(fill_key, "").lower()
+        name = re.sub(r"^your\s+", "", name).strip()
+        if name:
+            phrases.append(name)
+    return phrases
+
+
+_SERVE_VERB_PATTERN = r"\b(serve|serves|serving)\b"
+_SERVE_FRAME_PATTERN = _SERVE_VERB_PATTERN + r"(\s+\w+){0,2}?\s+(as|in)\b"
+#: Words that may remain in a segment whose only content is the
+#: anchor, a modal/negation, and the bare verb "serve".
+_BARE_SERVE_RESIDUE_OK: frozenset[str] = (
+    _FRAGMENT_STOPWORDS
+    | _MODAL_TOKENS
+    | {"no", "not", "never", "serve", "serves", "serving", "as", "in",
+       "also", "both"}
+)
+_APPOINTMENT_MODALS: frozenset[str] = frozenset({
+    "should", "would", "shall", "must", "can",
+})
+
+
+def _segment_bundle_scoped(
+    lowered: str, offer: dict[str, Any], clause: str
+) -> bool:
+    """The segment ties its verb to THIS offer's bundle (round-4
+    C-R4-3/4): a bundle reference, a serve-as/in frame, a
+    be/serve frame carrying one of the offer's role PHRASES, or a
+    bare "serve" whose residue is only the anchor + modal +
+    negation (a complete decline/appointment: "David should not
+    serve."). Bare action verbs with unrelated objects are NOT
+    scope: "serve dinner", "serve on the PTA board", "handle the
+    taxes", "use the car" all stay facts."""
+    import re
+
+    if _has_bundle_ref(lowered):
+        return True
+    if re.search(_SERVE_FRAME_PATTERN, lowered):
+        return True
+    phrases = _offer_role_phrases(offer)
+    if phrases:
+        alt = "|".join(re.escape(p) for p in phrases)
+        if re.search(
+            rf"\b(be|become|act|serve|serves|serving)\b[^.;,]{{0,40}}?\b({alt})\b",
+            lowered,
+        ):
+            return True
+    if re.search(_SERVE_VERB_PATTERN, lowered):
+        tokens = set(_norm_tokens(clause))
+        name_tokens = set(
+            _norm_tokens(str(offer.get("anchor_name") or "").lower())
+        )
+        residue = tokens - name_tokens - _BARE_SERVE_RESIDUE_OK
+        if not residue and (
+            re.search(_BUNDLE_NEGATION_PATTERN, lowered)
+            or tokens & {"should", "would", "shall", "must"}
+        ):
+            return True
+    return False
+
+
+def _modal_segment_verdict(
+    clause: str, offer: dict[str, Any], all_offers: list[dict[str, Any]]
+) -> bool | None:
+    """A verdict from a modal segment that references exactly this
+    offer AND is scoped to its bundle: "David should not serve as
+    successor", "Maya should not be my healthcare agent", "David
+    should serve." The scope gate is the discipline (round-4
+    C-R4-3/4): bare `serve/use/handle` plus any affirm/neg token
+    manufactured verdicts from factual clauses ("will definitely
+    handle the taxes", "should serve dinner at seven"), so the
+    verb must be tied to the bundle — and `_parse_yes_no`'s head
+    patterns, which fire on those same facts, are never consulted
+    here at all (round-3 C-2). Inside the gate: negation -> False;
+    an explicit affirmative -> True; a plain appointment with an
+    appointment modal -> True (so it registers against a stray
+    bare verdict instead of losing to it — C-R4-5). Conditionals
+    and "not only …" defer."""
+    import re
+
+    lowered = clause.lower()
+    refs = [
+        o
+        for o in all_offers
+        if o.get("bundle") != "address"
+        and _references_offer(lowered, o, all_offers)
+    ]
+    if len(refs) != 1 or refs[0]["decline_key"] != offer["decline_key"]:
+        return None
+    if re.search(r"\bnot only\b", lowered):
+        return None
+    if re.search(_BUNDLE_UNCERTAINTY_PATTERN, lowered):
+        return None
+    if re.search(r"\bif\b", lowered):
+        return None
+    tokens = set(_norm_tokens(clause))
+    if not (tokens & _MODAL_TOKENS):
+        return None
+    if not _segment_bundle_scoped(lowered, offer, clause):
+        return None
+    if re.search(_BUNDLE_NEGATION_PATTERN, lowered):
+        return False
+    if re.search(_BUNDLE_AFFIRMATIVE_PATTERN, lowered):
+        return True
+    if tokens & _APPOINTMENT_MODALS and not re.search(
+        r"\bcan'?t\b|\bcannot\b", lowered
+    ):
+        if re.search(_SERVE_VERB_PATTERN, lowered) or _has_bundle_ref(lowered):
+            return True
+        phrases = _offer_role_phrases(offer)
+        if phrases:
+            alt = "|".join(re.escape(p) for p in phrases)
+            if re.search(
+                rf"\b(be|become|act)\b[^.;,]{{0,40}}?\b({alt})\b", lowered
+            ):
+                return True
+    return None
+
+
+_CONTRACTION_EXPANSIONS: tuple[tuple[str, str], ...] = (
+    (r"\bwon'?t\b", "will not"),
+    (r"\bcan'?t\b", "can not"),
+    (r"\bcannot\b", "can not"),
+    (r"\bshouldn'?t\b", "should not"),
+    (r"\bwouldn'?t\b", "would not"),
+    (r"\bcouldn'?t\b", "could not"),
+    (r"\bdoesn'?t\b", "does not"),
+    (r"\bdon'?t\b", "do not"),
+    (r"\bdidn'?t\b", "did not"),
+    (r"\bisn'?t\b", "is not"),
+    (r"\baren'?t\b", "are not"),
+    (r"\bwasn'?t\b", "was not"),
+    (r"\bweren'?t\b", "were not"),
+    (r"\bhaven'?t\b", "have not"),
+    (r"\bhasn'?t\b", "has not"),
+    (r"\bi'?m\b", "i am"),
+    (r"\bi'?ll\b", "i will"),
+    (r"\bi'?d\b", "i would"),
+    (r"\bi'?ve\b", "i have"),
+)
+
+
+def _expand_contractions(text: str) -> str:
+    """Expand contractions for the multi-offer resolver's token
+    checks: "won't" must tokenize as will + not, or every
+    negation-based veto is evaded by the most natural spelling
+    (round-5 C5-1). Applied ONLY inside `_resolve_offer_verdicts`'
+    multi-offer path — the single-offer `_bundle_verdict` input
+    is unchanged."""
+    import re
+
+    out = text
+    for pattern, replacement in _CONTRACTION_EXPANSIONS:
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    return out
+
+
+_RETRACTION_PHRASES: tuple[str, ...] = (
+    "not her",
+    "not him",
+    "not them",
+    "on second thought",
+)
+
+#: Dismissal verbs with an optional object and an optional
+#: off/out particle ("Nevermind.", "Forget her.", "Ditch her.",
+#: "Cross her off."): a retracting user dismisses a PERSON as
+#: often as a thing, so the object slot is structural, not
+#: enumerated (round-9 F3, round-10 C3 — the verb slot is the
+#: dismissal register itself: forget / scratch / ditch / skip /
+#: axe / nix / void / toss / drop / cross).
+_RETRACTION_DISMISSAL_PATTERN = (
+    r"\b(?:never\s?mind|forget\w*|scratch\w*|scrap\w*|ditch\w*|"
+    r"skip\w*|axe\w*|nix\w*|void\w*|toss\w*|drop\w*|cross\w*)"
+    r"(?:\s+(?:it|that|this|her|him|them))?(?:\s+(?:off|out))?\b"
+)
+
+#: Pronoun-particle dismissal idiom: <any verb> + pronoun
+#: (incl. reflexives) + up to ten intervening tokens +
+#: off/out ("Cut her off.", "Cut her completely and totally
+#: off.", "Take her full legal name and official professional
+#: title off.", "Cut herself off."). The verb slot and the
+#: middle are open; the idiom's skeleton is the pronoun and
+#: the particle (round-11 F3, round-12 C4, round-13 CR4,
+#: round-15 CR15-6).
+_PRONOUN_PARTICLE_PATTERN = (
+    r"\b[a-z]+\s+(?:her|him|them|herself|himself|themselves)"
+    r"(?:\s+[a-z]+){0,10}?\s+(?:off|out)\b"
+)
+
+#: Exclusion predicates: a negation governing one of these is
+#: an INCLUSION ("should not be ruled out" affirms the
+#: candidates — round-14 CR14-2; "overlooked" added round-15
+#: CR15-2).
+_EXCLUSION_PREDICATE_PATTERN = (
+    r"\b(ruled?\s+out|left\s+out|passed\s+over|"
+    r"excluded|exclusion|omitted|left\s+off|overlook\w*)\b"
+)
+
+#: Lexical retraction verbs, as STEMS: they carry no negation
+#: token, so the pronoun+negation branch cannot see them ("She
+#: declined to serve.", "He will withdraw.", "Strike her.").
+#: Morphological families, not surface forms (round-7 C-R7-2,
+#: round-8 C-R8-3). Used by the contamination veto and by the
+#: per-offer signal for name-bearing retraction sentences —
+#: both are vetoes, so breadth only ever defers.
+_RETRACTION_VERB_PATTERN = (
+    r"\b(declin\w*|refus\w*|withdr\w*|retract\w*|revok\w*|"
+    r"resign\w*|retir\w*|quit(?:s|ting|ted)?\b|recuse\w*|renounce\w*|"
+    r"abdicat\w*|bail\w*|pass\w* on|unwilling|unable|"
+    r"cancel\w*|rescinded|remove\w*|"
+    # Phrasal exits are a verb-family × particle product
+    # (stepped down/back/aside, stood down, backed out/off,
+    # walked away, gave up, bowed out — round-10 C2).
+    r"(?:step|stood|stand|back|walk|bow|pull|drop|opt|bail|"
+    r"giv|gave)\w*\s+(?:down|back|off|out|up|away|aside)|"
+    r"want\w* out|(?:'s|is) out|strik\w*|struck|"
+    r"cross\w* out|(?:take|took) [\w']+ off|"
+    r"changed (?:her|his|their|my) mind|"
+    r"count (?:her|him|them) out)\b"
+)
+
+
+def _message_contaminated(message: str, offers: list[dict[str, Any]]) -> bool:
+    """A retraction-shaped sentence after the first that names NO
+    candidate ("Actually no.", "She will not serve.", "Scratch
+    that.", "Not her.") contaminates the whole message: every
+    read defers. The check lives at MESSAGE level in
+    `_resolve_offer_verdicts` so it gates the inheritance path
+    too — a veto inside the scoped path alone was routed around
+    by anchor-free global reads (round-5 C5-3). Over-firing is
+    safe here: contamination can only ever DEFER."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return False
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    for idx, sentence in enumerate(sentences):
+        if idx == 0:
+            continue
+        lowered = sentence.lower()
+        if any(_references_offer(lowered, o, offers) for o in offers):
+            continue
+        if any(
+            # Token-bounded: "not her" must not match inside
+            # "not here", nor "never mind" inside "never
+            # minded" (round-8 M-R8-2).
+            re.search(rf"\b{re.escape(phrase)}\b", lowered)
+            for phrase in _RETRACTION_PHRASES
+        ):
+            return True
+        if re.search(_RETRACTION_DISMISSAL_PATTERN, lowered):
+            return True
+        if re.search(_PRONOUN_PARTICLE_PATTERN, lowered):
+            return True
+        if re.search(_RETRACTION_VERB_PATTERN, lowered):
+            return True
+        # Sentence-level pronoun retraction: the pronoun and its
+        # negation need not share a clause ("She changed her mind
+        # and will not serve.", "She has decided not to serve.",
+        # "She no longer serves.") — read the whole sentence
+        # (round-6 C2).
+        sentence_tokens = set(_norm_tokens(sentence))
+        if (
+            sentence_tokens & {"she", "he", "they", "her", "him"}
+            and re.search(_BUNDLE_NEGATION_PATTERN, lowered)
+        ):
+            return True
+        for clause in _split_clauses(sentence):
+            if _bare_verdict(clause) is not None:
+                return True
+    # Cross-spliced pronoun clause (round-15 CR15-7): a clause
+    # carrying a pronoun predication (modal or negated) inside
+    # a sentence that references exactly ONE candidate names
+    # nobody, yet its pronoun can only mean the OTHER candidate
+    # — or the referenced one; the referent is undecidable, so
+    # the whole message defers. The vetoes above all miss it:
+    # contamination skips candidate-referencing sentences, the
+    # spliced check requires the SAME offer's sentence, and the
+    # standalone check requires every clause to be refs-free.
+    person_offers = [o for o in offers if o.get("bundle") != "address"]
+    if len(person_offers) >= 2:
+        for sentence in sentences:
+            lowered_s = sentence.lower()
+            sent_refs = {
+                o["decline_key"]
+                for o in person_offers
+                if _references_offer(lowered_s, o, offers)
+            }
+            if len(sent_refs) != 1:
+                continue
+            for clause in _split_clauses(sentence):
+                cl = clause.lower()
+                if any(
+                    _references_offer(cl, o, offers) for o in person_offers
+                ):
+                    continue
+                ctoks = set(_norm_tokens(clause))
+                if ctoks & _SPLICED_PRONOUNS and (
+                    ctoks & _MODAL_TOKENS
+                    or re.search(_BUNDLE_NEGATION_PATTERN, cl)
+                ):
+                    return True
+    return False
+
+
+def _address_offer_framed(sentence: str) -> bool:
+    """The sentence is ABOUT the address offer (round-6 C4): it
+    carries a bundle reference, or a use-frame with the address
+    as its object ("use my address", "address … be used"). A
+    factual predicate about the address itself ("The address
+    does not handle mail anymore.") has none of these and must
+    not be fed to `_bundle_verdict`, whose short-head fallback
+    would read its "does not" as a decline."""
+    import re
+
+    lowered = sentence.lower()
+    if _has_bundle_ref(lowered):
+        return True
+    if re.search(
+        r"\buse\s+(my|the|that|this|our|your)(\s+\w+){0,4}?\s+address\b",
+        lowered,
+    ):
+        return True
+    if re.search(r"\baddress\b(\s+\w+){0,5}?\s+used\b", lowered):
+        return True
+    return False
+
+
+#: Conditional markers for an instruction: an instruction
+#: qualified by any of these is not an unconditional verdict
+#: (round-15 CR15-9, form class widened round-16 CR16-5 —
+#: "in case you need one" is the same condition as "if you
+#: need one", and the inverted "should you need one" carries
+#: no conditional token at all in the old four-word list).
+_CONDITIONAL_PATTERN = (
+    r"\b(if|unless|when|whenever|in\s+case|as\s+needed|"
+    r"as\s+long\s+as|provided|providing|should\s+(?:you|we|it|they))\b"
+)
+
+#: Verb stems for the pronoun/demonstrative reference gate
+#: below: use, placement, exclusion, and removal verbs as
+#: STEMS, so gerunds and inflections are the same family
+#: ("removing", "excluding", "deleted").
+_ADDR_REF_VERB_STEMS = (
+    r"(?:us(?:e|ed|ing)|put\w*|plac\w*|go(?:es)?|enter\w*|list\w*|"
+    r"writ\w*|ban\w*|barr\w*|belong\w*|off|out|leav\w*|exclud\w*|"
+    r"omit\w*|remov\w*|includ\w*|add\w*|drop\w*|tak\w*|keep\w*|"
+    r"delet\w*|eras\w*|pull\w*|strik\w*|skip\w*)"
+)
+
+#: Definite place descriptions that denote the address
+#: offer when a reference verb governs them ("Do not use the
+#: place.", "Exclude my home.", "Never use my residence."):
+#: in a merged-offer reply the only place-like referent on
+#: the table is the address (round-24 CR24-4).
+_ADDR_PLACE_DESCRIPTION = (
+    r"\b(?:the|my|our|that|this)"
+    # A modifier run may sit between the determiner and the
+    # noun ("the mobile home", "my studio apartment", "the
+    # detached garage apartment") — adjacency defeated the
+    # listed nouns in their most common compound forms
+    # (round-26 CR26-1). Modifier tokens admit digits
+    # (bedroom counts and ordinals are the canonical
+    # descriptors — round-27 CR27-1), and the noun may join
+    # the last modifier by a hyphen ("the mobile-home").
+    r"(?:\s+[a-z0-9][a-z0-9-]*){0,3}?(?:\s+|-)"
+    r"(?:place|home|residence|house|properties|property|"
+    r"apartment|unit|"
+    r"condo|townhouse|townhome|duplex|loft|cottage|dwelling|"
+    r"bungalow|cabin|studio|farmhouse|trailer|penthouse|"
+    r"brownstone|ranch|suite|guesthouse)s?\b"
+)
+
+
+def _address_clause_vetoes_borrow(
+    clause: str,
+    offer: dict[str, Any],
+    siblings: list[str] = (),
+) -> bool:
+    """Whether a clause kills a provisional borrowed Yes for
+    the address offer. The burden is INVERTED and the benign
+    set is purely SYNTACTIC (round-21 CR21-1 → round-22
+    CR22-1/2: every semantic benign class was a hole — the
+    copula class was predicate-blind ("My address is a no."),
+    the plainly-affirmative class was cessation-lexeme-bound
+    ("Forget using my address.")): the borrow is the weakest
+    read in the resolver, so it survives only alongside
+    PROPERTY FACTS in one of two fact syntaxes —
+
+    - the fact passive: "address is/was/has been (not) used
+      …" (no "be" — an instruction passive is a decision,
+      not a fact, and the direct reads own it); or
+    - a property-verb fact: "(does|do|did) not
+      handle/receive/accept/get/deliver …".
+
+    A clause REFERENCES the offer if it says "address",
+    names a distinctive anchor token (the street number or
+    name, the city, the state — "Do not use 123 Main
+    Street.", "Exclude the Austin one."), or points at it
+    with "it" / "that" / "the other one" plus a
+    use/exclusion/removal verb (round-23 CR23-1/2). An F1
+    fact with an explicit exclusion tail in a sibling clause
+    ("…is used for identification only, never for
+    documents") is a scoped restriction, not a benign fact
+    (round-23 CR23-3). Any other referencing clause that no
+    direct read decided vetoes the borrow, whatever dress
+    its statement wears, affirmative included: an
+    undecidable sentence about the address means the message
+    is no longer the simple cooperative shape the borrow
+    exists for, and the offer is re-asked (the safe
+    failure)."""
+    import re
+
+    cl = clause.lower()
+    if "address" in cl:
+        referenced = True
+    else:
+        anchor_tokens = {
+            t
+            for t in _norm_tokens(
+                str(offer.get("anchor_name") or "").lower()
+            )
+            if len(t) >= 4 or t.isdigit()
+        }
+        if anchor_tokens & set(_norm_tokens(clause)):
+            referenced = True
+        elif re.search(r"\bit\b", cl) and re.search(
+            rf"\b{_ADDR_REF_VERB_STEMS}\b", cl
+        ):
+            referenced = True
+        elif (
+            re.search(r"\b(?:that|this)\b", cl) or "other one" in cl
+        ) and re.search(rf"\b{_ADDR_REF_VERB_STEMS}\b", cl):
+            referenced = True
+        elif re.search(
+            # The v7 presentation numbers the offers and
+            # invites the user to "answer each one
+            # separately", so an ordinal reference ("the 2nd
+            # one", "number two", "#2", "the last one") is a
+            # presentation-canonical way to decline one of
+            # them (round-28 CR28-1). Deliberately coarse,
+            # like every veto reference: any ordinal decline
+            # defers the borrowed verdict; direct verdicts
+            # are untouched.
+            r"(?:\b(?:\d+(?:st|nd|rd|th)|first|second|third|"
+            r"fourth|fifth|last)\s+one\b"
+            r"|\bnumber\s+(?:\d+|one|two|three|four|five)\b"
+            r"|#\s*\d+)",
+            cl,
+        ) and re.search(rf"\b{_ADDR_REF_VERB_STEMS}\b", cl):
+            referenced = True
+        elif re.search(
+            _ADDR_PLACE_DESCRIPTION, cl
+        ) and re.search(rf"\b{_ADDR_REF_VERB_STEMS}\b", cl):
+            referenced = True
+        else:
+            return False
+    f1_match = re.search(
+        r"\baddress\s+(?:is|was|has\s+been|had\s+been)\s+"
+        r"(?:not\s+|never\s+)?used\b",
+        cl,
+    )
+    if f1_match:
+        # F1 fact passive — benign UNLESS the sentence tail
+        # after the match (the rest of this clause plus every
+        # sibling clause) carries an exclusion (never / not /
+        # excluding / except), which makes the fact a scoped
+        # restriction on exactly this fill. The scan starts
+        # AFTER the matched "used": the fact's own negation
+        # ("is NOT used for packages") precedes it and is the
+        # benign borrow-source shape (round-23 CR23-3 →
+        # round-24 CR24-2: the tail may be packaged in the
+        # same clause, reordered, or elliptical).
+        tail = cl[f1_match.end():] + " " + " ".join(
+            s.lower() for s in siblings
+        )
+        return bool(
+            re.search(
+                r"\b(?:never|not|no|exclud\w*|except|off)\b", tail
+            )
+        )
+    if re.search(
+        r"\b(?:does|do|did)\s+not\s+"
+        r"(?:handle|receive|accept|get|deliver)\b",
+        cl,
+    ):
+        return False
+    return True
+
+
+def _address_scoped_verdict(
+    offer: dict[str, Any],
+    message: str,
+    all_offers: list[dict[str, Any]],
+) -> bool | None:
+    """The address offer's verdict: decided only by a head-block
+    sentence about the address itself that names no person
+    (round-2 C-6) AND is framed as an answer to the offer
+    (round-6 C4), read with the trusted `_bundle_verdict` on
+    that single sentence."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return None
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    person_offers = [o for o in all_offers if o.get("bundle") != "address"]
+    # A borrowed verdict is PROVISIONAL (round-18 CR18-2): it is
+    # recorded, not returned, and any direct verdict in a later
+    # sentence overrides it. A negated address instruction
+    # anywhere else in the message vetoes it outright
+    # (round-19 CR19-1, generalized round-20 CR20-1).
+    provisional: bool | None = None
+    provisional_idx: int | None = None
+    for s_idx, sentence in enumerate(sentences):
+        if (
+            "?" in sentence
+            or "？" in sentence
+            or sentence.lstrip().startswith("¿")
+        ):
+            continue  # a question is not a decision (round-8 C-R8-4)
+        lowered = sentence.lower()
+        if re.search(_HEDGE_FRAME_PATTERN, lowered):
+            # Reported or hedged speech is not the user's
+            # instruction ("He said the address should be
+            # used." persisted an accept in round 16, CR16-2):
+            # the fragment decider has always had this gate;
+            # the address read gets it at the same scope.
+            continue
+        if re.search(_CONDITIONAL_PATTERN, lowered):
+            # A conditional anywhere in the sentence qualifies
+            # every instruction in it ("My address should be
+            # used if you need it." — round-16 CR16-1): the
+            # offer defers rather than persisting a conditional
+            # as unconditional.
+            continue
+        if "address" not in lowered:
+            continue
+        # Clause-scoped read (round-7 C-R7-4): framing the whole
+        # sentence and feeding it entire let a factual clause
+        # inside it decline the offer ("Use my address, it does
+        # not handle mail."). Only framed clauses are read.
+        clauses = _split_clauses(sentence)
+        bare = [c for c in clauses if _bare_verdict(c) is not None]
+        framed_count = sum(
+            1 for c in clauses if _address_offer_framed(c)
+        )
+        if any(
+            _references_offer(lowered, p, all_offers) for p in person_offers
+        ):
+            continue
+        if _has_person_shape(sentence):
+            continue
+        if _scoped_uncertain(lowered):
+            continue
+        for clause_idx, clause in enumerate(clauses):
+            if not _address_offer_framed(clause):
+                continue
+            read_text = clause
+            # Sever candidates (round-8 C-R8-5 → round-9 F5 →
+            # round-10 C5 → round-11 F5): a subordinator or
+            # relative anywhere, or a jammed second finite
+            # predication — detected by its negated auxiliary,
+            # whatever the subject is ("… address mail does
+            # not arrive …", "It does not handle packages use
+            # my address."). The sever only happens when the
+            # tail carries a negation, so determiner "that"
+            # ("use that address") and innocent tails read
+            # whole.
+            cuts: list[int] = []
+            sub = re.search(
+                r"\b(that|which|whose|who|though|although|but|"
+                r"since|because|as|while|when|whenever|if|unless|"
+                r"where|whereas)\b|[();—]",
+                clause,
+            )
+            if sub:
+                cuts.append(sub.start())
+            addr_at = clause.lower().find("address")
+            if addr_at >= 0:
+                # The predication search covers the whole
+                # clause — a jammed fact may precede the frame
+                # ("It does not handle packages use my
+                # address." — round-11 F5) — EXCEPT when the
+                # clause head is itself the imperative frame:
+                # its negation is subject-less and belongs to
+                # the instruction ("Please do not use my
+                # address."), so there the search starts after
+                # the frame.
+                head_frame = re.match(
+                    r"\s*(please\s+)?(do not|don't|never)"
+                    r"(\s+[a-z]+){0,3}?\s+use\s+"
+                    r"(my|the|that|this|our|your)(\s+[a-z]+){0,4}?\s+"
+                    r"address\b",
+                    clause.lower(),
+                )
+                start = addr_at if head_frame else 0
+                pred = re.search(
+                    r"\b\w+\s+(?:does|do|did|is|are|was|were|has|"
+                    r"have)\s+not\b"
+                    r"|\b\w+\s+(?:cannot|can't|won't|doesn't|don't|"
+                    r"didn't|isn't|aren't|wasn't|weren't|hasn't|"
+                    r"haven't)\b"
+                    r"|\b(it|this|there)\s+(does|do|did|is|are|was|"
+                    r"were|has|have)\b",
+                    clause[start:],
+                )
+                if pred:
+                    cuts.append(start + pred.start())
+            severed_at: int | None = None
+            # Set when a severed PASSIVE tail deferred on a
+            # double negation: the tail was instruction-shaped
+            # but undecidable, and the bare-Yes borrow must not
+            # resurrect it over the emptied head (round-18
+            # CR18-3 — the borrow's input no longer shows the
+            # tail that deferred).
+            tail_deferred = False
+            if cuts:
+                cut = min(cuts)
+                if re.search(
+                    _BUNDLE_NEGATION_PATTERN, clause[cut:].lower()
+                ):
+                    # A negation-bearing subordinate segment
+                    # inside the framed clause is a fact about
+                    # the address ("Use my address that does not
+                    # handle packages."), not the direction given
+                    # to the offer — sever it before the read.
+                    read_text = clause[:cut].strip(" ,")
+                    severed_at = cut
+            if severed_at is not None:
+                # The severed tail may carry the clause's OWN
+                # address instruction ("… do not use my
+                # address." after a jammed fact): read the tail
+                # from its frame before anything borrows context
+                # into the emptied head — a bare "Yes" must not
+                # be lent over an explicit "do not use"
+                # (round-12 C6).
+                frame_match = re.search(
+                    r"(?:please\s+)?(?:do not\s+|don't\s+|never\s+)?"
+                    r"(?:[a-z]+\s+){0,2}?use\s+"
+                    r"(?:my|the|that|this|our|your)(?:\s+[a-z]+){0,4}?\s+"
+                    r"address\b"
+                    r"|(?:my|the|that|this|our|your)(?:\s+[a-z]+){0,4}?\s+"
+                    r"address\s+(?:should|must|can|could|will|would)"
+                    r"\s+(?:(?:not|never)(?:\s+[a-z]+){0,4}?\s+)?be\s+used\b",
+                    clause.lower(),
+                )
+                if frame_match and frame_match.start() >= severed_at:
+                    segment = clause[frame_match.start():]
+                    if re.search(r"\bbe\s+used\b", segment):
+                        # A passive instruction ("my address
+                        # should not be used.") decides by its
+                        # own polarity — the frozen parser does
+                        # not read passive segments, and a bare
+                        # "Yes" must not be borrowed over it
+                        # (round-13 CR9). Two or more negation
+                        # tokens in the segment are a double
+                        # negation and defer, exactly as in the
+                        # unsevered read (round-17 CR17-3).
+                        neg_count = len(
+                            re.findall(
+                                r"\b(?:not|never)\b", segment.lower()
+                            )
+                        )
+                        if neg_count > 1:
+                            tail_deferred = True
+                        tail_verdict = (
+                            None
+                            if neg_count > 1
+                            else neg_count == 0
+                        )
+                    else:
+                        tail_verdict = _bundle_verdict(segment)
+                    if tail_verdict is not None:
+                        return tail_verdict
+            verdict: bool | None = None
+            if severed_at is None and framed_count == 1:
+                # An unsevered passive instruction ("My old
+                # primary home address should not be used.")
+                # decides by its own polarity, exactly like a
+                # severed tail (round-15 MN15-1): the frozen
+                # parser does not read passive segments at all,
+                # so without this read the verdict is simply
+                # lost. The adjective slot is {0,4} — at {0,2}
+                # a three-adjective tail also let a bare "Yes"
+                # borrow OVER an explicit decline (round-15
+                # CR15-5). Two disciplines the first version of
+                # this read lacked (round-16 CR16-3): it fires
+                # only when the sentence carries a SINGLE
+                # framed clause (a second framed clause — "Use
+                # my address, the address should not be used
+                # for packages." — makes the reads conflict in
+                # scope, and combined reads defer), and its
+                # polarity comes from the
+                # MATCHED FRAME's own negation slot, never from
+                # the clause remainder ("…should be used not
+                # for mail but for identification" affirms).
+                # The negation slot tolerates an adverb
+                # ("should not ever be used" — MN16-1).
+                passive_match = re.search(
+                    r"(?:my|the|that|this|our|your)(?:\s+[a-z]+){0,4}?\s+"
+                    r"address\s+(?:should|must|can|could|will|would)"
+                    r"\s+(?P<neg>(?:not|never)(?:\s+[a-z]+){0,4}?\s+)?"
+                    r"be\s+used\b",
+                    read_text.lower(),
+                )
+                if passive_match:
+                    neg_text = passive_match.group("neg")
+                    if neg_text and len(
+                        re.findall(r"\b(?:not|never)\b", neg_text)
+                    ) > 1:
+                        # A second negation inside the slot is
+                        # a double negation ("should never not
+                        # be used") — an affirmation at best,
+                        # undecidable here; it must not read as
+                        # a single decline (round-17 CR17-3).
+                        verdict = None
+                    else:
+                        verdict = neg_text is None
+            if verdict is None:
+                verdict = _bundle_verdict(read_text)
+            if verdict is None and read_text.lower().lstrip().startswith(
+                "please"
+            ):
+                # The frozen parser's head read drops a decline
+                # behind a leading courtesy ("Please never use
+                # my address." reads None where "Never use my
+                # address." reads False) — retry the framed
+                # clause without the courtesy token.
+                verdict = _bundle_verdict(
+                    re.sub(
+                        r"^\s*please\b", "", read_text, flags=re.IGNORECASE
+                    )
+                )
+            if (
+                verdict is None
+                and severed_at is None
+                and len(clauses) == 1
+                and not bare
+                and not re.search(
+                    _BUNDLE_NEGATION_PATTERN, read_text.lower()
+                )
+                and not re.search(_CONDITIONAL_PATTERN, read_text.lower())
+                and re.search(
+                    r"^\s*(?:please\s+)?use\s+"
+                    r"(?:my|the|that|this|our|your)"
+                    r"(?:\s+[a-z]+){0,4}?\s+address\b"
+                    r"(?=\s*(?:$|[.,;:!?)]|\s+(?:for|as|on|in|to|"
+                    r"of|when|if|but|and|because|with|from)\b))",
+                    read_text.lower(),
+                )
+            ):
+                # A bare affirmative use-instruction with no
+                # sever and no negation ("Use my address.",
+                # "Please use my address.") is itself the
+                # verdict — the frozen parser needs a verdict
+                # token or a bundle ref and reads it as None
+                # (round-14 MN14-2). A severed head never gets
+                # this rule: its instruction may sit in the
+                # severed tail, where the pinned behavior is
+                # deferral unless an explicit bare "Yes"
+                # borrows (round-8 C-R8-5). A CONDITIONAL
+                # instruction ("Use my address if needed.",
+                # "Use my address (if you need one).") is not
+                # an unconditional accept and never gets this
+                # rule either (round-15 CR15-9). And the clause
+                # must carry an actual USE-INSTRUCTION: the
+                # used-frame also frames plain facts ("My
+                # address was used last year."), and a statement
+                # of past usage is not consent (round-17
+                # CR17-1, the round-6 C4 fact class). The frame
+                # is imperative-ANCHORED at the clause start: a
+                # declarative subject or modal in front of it
+                # ("They use my address for packages.", "They
+                # can use my address.") is the same fact class,
+                # not an instruction (round-18 CR18-1).
+                verdict = True
+            if verdict is not None:
+                return verdict
+            if bare and all(_bare_verdict(c) is True for c in bare):
+                # Bare context may only lend an AFFIRMATIVE, and
+                # only an affirmative read is borrowed: a leading
+                # "No" aimed at the person offers must not flip
+                # an affirmative address instruction into a
+                # decline (round-8 C-R8-6). A decline must come
+                # from the framed clause itself. And the borrow
+                # must not SHORT-CIRCUIT a later framed clause
+                # carrying its own verdict or a negation ("Yes,
+                # my address is not used for packages, do not
+                # use my address." borrowed True off the severed
+                # fact clause's emptied head and the explicit
+                # decline was never read — round-17 CR17-2,
+                # defeating round-12 C6).
+                # Benign-burden guard (round-20 CR20-1 →
+                # round-21 CR21-1): the borrow fires only if
+                # every OTHER non-bare clause of this sentence
+                # is benign for the address (a property fact
+                # or a plainly affirmative instruction). The
+                # borrow clause itself is excluded: its own
+                # severed fact head ("…is not used for
+                # packages") is a property fact, and the direct
+                # reads have already had their say over it. A
+                # later clause carrying its own direct verdict
+                # needs no block here — the loop reaches it and
+                # it decides on its own terms.
+                instruction_blocked = any(
+                    _address_clause_vetoes_borrow(
+                        c,
+                        offer,
+                        [
+                            s
+                            for k, s in enumerate(clauses)
+                            if k != j
+                        ],
+                    )
+                    for j, c in enumerate(clauses)
+                    if j != clause_idx and _bare_verdict(c) is None
+                )
+                if not instruction_blocked and not tail_deferred:
+                    borrowed = _bundle_verdict(
+                        " ".join([*bare, read_text])
+                    )
+                    if borrowed is True and provisional is None:
+                        # Provisional (round-18 CR18-2): keep
+                        # scanning — a direct verdict in any
+                        # later sentence overrides the borrow.
+                        provisional = True
+                        provisional_idx = s_idx
+                        break
+    if provisional is not None:
+        # Post-pass veto (round-20 CR20-1): a negated address
+        # instruction in any OTHER sentence of the message —
+        # including pronoun-only sentences the scoped read never
+        # reaches ("It is not to be used.") — kills the
+        # provisional borrow. Reported or qualified sentences
+        # are skipped exactly as in the main loop, so a hedge
+        # or a conditional never vetoes either.
+        for o_idx, other in enumerate(sentences):
+            if o_idx == provisional_idx:
+                continue
+            o_lowered = other.lower()
+            if (
+                "?" in other
+                or "？" in other
+                or other.lstrip().startswith("¿")
+                or (
+                    re.search(_HEDGE_FRAME_PATTERN, o_lowered)
+                    # A first-person denial is the user's OWN
+                    # speech act, not reported speech ("I never
+                    # said to use my address." — round-22
+                    # MN22-3): it is not skipped.
+                    and not re.search(
+                        r"\bi\s+(?:never\s+)?(?:said|told|asked)\b",
+                        o_lowered,
+                    )
+                )
+                or re.search(_CONDITIONAL_PATTERN, o_lowered)
+            ):
+                continue
+            other_clauses = _split_clauses(other)
+            if any(
+                _address_clause_vetoes_borrow(
+                    c,
+                    offer,
+                    [
+                        s
+                        for k, s in enumerate(other_clauses)
+                        if k != j
+                    ],
+                )
+                for j, c in enumerate(other_clauses)
+            ):
+                return None
+    return provisional
+
+
+#: Frames that keep a sentence from deciding a fragment:
+#: wondering/whether reported questions, uncertainty markers,
+#: and speech attribution — the fragments inside them are
+#: reported, not decided (round-8 C-R8-4 listed two frames;
+#: round-9 F4 makes it a form class).
+_HEDGE_FRAME_PATTERN = (
+    r"\b(wonder|wondering|wondered|whether|not sure|unsure|"
+    r"uncertain|maybe|perhaps|i guess|i suppose|i think|"
+    r"i believe|i hope|said|says|asked|replied|answered|told|"
+    # Evidentials, seeming, and the wider attribution stems —
+    # the frame class is reported speech / hedged stance, not
+    # six verbs (round-10 C4).
+    r"apparently|supposedly|reportedly|allegedly|evidently|"
+    r"presumably|seemingly|seem\w*|curious|think\w*|thought|"
+    r"claim\w*|mention\w*|note\w*|text\w*|according to|"
+    r"i heard|i read|(?:look|sound|feel)\w*\s+like|"
+    # Finite attribution verbs are frames in any tense
+    # (round-12 C5: "Priya suggested, Maya yes, David no.").
+    r"suggest\w*|decid\w*|recommend\w*|advis\w*|report\w*|"
+    r"stat\w*|pick\w*|"
+    r"(?:check|confirm|verify|ask|asking)\s+(?:if|whether))\b"
+)
+
+#: Auxiliary / copula tokens: a clause built on one of these is
+#: a finite predication (used by the fragment frame test).
+_PREDICATION_AUX: frozenset[str] = _MODAL_TOKENS | {
+    "is", "are", "was", "were", "be", "been", "being", "has",
+    "have", "had", "does", "do", "did", "may", "might",
+}
+
+#: Sentence-initial interrogative auxiliaries / question words:
+#: an unpunctuated question ("Is Maya yes, David no") is still
+#: a question (round-9 F4).
+_INTERROGATIVE_OPENERS: frozenset[str] = frozenset({
+    "is", "are", "was", "were", "do", "does", "did", "can",
+    "could", "should", "would", "will", "what", "who", "whom",
+    "when", "where", "why", "how", "may", "might", "shall",
+})
+
+def _offer_fragment_verdict(
+    offer: dict[str, Any],
+    message: str,
+    all_offers: list[dict[str, Any]],
+) -> bool | None:
+    """The ONLY per-offer decider in the multi-offer path (v6
+    contract): a pure verdict fragment — a clause referencing
+    exactly this offer that reduces to the anchor's name plus a
+    single verdict token ("Maya yes", "David no"). Conflicting
+    fragments for the same offer defer."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return None
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    offers_by_first: dict[str, list[dict[str, Any]]] = {}
+    for o in all_offers:
+        name_tokens = _norm_tokens(o.get("anchor_name") or o.get("label") or "")
+        if name_tokens:
+            offers_by_first.setdefault(name_tokens[0], []).append(o)
+    def _frame_only(s: str) -> bool:
+        """A sentence that is only a reporting frame: it
+        matches the hedge/attribution lexicon and carries no
+        fragment or bare verdict of its own. Such a sentence
+        scopes over an ADJACENT verdict sentence as surely as
+        over its own clauses (round-13 CR5: "Maya yes, David
+        no. As Priya recommended."). First-person DELIBERATION
+        is not a report, at any length: "No decision on David
+        yet, let me think about the successor roles…" is the
+        user thinking, and the verdict sentence next to it
+        still decides (round-14 CR14-5)."""
+        # Deliberation markers disqualify the frame only when
+        # they are the USER's own deliberation. A marker inside
+        # reported speech ("As Priya said I should choose.") is
+        # the reporter's words — the attribution verb precedes
+        # it — and the frame still scopes (round-15 CR15-4).
+        _delib = list(
+            re.finditer(
+                r"\b(let me|i need|i want|i have to|i should|"
+                r"no decision|not decided|my decision)\b",
+                s.lower(),
+            )
+        )
+        if _delib:
+            _attr = re.search(
+                r"\b(said|says|told|asked|replied|answered|"
+                r"recommend\w*|suggest\w*|advis\w*|mention\w*|"
+                r"claim\w*|according to)\b",
+                s.lower(),
+            )
+            if not (
+                _attr
+                and all(m.start() > _attr.start() for m in _delib)
+            ):
+                return False
+        if not re.search(_HEDGE_FRAME_PATTERN, s.lower()):
+            return False
+        return not any(
+            any(
+                _pure_fragment_verdict(c, o, all_offers) is not None
+                for o in all_offers
+            )
+            or _bare_verdict(c) is not None
+            for c in _split_clauses(s)
+        )
+
+    values: set[bool] = set()
+    for s_idx, sentence in enumerate(sentences):
+        if (s_idx > 0 and _frame_only(sentences[s_idx - 1])) or (
+            s_idx + 1 < len(sentences)
+            and _frame_only(sentences[s_idx + 1])
+        ):
+            continue
+        opener = re.match(r"[\s¿\"'“”«]*([a-z']+)", sentence.lower())
+        opener_blocked = False
+        if opener and opener.group(1) in _INTERROGATIVE_OPENERS:
+            word = opener.group(1)
+            if word not in offers_by_first:
+                opener_blocked = True
+            elif not any(
+                _pure_fragment_verdict(clause, o, all_offers) is not None
+                for clause in _split_clauses(sentence)
+                for o in offers_by_first[word]
+            ):
+                # The opener-as-name exception holds only when
+                # this sentence actually carries a pure fragment
+                # for the anchor it names ("Will K Smith yes.");
+                # a question that merely starts with the name
+                # ("Will David no") decides nothing (round-10 C4).
+                opener_blocked = True
+        if (
+            "?" in sentence
+            or "？" in sentence
+            or sentence.lstrip().startswith("¿")
+            or '"' in sentence
+            or "“" in sentence
+            or "”" in sentence
+            or "‘" in sentence
+            or "«" in sentence
+            or re.search(r"['’»][.!?;:,]*$", sentence.rstrip())
+            or (
+                sentence.lstrip().startswith("'")
+                and sentence.count("'") >= 2
+            )
+            or opener_blocked
+            or re.search(_HEDGE_FRAME_PATTERN, sentence.lower())
+        ):
+            # Sentence-scoped: no fragment decides inside a
+            # question sentence — in "Is Maya yes, David no?" the
+            # "?" lands in the last clause, but the whole sentence
+            # is interrogative (round-6 C3, round-7 C-R7-3) — nor
+            # inside a hedged, attributed, or quoted frame ("I
+            # was wondering whether Maya yes, David no.", "He
+            # said Maya yes, David no." — round-8 C-R8-4,
+            # round-9 F4). An unpunctuated question is caught by
+            # its interrogative opener.
+            continue
+        clauses = _split_clauses(sentence)
+        # Frame-clause rule (round-11 F4): a fragment decides
+        # only in a sentence with no FRAME clause. A clause is
+        # a frame when it is not itself a fragment, a bare
+        # verdict, a bundle-reference clause, or a courtesy
+        # clause, AND it either matches the hedge/attribution
+        # lexicon or is a verbless clause referring to no
+        # candidate ("According to Priya", "Per Priya,"). A
+        # candidate predication ("Maya can serve") is a
+        # companion, not a frame — the signal machinery reads
+        # those; a frame scopes over the whole sentence.
+        def _frame_clause(c: str) -> bool:
+            if any(
+                _pure_fragment_verdict(c, o, all_offers) is not None
+                for o in all_offers
+            ):
+                return False
+            if _bare_verdict(c) is not None:
+                return False
+            if _has_bundle_ref(c.lower()):
+                return False
+            ctoks = set(_norm_tokens(c))
+            if ctoks <= (_NAME_CLAUSE_FUNCTION_TOKENS | {"you"}):
+                return False
+            if re.search(_HEDGE_FRAME_PATTERN, c.lower()):
+                return True
+            if any(
+                _references_offer(c.lower(), o, all_offers)
+                for o in all_offers
+            ):
+                return False  # a candidate predication is a companion
+            verbish = bool(ctoks & _PREDICATION_AUX) or any(
+                t.endswith(("ed", "ing")) for t in ctoks
+            )
+            if not verbish:
+                return True
+            # Verbish and candidate-free: a companion only in
+            # the modal register about a person ("Carlos can
+            # serve") — the signal machinery's register. A
+            # finite predication about a third party or a
+            # thing ("Priya proposed", "the house has a
+            # garage") is prose framing the verdict sentence
+            # (round-13 CR6).
+            if _has_person_shape(c) and (ctoks & _MODAL_TOKENS):
+                return False
+            return True
+
+        if any(_frame_clause(c) for c in clauses):
+            continue
+        for clause in clauses:
+            if "¿" in clause:
+                continue  # a mid-sentence ¿ scopes to its clause
+            verdict = _pure_fragment_verdict(clause, offer, all_offers)
+            if verdict is not None:
+                values.add(verdict)
+    if len(values) == 1:
+        return values.pop()
+    return None
+
+
+def _offer_modal_signal(
+    offer: dict[str, Any],
+    message: str,
+    all_offers: list[dict[str, Any]],
+) -> set[bool]:
+    """Decisive-looking modal language about exactly this offer,
+    as a SIGNAL SET. Signals never decide (v6 contract): a signal
+    that disagrees with the offer's fragment vetoes it, and any
+    signal blocks the anchor-free inheritance (the message is
+    differentiated). The signal sources are the v5 scope-gated
+    modal read plus a broad modal+negation trigger — vetoes may
+    over-fire safely, since their only effect is deferral."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return set()
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    def _retraction_shaped_clause(clause: str, refs: list) -> bool:
+        """A refs-free clause shaped like a retraction of
+        somebody's service: a retraction verb / dismissal /
+        pronoun-particle form, or pronoun + modal negation —
+        with a pronoun subject, or subjectless and short
+        (subject ellipsis: "just resigned.", "will not
+        serve.")."""
+        if refs:
+            return False
+        low = clause.lower()
+        toks = set(_norm_tokens(clause))
+        verb_shaped = bool(
+            re.search(_RETRACTION_VERB_PATTERN, low)
+            or re.search(_RETRACTION_DISMISSAL_PATTERN, low)
+            or re.search(_PRONOUN_PARTICLE_PATTERN, low)
+        )
+        modal_neg = bool(toks & _MODAL_TOKENS) and bool(
+            re.search(_BUNDLE_NEGATION_PATTERN, low)
+        )
+        if not (verb_shaped or modal_neg):
+            return False
+        if toks & _SPLICED_PRONOUNS:
+            return True
+        # Subject ellipsis from here: the missing subject is
+        # the sentence's candidate. A bundle-referencing tail
+        # ("will not serve in any of those roles") carries no
+        # token cap.
+        if _has_bundle_ref(low):
+            return True
+        # A sentence-initial capitalized VERB or modal is not
+        # a person ("Resigned last week.", "Will not serve."):
+        # judge person shape on the remainder when the first
+        # token is a retraction stem or a modal (round-14
+        # CR14-3). The head-exit check runs BEFORE the token
+        # cap and covers the phrasal family initials and
+        # "unable"/"retired": a time adverbial must not push a
+        # stem-headed form over the cap, and a capitalized
+        # phrasal head ("Backed out.", "Stands down.") is a
+        # verb, not a name (round-15 CR15-3).
+        ordered = _norm_tokens(clause)
+        parts = clause.split(None, 1)
+        if ordered and len(parts) == 2 and (
+            ordered[0] in _MODAL_TOKENS
+            or re.match(
+                r"^(resign|withdr|step|stood|stand|declin|refus|"
+                r"retract|revok|cancel|remov|quit|recuse|"
+                r"renounce|abdicat|bail|back|bow|walk|pull|"
+                r"gave|giv|unable|retir)",
+                ordered[0],
+            )
+        ):
+            return not _has_person_shape(parts[1])
+        if len(toks) > 4:
+            return False
+        return not _has_person_shape(clause)
+
+    sentence_data = []
+    for sentence in sentences:
+        clauses = _split_clauses(sentence)
+        clause_refs = [
+            [
+                o
+                for o in all_offers
+                if o.get("bundle") != "address"
+                and _references_offer(clause.lower(), o, all_offers)
+            ]
+            for clause in clauses
+        ]
+        sentence_data.append((clauses, clause_refs))
+    # A standalone retraction sentence anywhere in the block —
+    # including BEFORE the verdict sentence, which the
+    # contamination veto's after-the-first scope never reaches
+    # ("She just resigned. Maya yes, David yes.") — vetoes
+    # every offer the message references (round-13 CR3).
+    values: set[bool] = set()
+    if any(
+        o["decline_key"] == offer["decline_key"]
+        for _, clause_refs in sentence_data
+        for refs in clause_refs
+        for o in refs
+    ) and any(
+        all(not refs for refs in clause_refs)
+        and any(
+            _retraction_shaped_clause(c, [])
+            for c in clauses
+        )
+        for clauses, clause_refs in sentence_data
+    ):
+        values.add(False)
+    for clauses, clause_refs in sentence_data:
+        # Sentence-scoped polarity (round-15 CR15-1/CR15-2):
+        # the negation governing a modal need not sit in the
+        # modal's own comma-clause ("David will, in the end,
+        # not serve.", "David will serve; not in those
+        # roles."), so polarity is read over the whole
+        # sentence. A negation is flipped (it affirms) only
+        # when it governs an exclusion predicate — the
+        # predicate in its own clause, or in a following
+        # clause reachable across only refs-free, person-free
+        # insertions ("should not be, in my view, ruled out",
+        # "should not, under any circumstances, be left out"):
+        # a parenthetical must not sever the flip, and a
+        # genuine negation in another clause must not be
+        # flipped by a stranger's exclusion.
+        def _negation_flipped(idx: int) -> bool:
+            if re.search(
+                _EXCLUSION_PREDICATE_PATTERN, clauses[idx].lower()
+            ):
+                return True
+            for j in range(idx + 1, len(clauses)):
+                if clause_refs[j] or _has_person_shape(clauses[j]):
+                    break
+                if re.search(
+                    _EXCLUSION_PREDICATE_PATTERN, clauses[j].lower()
+                ):
+                    return True
+            return False
+
+        sentence_negated = any(
+            re.search(_BUNDLE_NEGATION_PATTERN, c.lower())
+            and not _negation_flipped(i)
+            for i, c in enumerate(clauses)
+        )
+        # The sentence's joint modal polarity, for name-only
+        # clauses split off a joint subject by the clause
+        # splitter ("Maya" out of "Maya and David should
+        # serve."): the name clause shares the predication it
+        # was split from (round-14 CR14-1).
+        sentence_modal_polarity: bool | None = None
+        for c, refs in zip(clauses, clause_refs):
+            if not refs or re.search(_RETRACTION_VERB_PATTERN, c.lower()):
+                continue
+            if not (set(_norm_tokens(c)) & _MODAL_TOKENS):
+                continue
+            sentence_modal_polarity = not sentence_negated
+            break
+        # A pronoun retraction clause spliced into a candidate
+        # sentence ("Maya yes, she just resigned.", "Maya yes,
+        # she will not serve.") vetoes every offer the sentence
+        # references: the contamination veto skips
+        # candidate-referencing sentences by scope, and the
+        # clause itself references nobody, so this is where
+        # spliced retractions land (round-12 C3, round-13 CR2).
+        if any(
+            o["decline_key"] == offer["decline_key"]
+            for refs in clause_refs
+            for o in refs
+        ) and any(
+            _retraction_shaped_clause(clauses[i], refs)
+            for i, refs in enumerate(clause_refs)
+        ):
+            values.add(False)
+        for idx, clause in enumerate(clauses):
+            lowered = clause.lower()
+            refs = clause_refs[idx]
+            if all(
+                r["decline_key"] != offer["decline_key"] for r in refs
+            ):
+                # A bare verdict clause ADJACENT to a clause that
+                # references exactly this offer is a signal for
+                # it: "Maya no. Actually yes, Maya can serve." —
+                # the "Actually yes" retracts the fragment. A
+                # bare verdict next to a NON-candidate's clause
+                # ("Yes, Carlos can serve, but no, Maya should
+                # not.") is that person's, not this offer's.
+                if not refs:
+                    neighbors = []
+                    if idx > 0:
+                        neighbors.append(clause_refs[idx - 1])
+                    if idx + 1 < len(clauses):
+                        neighbors.append(clause_refs[idx + 1])
+                    if any(
+                        len(n) == 1
+                        and n[0]["decline_key"] == offer["decline_key"]
+                        for n in neighbors
+                    ):
+                        bare = _bare_verdict(clause)
+                        if bare is not None:
+                            values.add(bare)
+                continue
+            # A retraction that NAMES this offer ("Maya
+            # withdrew.", "Please remove Maya.", "Take David
+            # off.", "Drop Maya.") is a signal against it: the
+            # contamination veto skips candidate-referencing
+            # sentences by scope, so named retractions land here
+            # (round-8 C-R8-2). A signal only vetoes.
+            if re.search(
+                _RETRACTION_VERB_PATTERN, lowered
+            ) or re.search(_RETRACTION_DISMISSAL_PATTERN, lowered):
+                values.add(False)
+                continue
+            verdict = _modal_segment_verdict(clause, offer, all_offers)
+            if verdict is not None:
+                values.add(verdict)
+                continue
+            clause_tokens = set(_norm_tokens(clause))
+            if clause_tokens & _MODAL_TOKENS:
+                # A modal clause the scoped read cannot dispose
+                # still signals its own polarity (round-13 CR1,
+                # generalized round-14 CR14-1): affirmative →
+                # for, negated → against — EXCEPT a negation
+                # governing an exclusion predicate ("should
+                # not be ruled out") is an inclusion (CR14-2).
+                # The polarity is the SENTENCE's (round-15
+                # CR15-1/CR15-2): the governing negation may sit
+                # in a sibling clause, split off by punctuation
+                # or a parenthetical. This must run before the
+                # closed-form False below: an affirmative modal
+                # statement about the offer ("David will
+                # serve.") is not prose against it.
+                values.add(not sentence_negated)
+                continue
+            if _pure_fragment_verdict(clause, offer, all_offers) is not None:
+                continue  # the decider's own clause — no signal
+            # Prose gate (round-14 CR14-1): a clause reducing
+            # to anchor names and grammar alone — a
+            # conjunction-split name list ("Maya" out of "Maya
+            # and David …") — is not prose about the offer and
+            # signals nothing.
+            all_anchor_tokens: set[str] = set()
+            for o in all_offers:
+                all_anchor_tokens |= set(
+                    _norm_tokens(
+                        o.get("anchor_name") or o.get("label") or ""
+                    )
+                )
+            if not (
+                clause_tokens
+                - all_anchor_tokens
+                - _NAME_CLAUSE_FUNCTION_TOKENS
+            ):
+                if sentence_modal_polarity is not None:
+                    values.add(sentence_modal_polarity)
+                continue
+            # Closed form (round-11 F2, replacing the round-10
+            # morphology backstop; round-12 C2 extends it to
+            # clauses naming this offer JOINTLY with another —
+            # "Maya as well as David withdrew." is prose about
+            # both): ANY other clause referencing this offer —
+            # a predication in any verb form ("Maya works
+            # nights.", "Maya lives in Ohio."), an imperative
+            # ("Exclude Maya."), a bare mention — is
+            # differentiated prose about the candidate and
+            # vetoes its fragment. Verb morphology is not
+            # enumerated: safety is defined by the two decider
+            # reads above (the modal read, and the fragment
+            # decider's own purity test).
+            values.add(False)
+    return values
+
+
+_GENDERED_PRONOUNS: frozenset[str] = frozenset({
+    "she", "her", "hers", "he", "him", "his",
+})
+
+#: Pronouns that can carry a spliced / standalone retraction
+#: (mirrors the contamination veto's pronoun set, which
+#: includes "they").
+_SPLICED_PRONOUNS: frozenset[str] = frozenset({
+    "she", "he", "they", "her", "him",
+})
+
+#: Tokens that are ordinary vocabulary AND common names: in a
+#: name slot they are person references regardless of case
+#: (round-6 C1 — "use will for all of those roles" names Will).
+_NAME_LIKE_TOKENS: frozenset[str] = _COMMON_WORD_GIVEN_NAMES | {
+    "good", "fine",
+}
+
+#: Words that may surround a bundle reference in a genuinely
+#: undifferentiated reply ("that works for all of those", "same
+#: people for all of those roles", "I'm fine with all of those").
+#: Anything left over after scrubbing the reference itself is a
+#: substantive extra word — a name, an object — and the reply is
+#: differentiated after all.
+_GLOBAL_REF_RESIDUE_OK: frozenset[str] = _FRAGMENT_STOPWORDS | {
+    "all", "of", "those", "these", "them", "both", "role", "roles",
+    "yes", "yeah", "yep", "no", "not", "never", "sure", "for", "and",
+    "with", "that", "same", "person", "people", "use", "using",
+    "works", "work", "does", "do", "sounds", "goes", "looks",
+    "seems", "applies", "i", "we", "am", "fine", "good", "great",
+    "perfect", "correct", "right", "agreed", "okay", "ok",
+    "absolutely", "definitely", "serve", "count",
+}
+
+#: A head block composed ONLY of these tokens is a verdict-shaped
+#: reply ("Yes.", "No, not for us.", "Yes, same people.") as
+#: opposed to a short factual sentence ("The address does not
+#: handle mail anymore.") whose head happens to parse.
+_VERDICT_SHAPED_TOKENS: frozenset[str] = _GLOBAL_REF_RESIDUE_OK | {
+    "correct", "right", "agreed", "okay", "ok", "absolutely",
+    "definitely", "us", "it", "neither", "nor",
+}
+
+#: Minimal grammatical vocabulary for the name-only-clause check:
+#: everything here is function words, bundle vocabulary, or
+#: verdict tokens — a clause reducing to a name-like token after
+#: removing these is a bare person reference.
+_NAME_CLAUSE_FUNCTION_TOKENS: frozenset[str] = (
+    _FRAGMENT_STOPWORDS
+    | {
+        "for", "all", "of", "those", "these", "them", "both",
+        "that", "and", "with", "same", "person", "people", "role",
+        "roles", "use", "using", "yes", "yeah", "yep", "no", "not",
+        "never", "sure", "please", "thanks", "thank", "it", "is",
+        "does", "so", "much", "i", "we", "us", "our", "my",
+        "me", "am", "everything", "everyone", "anyone", "anybody",
+        "m", "t", "re", "ve", "ll", "d",
+    }
+) - _NAME_LIKE_TOKENS
+
+#: Cooperative content words: assent predicates and adjectives
+#: that may appear in a genuinely undifferentiated reply ("that
+#: works", "sounds good", a bare "fine", "correct"). A short
+#: clause whose content is NONE of these and no verb phrase is a
+#: substantive reference standing alone — a name, whatever name
+#: it is (round-8 C-R8-1: the isolated-clause rule is
+#: structural, not a list of names).
+_COOP_SINGLE_TOKENS: frozenset[str] = frozenset({
+    "works", "work", "sounds", "goes", "looks", "seems",
+    "applies", "fine", "good", "great", "perfect", "correct",
+    "right", "agreed", "okay", "ok", "absolutely", "definitely",
+    "do", "serve", "count",
+})
+
+#: Tokens after which a common-word given name reads as a modal
+#: or assent word rather than a person: a clause subject or a
+#: pronoun subject ("that will work", "i may go"). In subject
+#: position itself — clause-initial, or following anything
+#: else — the token is the subject, hence a name (round-11 F1:
+#: "will works" designates Will; "that will work" does not).
+_SUBJECT_PRECEDERS: frozenset[str] = frozenset({
+    "that", "it", "this", "i", "we", "you", "he", "she",
+    "they", "there",
+})
+
+#: Base verb forms: a modal auxiliary takes the base form, so
+#: a name token followed by one of these can be a modal
+#: ("that will work"); followed by an inflected form it can
+#: only be a subject ("that will works" — round-12 C1).
+_BASE_FORM_TOKENS: frozenset[str] = frozenset({
+    "work", "sound", "go", "look", "seem", "apply", "be",
+    "do", "serve", "count",
+})
+
+
+def _anchor_free_global_verdict(
+    message: str, offers: list[dict[str, Any]]
+) -> bool | None:
+    """The message-level verdict for a reply that references NOBODY:
+    every head-block clause must be owner-free (no candidate anchor,
+    no person-shaped name). Only then is the reply genuinely
+    undifferentiated ("Yes, please — that works for all of those.")
+    and the shared _bundle_verdict read may speak for every offer.
+    A reply naming anyone — a candidate, a third person, a bare
+    surname — is differentiated by definition (review C-2/C-5);
+    whatever the scoped reads could not decide from it defers.
+    Two reference forms the owner check cannot see are gated
+    explicitly (v6): a gendered pronoun ("use her for all of
+    those" speaks about ONE person, not every bundle) and a
+    bundle-reference clause carrying a substantive leftover word
+    ("use priya for all of those roles" — "priya" survives the
+    reference scrub; person-shape misses lowercase names)."""
+    import re
+
+    text = message.strip()
+    if not text:
+        return None
+    block = re.split(r"\n\s*\n", text, maxsplit=1)[0]
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()
+    ]
+    for sentence in sentences:
+        if "?" in sentence or "？" in sentence or "¿" in sentence:
+            return None  # a question is not a decision (round-6 C3)
+        for clause in _split_clauses(sentence):
+            if _clause_owner(clause, offers):
+                return None
+            tokens = set(_norm_tokens(clause))
+            if tokens & _GENDERED_PRONOUNS:
+                return None
+            # A common-word given name in subject position is a
+            # NAME, not a modal: "will works" designates Will
+            # (round-11 F1). The modal reading ("that will
+            # work") needs BOTH a subject token before it and a
+            # base-form verb after it — a modal takes the base
+            # form, so "that will works" is only grammatical as
+            # a designation (round-12 C1).
+            ordered = _norm_tokens(clause)
+            for pos, tok in enumerate(ordered):
+                if tok not in _COMMON_WORD_GIVEN_NAMES:
+                    continue
+                preceded = (
+                    pos > 0 and ordered[pos - 1] in _SUBJECT_PRECEDERS
+                )
+                followed = (
+                    pos + 1 < len(ordered)
+                    and ordered[pos + 1] in _BASE_FORM_TOKENS
+                )
+                if not (preceded and followed):
+                    return None
+            # Structural settlement (round-7 C-R7-1 → round-8
+            # C-R8-1 → round-9 F1 → round-10 C1): inheritance
+            # requires a WHOLLY cooperative head block. A clause
+            # passes only if every substantive token in it is
+            # assent vocabulary or a modal auxiliary AND at
+            # least one is assent vocabulary — one cooperative
+            # word predicated of a third person ("that works
+            # for PRIYA", "carlos works") is a designation, not
+            # assent, and a lone modal ("will") is an ellipsis
+            # for a name. Anything else is a reference to
+            # something specific, and the reply is
+            # differentiated; a re-ask is the safe failure.
+            substantial = tokens - _NAME_CLAUSE_FUNCTION_TOKENS
+            if substantial and not (
+                substantial
+                <= (_COOP_SINGLE_TOKENS | _MODAL_TOKENS | {"may", "might"})
+                and (substantial & _COOP_SINGLE_TOKENS)
+            ):
+                return None
+            lowered = clause.lower()
+            if _has_bundle_ref(lowered):
+                # Name-slot gate (round-6 C1): a name-like token
+                # in the "use <name> for …" slot or in clause-
+                # initial designation position ("will for all of
+                # those") is a person reference even when the
+                # token is residue-allowlisted vocabulary. The
+                # initial position uses the given-name lexicon
+                # only: "Fine, for all of those." is assent, and
+                # the name reading of fine/good is already gated
+                # in the use-slot (round-8 M-R8-1).
+                slot = re.search(r"\buse\s+(\w+)\s+for\b", lowered)
+                if slot and slot.group(1) in _NAME_LIKE_TOKENS:
+                    return None
+                initial = re.match(r"\W*(\w+)\s+for\b", lowered)
+                if initial and initial.group(1) in _COMMON_WORD_GIVEN_NAMES:
+                    return None
+                scrubbed = re.sub(
+                    _BUNDLE_REF_PATTERN,
+                    " ",
+                    _expand_contractions(lowered),
+                )
+                residue = (
+                    set(_norm_tokens(scrubbed)) - _GLOBAL_REF_RESIDUE_OK
+                )
+                if residue:
+                    return None
+    if not any(
+        _has_bundle_ref(clause.lower())
+        for sentence in sentences
+        for clause in _split_clauses(sentence)
+    ):
+        # No bundle reference anywhere: the global read may speak
+        # only for a genuinely verdict-shaped head — otherwise a
+        # short factual sentence's "does not …" would be inherited
+        # as a decline by every pending offer (round-6 C4
+        # fall-through).
+        if not set(_norm_tokens(block)) <= _VERDICT_SHAPED_TOKENS:
+            return None
+    return _bundle_verdict(message)
+
+
+def _resolve_offer_verdicts(
+    offers: list[dict[str, Any]], message: str
+) -> dict[str, bool]:
+    """decline_key -> verdict for each offer the user's message decides.
+
+    V6 CONTRACT — decide narrow, veto broad (the settlement of
+    review rounds 1-5, each of which found a fresh manufactured
+    fill / persisted decline in the previous round's scoped
+    free-text judging):
+
+    DECIDERS (the only reads allowed to persist a verdict):
+    - a single-offer turn: `_bundle_verdict` on the whole reply
+      (pre-merge semantics, unchanged);
+    - the address offer: a person-free address sentence read
+      with `_bundle_verdict` (`_address_scoped_verdict`);
+    - a person offer: a PURE verdict fragment — a clause naming
+      exactly that anchor and reducing to name + one verdict
+      token ("Maya yes", "David no");
+    - every offer at once: the anchor-free global read
+      (`_anchor_free_global_verdict`), only when the reply is
+      wholly undifferentiated — no fragments, no modal signals,
+      no contamination. This is the cooperative shape the merged
+      presentation is built around ("Yes, please — that works
+      for all of those.").
+
+    VETOES (can only ever DEFER, never persist):
+    - a modal signal about exactly one offer (scope-gated modal
+      read, or modal+negation) vetoes that offer's fragment when
+      it disagrees, and any signal blocks inheritance;
+    - a retraction-shaped ownerless sentence after the first
+      contaminates the whole message (`_message_contaminated`).
+
+    Everything else — appointments, designations, capability
+    statements, differentiated prose — defers: the offer is
+    re-presented (later verdict-only, then retired) or its roles
+    are asked as ordinary cluster questions. Deferral is the
+    safe failure; a wrong confidence-1.0 fill or a persisted
+    decline of an accepted offer is not.
+    """
+    if not offers:
+        return {}
+    if len(offers) == 1:
+        verdict = _bundle_verdict(message)
+        if verdict is not None:
+            return {offers[0]["decline_key"]: verdict}
+        return {}
+    expanded = _expand_contractions(message)
+    if _message_contaminated(expanded, offers):
+        return {}
+    resolved: dict[str, bool] = {}
+    any_signal = False
+    for offer in offers:
+        if offer.get("bundle") == "address":
+            verdict = _address_scoped_verdict(offer, expanded, offers)
+            if verdict is not None:
+                resolved[offer["decline_key"]] = verdict
+            continue
+        fragment = _offer_fragment_verdict(offer, expanded, offers)
+        signals = _offer_modal_signal(offer, expanded, offers)
+        if signals:
+            any_signal = True
+        if fragment is not None and signals <= {fragment}:
+            resolved[offer["decline_key"]] = fragment
+    if resolved:
+        return resolved
+    if not any_signal:
+        inherited = _anchor_free_global_verdict(message, offers)
+        if inherited is not None:
+            return {offer["decline_key"]: inherited for offer in offers}
+    return {}
 
 
 def _signed_in_name(conn: Any, household_id: Any) -> str | None:
@@ -2883,14 +5022,19 @@ def post_turn(
         str(question.get("key")): str(question.get("label") or question.get("key"))
         for _, _, question in qs.iter_questions(pack.question_sets)
     }
-    # Interview v2 (flag on): a pending bundle offer outranks the cluster
-    # gap; otherwise the prompt focuses on ONE cluster's gap. Flag off:
-    # the v5 path runs byte-for-byte (including its trace label). The
-    # focus is computed BEFORE the provider context so the provider's
-    # no-text fallback asks the same question the prompt intends.
+    # Interview v2 (flag on): pending bundle offers outrank the
+    # cluster gap; otherwise the prompt focuses on the dense cluster
+    # focus (next_gap_focus). ALL pending offers are presented in one
+    # message and resolved from one reply (turn-count economics: the
+    # per-offer presentation + verdict exchanges cost up to three
+    # extra turns in the A/B). Flag off: the v5 path runs byte-for-byte
+    # (including its trace label). The focus is computed BEFORE the
+    # provider context so the provider's no-text fallback asks the
+    # same question the prompt intends.
     cluster_gap = None
-    bundle_offer = None
-    verdict_offer = None
+    presented_offers: list[dict[str, Any]] = []
+    verdict_offers: list[dict[str, Any]] = []
+    then_gap = None
     bundle_state: dict[str, Any] = {}
     signed_in_name = None
     # The previous turn's server-side focus (persisted in session
@@ -2904,7 +5048,7 @@ def post_turn(
     window_focus_keys: frozenset[str] = frozenset()
     v2_on = _v2_enabled(conn, firm_id=firm_id, pack=pack)
     if v2_on:
-        bundle_offer, bundle_state = _bundle_offer_for_turn(
+        presented_offers, verdict_offers, bundle_state = _bundle_offers_for_turn(
             conn,
             session_id=session_id,
             pack=pack,
@@ -2920,27 +5064,62 @@ def post_turn(
         # next turn's prev_focus (persisted with the state write at
         # the end of this block).
         bundle_state["prev_focus_keys"] = sorted(prev_focus_keys)
-        if bundle_offer is not None and bundle_offer.get("verdict_only"):
-            # Verdict-only: never presented, never the prompt focus —
-            # it exists solely so the verdict block can consume the
-            # answer to the final presentation.
-            verdict_offer = bundle_offer
-            bundle_offer = None
-        if bundle_offer is None:
-            cluster_gap = next_gap_cluster(
-                pack.question_sets,
-                answers,
+        if not presented_offers:
+            # Verdict-only offers never block the gap: they are never
+            # presented, never the prompt focus — they exist solely so
+            # the verdict block can consume the answer to the final
+            # presentation.
+            cluster_gap = _focus_for_turn(
+                conn,
+                firm_id=firm_id,
+                pack=pack,
+                answers=answers,
                 pending_proposal_keys=frozenset(pending_keys),
             )
-            if cluster_gap is not None and cluster_gap["cluster"] == "identity":
+            if cluster_gap is not None and "identity" in (
+                cluster_gap.get("clusters") or [cluster_gap["cluster"]]
+            ):
                 signed_in_name = _signed_in_name(
                     conn, scope.matter.get("household_id")
                 )
-        if bundle_offer is not None:
-            # Fill keys only: the anchor is already answered, and
-            # keeping it in the guard's asked-set would preserve
-            # redundant copy proposals for it (batch review M-5).
-            bundle_state["last_focus_keys"] = sorted(bundle_offer["fill_keys"])
+        elif all(o.get("presented_before") for o in presented_offers):
+            # Pure verdict turn: every presented offer was already
+            # asked in an earlier message, so this reply's job is to
+            # acknowledge the verdict AND ask the next fields (the v7
+            # prompt's "then ask" addendum). The gap rides along as
+            # next_gap only — the offers stay the turn's focus. The
+            # offers' own fill keys are excluded from it: they are
+            # being resolved by this very verdict, and asking them in
+            # the same reply would visibly re-ask just-confirmed
+            # fields (review I-2).
+            then_gap = _focus_for_turn(
+                conn,
+                firm_id=firm_id,
+                pack=pack,
+                answers=answers,
+                pending_proposal_keys=frozenset(pending_keys),
+            )
+            resolving_keys = {
+                k
+                for o in presented_offers + verdict_offers
+                for k in o["fill_keys"]
+            }
+            then_gap = _gap_without_keys(then_gap, resolving_keys)
+        if presented_offers:
+            # Fill keys only: the anchors are already answered, and
+            # keeping them in the guard's asked-set would preserve
+            # redundant copy proposals for them (batch review M-5).
+            # On a verdict turn the then-gap keys join the asked-set:
+            # the reply asks them, so next turn's answers to them are
+            # genuinely "asked" for the copy guard's window.
+            focus_key_set = {
+                k for o in presented_offers for k in o["fill_keys"]
+            }
+            if then_gap is not None:
+                focus_key_set |= {
+                    str(q["key"]) for q in then_gap["questions"]
+                }
+            bundle_state["last_focus_keys"] = sorted(focus_key_set)
         elif cluster_gap is not None:
             bundle_state["last_focus_keys"] = sorted(
                 str(q["key"]) for q in cluster_gap["questions"]
@@ -2954,9 +5133,25 @@ def post_turn(
                 logger.warning("bundle state persist failed", exc_info=True)
     focus_keys: list[str] = []
     focus_question_text: str | None = None
-    if bundle_offer is not None:
-        focus_keys = list(bundle_offer["fill_keys"])
-        focus_question_text = _bundle_question_text(bundle_offer)
+    if presented_offers:
+        for o in presented_offers:
+            o["question_text"] = _bundle_question_text(o)
+        if all(o.get("presented_before") for o in presented_offers):
+            # Verdict turn: the provider's no-text fallback must not
+            # re-ask the offers the v7 prompt forbids repeating
+            # (review I-3) — it asks the then-gap fields instead, or
+            # closes the topic when nothing remains after them.
+            if then_gap is not None:
+                focus_keys = [str(q["key"]) for q in then_gap["questions"]]
+            else:
+                focus_question_text = (
+                    "That's everything I needed on those — thank you."
+                )
+        else:
+            focus_keys = [
+                k for o in presented_offers for k in o["fill_keys"]
+            ]
+            focus_question_text = _bundle_questions_text(presented_offers)
     elif cluster_gap is not None:
         focus_keys = [str(q["key"]) for q in cluster_gap["questions"]]
     docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
@@ -2984,8 +5179,8 @@ def post_turn(
     )
     history = _history_messages(conn, session_id)
     prompt_version = (
-        prompts.PROMPT_TEMPLATE_VERSION
-        if (cluster_gap is not None or bundle_offer is not None)
+        prompts.PROMPT_TEMPLATE_VERSION_V7
+        if (cluster_gap is not None or presented_offers)
         else prompts.PROMPT_TEMPLATE_VERSION_V5
     )
     system_prompt = prompts.build_system_prompt(
@@ -2997,8 +5192,9 @@ def post_turn(
         pending_proposal_keys=pending_keys,
         answered_keys=sorted(answers.keys()),
         cluster_gap=cluster_gap,
-        bundle_offer=bundle_offer,
+        bundle_offers=presented_offers or None,
         signed_in_name=signed_in_name,
+        next_gap=then_gap,
     )
 
     provider = get_llm_provider()
@@ -3185,7 +5381,7 @@ def post_turn(
         # field still uncovered gets one scoped deterministic capture
         # so the answer is recorded THIS turn instead of forcing a
         # verbatim re-send (A/B run 4 turns 4 and 11).
-        if v2_on and bundle_offer is None and verdict_offer is None:
+        if v2_on and not presented_offers and not verdict_offers:
             from app.domains.ai.provider import FieldProposalDraft
 
             for fb in _focus_completeness_proposals(
@@ -3283,61 +5479,73 @@ def post_turn(
         # (Doing it here hung the turn — see ADR.)
         stored_proposals.append(proposal_out)
 
-    # --- Role bundles: the user's reply to a pending offer is resolved
-    # deterministically. YES → server proposals (source "bundle",
-    # confidence 1.0) fill the sibling roles through the normal
-    # confirm/auto-confirm path. NO → the decline is recorded and the
-    # offer never repeats for that anchor. Anything else defers.
-    # The verdict is only consumed when the offer was presented in an
-    # earlier turn (presented_before) — on first presentation this
-    # message still answers the previous visible question.
-    active_offer = verdict_offer or bundle_offer
-    if active_offer is not None and active_offer.get("presented_before"):
-        bundle_offer = active_offer
-        verdict = _bundle_verdict(message)
-        if verdict is True:
+    # --- Role bundles: the user's reply to the presented offers is
+    # resolved deterministically, per offer. YES → server proposals
+    # (source "bundle", confidence 1.0) fill the sibling roles through
+    # the normal confirm/auto-confirm path. NO → the decline is
+    # recorded and the offer never repeats for that anchor. Anything
+    # else defers. A verdict is only consumed for an offer presented
+    # in an earlier turn (presented_before, or a verdict-only offer at
+    # its freshness window) — on first presentation this message still
+    # answers the previous visible question. With several offers in
+    # play, one global affirmative resolves all of them (the merged
+    # presentation's whole point); a mixed reply resolves per offer
+    # via _resolve_offer_verdicts' scoped reads.
+    verdict_candidates = list(verdict_offers) + [
+        o for o in presented_offers if o.get("presented_before")
+    ]
+    if verdict_candidates:
+        verdicts = _resolve_offer_verdicts(verdict_candidates, message)
+        if verdicts:
             # Fresh read at fill time (review I-1): never stack a bundle
             # proposal on top of an already-open proposal for the same
             # key — the turn-start snapshot in pending_key_set can miss
             # proposals stored by other paths since.
             open_now = repo.open_proposal_keys(conn, session_id)
             decided_now = repo.decided_proposal_keys(conn, session_id)
-            for fill_key in _bundle_fill_keys(
-                bundle_offer,
-                pending=pending_key_set,
-                open_now=open_now,
-                decided=decided_now,
-                answers=answers,
-            ):
-                row = repo.insert_proposal(
-                    conn,
-                    session_id=session_id,
-                    turn_id=UUID(str(assistant_turn["id"])),
-                    firm_id=firm_id,
-                    matter_id=matter_id,
-                    question_key=fill_key,
-                    proposed_value=bundle_offer["fill_value"],
-                    source="bundle",
-                    confidence=1.0,
-                    source_snippet=(
-                        f"Confirmed via the {bundle_offer['bundle']} bundle "
-                        f"offer (anchor: {bundle_offer['anchor_key']})"
-                    ),
-                    model_id="server_bundle",
-                    prompt_version=prompt_version,
-                    pack_version=version,
-                )
-                stored_proposals.append(_proposal_out(row))
-                pending_key_set.add(fill_key)
-        elif verdict is False:
-            declined = list(bundle_state.get("bundles_declined") or [])
-            if bundle_offer["decline_key"] not in declined:
-                declined.append(bundle_offer["decline_key"])
-            bundle_state["bundles_declined"] = declined
-            try:
-                repo.update_session_state(conn, session_id, bundle_state)
-            except Exception:
-                logger.warning("bundle decline persist failed", exc_info=True)
+            declined_changed = False
+            for offer in verdict_candidates:
+                verdict = verdicts.get(offer["decline_key"])
+                if verdict is True:
+                    for fill_key in _bundle_fill_keys(
+                        offer,
+                        pending=pending_key_set,
+                        open_now=open_now,
+                        decided=decided_now,
+                        answers=answers,
+                    ):
+                        row = repo.insert_proposal(
+                            conn,
+                            session_id=session_id,
+                            turn_id=UUID(str(assistant_turn["id"])),
+                            firm_id=firm_id,
+                            matter_id=matter_id,
+                            question_key=fill_key,
+                            proposed_value=offer["fill_value"],
+                            source="bundle",
+                            confidence=1.0,
+                            source_snippet=(
+                                f"Confirmed via the {offer['bundle']} bundle "
+                                f"offer (anchor: {offer['anchor_key']})"
+                            ),
+                            model_id="server_bundle",
+                            prompt_version=prompt_version,
+                            pack_version=version,
+                        )
+                        stored_proposals.append(_proposal_out(row))
+                        pending_key_set.add(fill_key)
+                        open_now.add(fill_key)
+                elif verdict is False:
+                    declined = list(bundle_state.get("bundles_declined") or [])
+                    if offer["decline_key"] not in declined:
+                        declined.append(offer["decline_key"])
+                        declined_changed = True
+                    bundle_state["bundles_declined"] = declined
+            if declined_changed:
+                try:
+                    repo.update_session_state(conn, session_id, bundle_state)
+                except Exception:
+                    logger.warning("bundle decline persist failed", exc_info=True)
 
     _record_turn_audit(
         conn,

@@ -25,6 +25,12 @@ PROMPT_TEMPLATE_NAME = "interview_system"
 # traced as v5 (PROMPT_TEMPLATE_VERSION_V5).
 PROMPT_TEMPLATE_VERSION = "v6"
 PROMPT_TEMPLATE_VERSION_V5 = "v5"
+# v7 = v6 + turn-count economics (v2 path only): the cluster ask covers
+# EVERY focus field as a numbered list (adjacent clusters may share the
+# focus), several bundle offers are presented in ONE message, and a
+# verdict turn's prompt no longer re-asks the offer. The single-offer
+# first-presentation rendering is byte-identical to v6.
+PROMPT_TEMPLATE_VERSION_V7 = "v7"
 
 
 def build_system_prompt(
@@ -39,6 +45,8 @@ def build_system_prompt(
     cluster_gap: dict | None = None,
     bundle_offer: dict | None = None,
     signed_in_name: str | None = None,
+    bundle_offers: list[dict] | None = None,
+    next_gap: dict | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -50,12 +58,22 @@ def build_system_prompt(
     # "Still needed" excludes items already awaiting user confirmation, so the
     # model never has to cross-reference two lists to avoid re-asking.
     pending_set = set(pending)
-    if bundle_offer is not None:
-        # A pending bundle offer outranks the cluster gap: the only work
-        # this turn is the grouped yes/no question.
-        still_needed = [
-            k for k in bundle_offer["fill_keys"] if k not in pending_set
-        ]
+    # The v7 multi-offer view: bundle_offer is the single-offer spelling
+    # of the same thing (kept for the original callers/tests).
+    offers: list[dict] = (
+        bundle_offers
+        if bundle_offers is not None
+        else ([bundle_offer] if bundle_offer is not None else [])
+    )
+    if offers:
+        # Pending bundle offers outrank the cluster gap: the only work
+        # this turn is the grouped yes/no question(s) — one message,
+        # however many offers are pending.
+        still_needed = []
+        for offer in offers:
+            for k in offer["fill_keys"]:
+                if k not in pending_set and k not in still_needed:
+                    still_needed.append(k)
     elif cluster_gap is not None:
         # v6: the state section lists ONLY the focus cluster's missing
         # questions — the model asks one bundled question about these and
@@ -75,14 +93,25 @@ def build_system_prompt(
         field_lines = "\n".join(
             f"  * {q['label']} ({q['key']})" for q in cluster_gap["questions"]
         )
+        cluster_names = " + ".join(
+            cluster_gap.get("clusters") or [cluster_gap["cluster"]]
+        )
+        sweep_line = (
+            "\n- These are the only items still needed in the whole "
+            "interview — ask for ALL of them in this one message."
+            if cluster_gap.get("sweep")
+            else ""
+        )
         cluster_block = f"""
 
-CLUSTER FOCUS: {cluster_gap['cluster']}
-- Ask ONE bundled question this turn covering up to 4 of the fields \
-below, grouped naturally into a single friendly question in plain \
-language — not a list of separate questions.
+CLUSTER FOCUS: {cluster_names}
+- Ask about the fields below in ONE message this turn, as a short \
+numbered list in plain language — one line per field — so the user \
+can answer several at once in a single reply. Group two fields on \
+one line only when they are naturally one question (for example a \
+name and that person's phone number).
 - Fields needed now:
-{field_lines}
+{field_lines}{sweep_line}
 - The user may answer several fields at once: record every value they \
 state for these fields. Do NOT ask about fields outside this list this \
 turn.
@@ -111,7 +140,57 @@ even when that other role is still unanswered."""
 name: "You're signed in as {signed_in_name} — is that the full legal \
 name you'd like on the documents?" Record their confirmed legal name \
 as testator_full_name."""
-    if bundle_offer is not None:
+    if offers and all(o.get("presented_before") for o in offers):
+        # Verdict turn (v7): the offer(s) were presented in an earlier
+        # message and the user is answering NOW. Re-asking would burn
+        # the turn (and, in the A/B, trigger a second verdict cycle) —
+        # the prompt instead names the next fields so the reply can
+        # acknowledge AND advance in one message.
+        asked_lines = "\n".join(
+            f"  * {o.get('question_text') or o['anchor_name']}" for o in offers
+        )
+        next_block = ""
+        if next_gap is not None:
+            next_lines = "\n".join(
+                f"  * {q['label']} ({q['key']})" for q in next_gap["questions"]
+            )
+            next_block = f"""
+- After acknowledging their answer, ask about these next items in \
+the same reply, as a short numbered list:
+{next_lines}"""
+        cluster_block = f"""
+
+BUNDLE OFFER — ALREADY ASKED:
+- You asked the question(s) below in your previous message, and the \
+user is answering them in this message. Do NOT ask it again. Do NOT \
+repeat this offer.
+{asked_lines}
+- The system records a yes automatically — do NOT emit proposals \
+for these roles or addresses yourself. If the user says no, \
+acknowledge briefly and move on.{next_block}"""
+    elif len(offers) >= 2:
+        # Merged presentation (v7): every pending offer in ONE message
+        # — the A/B showed one presentation + verdict exchange PER
+        # offer cost up to three extra turns. The question texts are
+        # the server's own (the reply is judged against them), so the
+        # model presents them verbatim.
+        numbered = "\n".join(
+            f"{i}. {o.get('question_text') or o['anchor_name']}"
+            for i, o in enumerate(offers, start=1)
+        )
+        cluster_block = f"""
+
+BUNDLE OFFERS — ask ALL of these in ONE message this turn:
+- Present each question below as its own numbered line, worded \
+exactly as written:
+{numbered}
+- The user may answer all of them with a single yes (for example \
+"yes, that works for all of those") or answer each one separately. \
+The system records their answers automatically — do NOT emit \
+proposals for these roles or addresses yourself; just present the \
+questions."""
+    elif offers:
+        bundle_offer = offers[0]
         anchor_name = str(bundle_offer["anchor_name"])
         role_lines = "\n".join(
             f"  * {label} ({key})"
@@ -270,6 +349,6 @@ include those names even if the structured proposal is pending. NEVER say \
 "Not applicable" for guardians when the user has minor children.{cluster_block}
 
 Jurisdiction: {jurisdiction_code} (pack {pack_id})."""
-    if cluster_gap is not None or bundle_offer is not None:
+    if cluster_gap is not None or offers:
         text = text.replace(_SECTION_ORDER_BULLET, _CLUSTER_ORDER_BULLET)
     return text
