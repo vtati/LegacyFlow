@@ -658,3 +658,11 @@ def test_pack_transition_by_manifest_pack_id(db, api_client):
     assert response.status_code == 200, response.text
     assert response.json()["id"] == pack_uuid
     assert response.json()["pack_id"] == "us-zz-test"
+
+
+def test_interview_v2_flag_registered_default_off():
+    # Part 2 review M-3: the flag must be a known key (admin endpoints
+    # usable) with a fail-closed default; DB rows still take precedence.
+    from app.domains.feature_flags.service import KNOWN_FLAG_DEFAULTS
+
+    assert KNOWN_FLAG_DEFAULTS.get("interview_v2") is False

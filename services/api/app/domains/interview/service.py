@@ -289,28 +289,55 @@ def _deterministic_boolean_proposal(
     # and whole-message polarity fabricated has_minor_children=False out
     # of an identity paragraph in the 2026-10-24 Part 3 live run.
     label_words = label_words_by_key.get(asked_key, [])
-    clauses = re.split(r"[.!?;,]|\bbut\b|\band\b", user_message.lower())
+    # Split WITH separators retained: the borrow below may only cross
+    # a comma inside the same sentence, never a sentence boundary.
+    parts = re.split(r"([.!?;,]|\bbut\b|\band\b)", user_message.lower())
+    clauses = parts[0::2]
+    separators = parts[1::2]  # separators[i] precedes clauses[i + 1]
     topic = [
         (i, c)
         for i, c in enumerate(clauses)
         if sum(1 for w in label_words if w in c) >= 2
     ]
-    if len(topic) != 1:
-        return None
-    idx, topic_clause = topic[0]
-    value = _parse_yes_no(topic_clause)
-    if value is None and idx > 0:
-        # "Yes, I expect some disagreement." — the comma split strands the
-        # polarity word in the preceding fragment. Borrow it when that
-        # fragment is a short polarity-only lead-in.
-        prev = clauses[idx - 1].strip()
-        if (
-            prev
-            and len(prev.split()) <= 3
-            and _parse_yes_no(prev) is not None
-        ):
-            value = _parse_yes_no(f"{prev} {topic_clause}")
-    if value is None:
+    if len(topic) > 1:
+        # Compound labels spread one topic over several clauses ("no
+        # prior marriages, and no children outside..."): propose only
+        # when every topic clause that parses agrees (unanimous);
+        # mixed polarity is a genuinely bundled answer — abstain.
+        parsed = set()
+        for _i, clause in topic:
+            clause_value = _parse_yes_no(clause)
+            if clause_value is not None:
+                parsed.add(clause_value)
+        if len(parsed) != 1:
+            return None
+        value = parsed.pop()
+    elif len(topic) == 1:
+        idx, topic_clause = topic[0]
+        value = _parse_yes_no(topic_clause)
+        if value is None and idx > 0 and separators[idx - 1] == ",":
+            # "Yes, I expect some disagreement." — the comma split
+            # strands the polarity word in the preceding fragment.
+            # Borrow it ONLY when that fragment is genuinely
+            # polarity-only (nothing left after removing polarity /
+            # pronoun / aux tokens): "no business interests" carries
+            # another topic's noun and must never lend its polarity
+            # across topics (fallback review I-1).
+            prev = clauses[idx - 1].strip()
+            remainder = [
+                t
+                for t in prev.split()
+                if t
+                not in {
+                    "yes", "no", "yeah", "nope", "yep", "i", "we",
+                    "do", "don't", "not", "never",
+                }
+            ]
+            if prev and not remainder and _parse_yes_no(prev) is not None:
+                value = _parse_yes_no(f"{prev} {topic_clause}")
+        if value is None:
+            return None
+    else:
         return None
 
     return {
@@ -703,7 +730,7 @@ def _deterministic_text_proposal(
         candidates = _candidates(user_message.lower())
     if len(candidates) != 1:
         return None
-    if not from_assistant and len(message.split()) > 40:
+    if not from_assistant and len(message.split()) > 25:
         # Channel 2 (the message names the topic) with a LONG message is
         # a bundled v2 paragraph, not a single drifted answer: storing
         # the whole paragraph as one field's value is garbage (Part 3
@@ -728,6 +755,8 @@ def _is_whole_message_copy(
     last_assistant_text: str,
     question_label: str,
     prior_assistant_text: str = "",
+    asked_keys: frozenset[str] | set[str] = frozenset(),
+    question_key: str = "",
 ) -> bool:
     """True when a text/notes proposal merely copies the user's whole
     (long, multi-topic) message into a field the assistant did not just
@@ -753,8 +782,22 @@ def _is_whole_message_copy(
     if not val_norm or len(val_norm) < 0.9 * len(msg_norm):
         return False
     if val_norm not in msg_norm and msg_norm not in val_norm:
+        # Near-copies escape strict containment with a single edited
+        # word (trusted -> dependable); token similarity catches the
+        # same poison shape (guard review I-4).
+        import difflib
+
+        if difflib.SequenceMatcher(None, val_norm, msg_norm).ratio() < 0.88:
+            return False
+    # The server KNOWS what it asked last turn (the persisted focus):
+    # membership beats prose archaeology (guard review I-3).
+    if question_key and question_key in asked_keys:
         return False
-    label_words = [
+    # Distinct label words only (a label repeating "treatment" must
+    # not count one word twice), matched on TOKEN boundaries (share
+    # must not match "shares") — parity with the deterministic
+    # fallbacks' attribution bar (guard review I-2).
+    label_words = {
         w
         for w in re.findall(r"\w+", question_label.lower())
         if len(w) > 3
@@ -764,24 +807,27 @@ def _is_whole_message_copy(
             "until", "since", "while", "being", "after", "before",
             "which", "there", "these", "those", "other",
         }
-    ]
-    matched = [w for w in label_words if w in last_assistant_text.lower()]
-    # "Asked" needs real topical overlap: at least two label words, one
-    # of them distinctive (6+ letters) — generic-word coincidences
-    # ("should" + "spouse" in an acknowledgment) kept a garbage copy
-    # alive in A/B run 2.
-    asked = len(matched) >= 2 and any(len(w) >= 6 for w in matched)
+    }
+
+    def _matched(text: str) -> set[str]:
+        tokens = set(re.findall(r"\w+", text.lower()))
+        return label_words & tokens
+
+    matched = _matched(last_assistant_text)
+    # "Asked" needs real topical overlap: at least two DISTINCT label
+    # words covering at least half the label's content words — the
+    # same >=2-and->=50% bar the fallbacks use, so an acknowledgment
+    # sentence about the previous topic cannot fake an ask.
+    asked = len(matched) >= 2 and len(matched) >= len(label_words) * 0.5
     if not asked and prior_assistant_text:
-        # Drift answers (guard reviewer, ca4c8fa): the user answers the
-        # question from TWO turns ago with a long faithful text while
-        # the last assistant message already moved on. Treat the key as
-        # asked only on STRONG evidence in the older message — two
-        # distinctive label words — so the wider window cannot resurrect
-        # generic-overlap false-keeps.
-        prior_matched = [
-            w for w in label_words
-            if len(w) >= 6 and w in prior_assistant_text.lower()
-        ]
+        # Drift answers: the user answers the question from TWO turns
+        # ago with a long faithful text while the last assistant
+        # message already moved on. Treat the key as asked only on
+        # STRONG evidence in the older message — two distinctive
+        # (6+ letters) distinct label words.
+        prior_matched = {
+            w for w in _matched(prior_assistant_text) if len(w) >= 6
+        }
         asked = len(prior_matched) >= 2
     return not asked
 
@@ -836,7 +882,9 @@ def _gate_keys_for_pending(
 
 
 def next_gap_cluster(
-    question_sets: Any, answers: dict[str, Any]
+    question_sets: Any,
+    answers: dict[str, Any],
+    pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Any] | None:
     """The first cluster (in CLUSTER_ORDER) with unanswered work.
 
@@ -858,6 +906,11 @@ def next_gap_cluster(
         key = str(question.get("key"))
         cluster = str(question.get("cluster") or "")
         if cluster not in CLUSTER_ORDER or key in added:
+            return
+        if key in pending_proposal_keys:
+            # Awaiting confirmation is not a gap: the focus must never
+            # instruct re-asking a key with an open proposal (Part 2
+            # review I-1).
             return
         if qs.is_answered(answers.get(key)):
             return
@@ -967,12 +1020,18 @@ def pending_bundle_offer(
     "<bundle>:<anchor name lower>" for role bundles and
     "address:<composed address lower>" for the address bundle.
     """
-    applicable, _pending, _pruned = qs.partition_questions(question_sets, answers)
+    applicable, _pending, pruned = qs.partition_questions(question_sets, answers)
     applicable_keys = {str(q.get("key")) for _s, _sec, q in applicable}
+    pruned_keys = {str(q.get("key")) for _s, _sec, q in pruned}
 
     for bundle_name, members in _ROLE_BUNDLES:
+        # Pruned members are out of the plan entirely: an answered but
+        # pruned member can neither anchor an offer nor count toward
+        # the exactly-one rule (Part 3 review I-1).
         answered_members = [
-            k for k in members if qs.is_answered(answers.get(k))
+            k
+            for k in members
+            if k not in pruned_keys and qs.is_answered(answers.get(k))
         ]
         if len(answered_members) != 1:
             continue
@@ -1042,8 +1101,13 @@ def _bundle_offer_for_turn(
     try:
         state = repo.get_session_state(conn, session_id)
     except Exception:
+        # Fail closed WITHOUT handing the caller a fresh dict: the
+        # caller persists the returned state, and persisting {} over
+        # the stored state would erase offered/declined bookkeeping
+        # (batch review I-1). The sentinel tells post_turn to skip
+        # its state write entirely this turn.
         logger.warning("bundle state read failed", exc_info=True)
-        state = {}
+        return None, {"_state_unavailable": True}
     declined = set(state.get("bundles_declined") or [])
     offer = pending_bundle_offer(pack.question_sets, answers, declined=declined)
     if offer is None:
@@ -1051,6 +1115,36 @@ def _bundle_offer_for_turn(
     offered = dict(state.get("bundles_offered") or {})
     presentations = int(offered.get(offer["decline_key"], 0))
     if presentations >= MAX_BUNDLE_OFFERS:
+        # Cap reached: never PRESENTED again, but the answer to the
+        # final presentation is still owed a verdict read (gating
+        # review I-1) — on exactly the next turn boundary, proven by
+        # turn-count freshness: count_turns counts ROWS and every
+        # completed turn (including an advice refusal) stores a user +
+        # assistant pair, so the very next turn's count is
+        # presented_at + 2. A failed turn stores nothing, so a retry
+        # of the same answer still reads fresh — correctly, since no
+        # visible question intervened.
+        # Any other count means another visible exchange intervened
+        # (an advice refusal, a failed turn, a deferral cycle): the
+        # offer is retired, never left consumable against a question
+        # the user is no longer answering (batch reviews C-1 + I-1).
+        presented_map = state.get("bundles_last_presented") or {}
+        presented_at = presented_map.get(offer["decline_key"])
+        try:
+            turns_now = repo.count_turns(conn, session_id)
+        except Exception:
+            turns_now = None
+        if (
+            presented_at is not None
+            and turns_now is not None
+            and turns_now == presented_at + 2
+        ):
+            offer["presented_before"] = True
+            offer["verdict_only"] = True
+            offer["fill_labels"] = [
+                question_labels.get(k, k) for k in offer["fill_keys"]
+            ]
+            return offer, state
         return None, state
     # A yes/no verdict may only be consumed once the offer was presented
     # in an EARLIER turn: on its first presentation the user's message is
@@ -1061,6 +1155,20 @@ def _bundle_offer_for_turn(
     offer["presented_before"] = presentations >= 1
     offered[offer["decline_key"]] = presentations + 1
     state["bundles_offered"] = offered
+    if presentations + 1 >= MAX_BUNDLE_OFFERS:
+        # Record WHEN the final presentation happens: the verdict
+        # window at the cap is exactly the next turn boundary, and
+        # only turn-count freshness can prove no other visible
+        # question (a refusal, a failed turn) intervened (batch
+        # re-review I-1).
+        try:
+            last_presented = dict(state.get("bundles_last_presented") or {})
+            last_presented[offer["decline_key"]] = repo.count_turns(
+                conn, session_id
+            )
+            state["bundles_last_presented"] = last_presented
+        except Exception:
+            logger.warning("bundle presentation stamp failed", exc_info=True)
     offer["fill_labels"] = [
         question_labels.get(k, k) for k in offer["fill_keys"]
     ]
@@ -1586,8 +1694,14 @@ def post_turn(
     # no-text fallback asks the same question the prompt intends.
     cluster_gap = None
     bundle_offer = None
+    verdict_offer = None
     bundle_state: dict[str, Any] = {}
     signed_in_name = None
+    # The previous turn's server-side focus (persisted in session
+    # state): the copy guard treats a proposal for one of these keys
+    # as answering the asked question — membership beats guessing
+    # from prose (guard review I-3).
+    prev_focus_keys: frozenset[str] = frozenset()
     if _v2_enabled(conn, firm_id=firm_id, pack=pack):
         bundle_offer, bundle_state = _bundle_offer_for_turn(
             conn,
@@ -1596,17 +1710,39 @@ def post_turn(
             answers=answers,
             question_labels=question_labels,
         )
-        if bundle_offer is not None:
-            try:
-                repo.update_session_state(conn, session_id, bundle_state)
-            except Exception:
-                logger.warning("bundle state persist failed", exc_info=True)
-        else:
-            cluster_gap = next_gap_cluster(pack.question_sets, answers)
+        state_unavailable = bool(bundle_state.pop("_state_unavailable", False))
+        prev_focus_keys = frozenset(bundle_state.get("last_focus_keys") or [])
+        if bundle_offer is not None and bundle_offer.get("verdict_only"):
+            # Verdict-only: never presented, never the prompt focus —
+            # it exists solely so the verdict block can consume the
+            # answer to the final presentation.
+            verdict_offer = bundle_offer
+            bundle_offer = None
+        if bundle_offer is None:
+            cluster_gap = next_gap_cluster(
+                pack.question_sets,
+                answers,
+                pending_proposal_keys=frozenset(pending_keys),
+            )
             if cluster_gap is not None and cluster_gap["cluster"] == "identity":
                 signed_in_name = _signed_in_name(
                     conn, scope.matter.get("household_id")
                 )
+        if bundle_offer is not None:
+            bundle_state["last_focus_keys"] = sorted(
+                {bundle_offer["anchor_key"], *bundle_offer["fill_keys"]}
+            )
+        elif cluster_gap is not None:
+            bundle_state["last_focus_keys"] = sorted(
+                str(q["key"]) for q in cluster_gap["questions"]
+            )
+        else:
+            bundle_state["last_focus_keys"] = []
+        if not state_unavailable:
+            try:
+                repo.update_session_state(conn, session_id, bundle_state)
+            except Exception:
+                logger.warning("bundle state persist failed", exc_info=True)
     focus_keys: list[str] = []
     focus_question_text: str | None = None
     if bundle_offer is not None:
@@ -1675,6 +1811,7 @@ def post_turn(
     last_assistant_text = _assistant_texts[-1] if _assistant_texts else ""
     prior_assistant_text = _assistant_texts[-2] if len(_assistant_texts) >= 2 else ""
     valid_proposals = []
+    dropped_copy_keys: set[str] = set()
     for draft in response.proposals:
         if draft.question_key not in known_keys:
             logger.warning(
@@ -1697,12 +1834,18 @@ def post_turn(
             last_assistant_text=last_assistant_text,
             question_label=question_labels.get(draft.question_key, ""),
             prior_assistant_text=prior_assistant_text,
+            asked_keys=prev_focus_keys,
+            question_key=draft.question_key,
         ):
             logger.warning(
                 "Dropping whole-message copy proposal for %r (session %s)",
                 draft.question_key,
                 session_id,
             )
+            # A dropped key stays covered for THIS turn: the
+            # deterministic fallbacks run next and must not re-create
+            # the same poison card at 0.80 (guard review Critical #1).
+            dropped_copy_keys.add(draft.question_key)
             continue
         valid_proposals.append(draft)
 
@@ -1724,7 +1867,7 @@ def post_turn(
         # them is what made the interview loop and resurrected rejected
         # fabrications in the 2026-10-24 E2E run.
         decided_keys = repo.decided_proposal_keys(conn, session_id)
-        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys
+        all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys
 
         # Try boolean fallback first, then person-name, then text/notes.
         for fallback_fn in (
@@ -1819,7 +1962,7 @@ def post_turn(
             source="user_stated",
             confidence=draft.confidence,
             source_snippet=draft.source_snippet or None,
-            model_id=provider.name,
+            model_id=settings.OPENAI_INTERVIEW_MODEL if provider.name == "openai" else provider.name,
             prompt_version=prompt_version,
             pack_version=version,
         )
@@ -1837,7 +1980,9 @@ def post_turn(
     # The verdict is only consumed when the offer was presented in an
     # earlier turn (presented_before) — on first presentation this
     # message still answers the previous visible question.
-    if bundle_offer is not None and bundle_offer.get("presented_before"):
+    active_offer = verdict_offer or bundle_offer
+    if active_offer is not None and active_offer.get("presented_before"):
+        bundle_offer = active_offer
         verdict = _parse_yes_no(message)
         if verdict is True:
             # Fresh read at fill time (review I-1): never stack a bundle

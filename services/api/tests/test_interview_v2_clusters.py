@@ -226,3 +226,65 @@ def test_cluster_gap_for_turn_flag_paths(monkeypatch):
         )
         is None
     )
+
+
+def test_gap_excludes_pending_proposal_keys():
+    # Part 2 review I-1: a key with an open proposal is awaiting
+    # confirmation — the cluster focus must not instruct re-asking it.
+    from app.domains.interview.service import next_gap_cluster
+
+    pack = get_pack("US-VA", "2.0.0")
+    gap = next_gap_cluster(
+        pack.question_sets, {}, pending_proposal_keys=frozenset({"testator_full_name"})
+    )
+    assert gap is not None
+    keys = [q["key"] for q in gap["questions"]]
+    assert "testator_full_name" not in keys
+    assert keys  # the rest of the identity cluster remains
+
+
+def test_gap_all_pending_returns_none():
+    # Draining every cluster's questions into the pending set (as a
+    # user confirming cards one by one would) must end at None, and
+    # no gap may ever contain a pending key.
+    from app.domains.interview.service import next_gap_cluster
+
+    pack = get_pack("US-VA", "2.0.0")
+    pending: frozenset[str] = frozenset()
+    drained = 0
+    for _ in range(12):
+        gap = next_gap_cluster(
+            pack.question_sets, {}, pending_proposal_keys=pending
+        )
+        if gap is None:
+            break
+        keys = {q["key"] for q in gap["questions"]}
+        assert not (keys & pending)
+        pending = pending | keys
+        drained += 1
+    else:
+        raise AssertionError("gap never drained to None")
+    assert drained >= 2  # more than one cluster was walked
+
+
+def test_v5_prompt_is_pinned_by_hash():
+    # Part 2 review I-2: the byte-for-byte v5 invariant (flag off / no
+    # gap => the exact v5 text) was verified by hand at Part 2 but not
+    # pinned. Any edit to the shared base text must now consciously
+    # update this hash. (Verified byte-identical to pre-Part-2 HEAD by
+    # the Part 2 reviewer.)
+    import hashlib
+
+    text = prompts.build_system_prompt(
+        pack_id="us-va",
+        jurisdiction_code="US-VA",
+        missing_required_keys=["marital_status", "healthcare_agent_person"],
+        answered_required=3,
+        total_required=41,
+        pending_proposal_keys=[],
+        answered_keys=[],
+    )
+    assert (
+        hashlib.sha256(text.encode()).hexdigest()
+        == "d2869273b43a9847664cacf05f8a26326512d9c763b5ee5f5b91a0d60d0691ca"
+    )

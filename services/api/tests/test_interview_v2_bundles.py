@@ -304,6 +304,9 @@ def test_second_presentation_is_verdict_ready(monkeypatch):
 
 
 def test_offer_suppressed_after_two_presentations(monkeypatch):
+    # At the cap with no freshness proof (no recorded final
+    # presentation), the offer is simply gone: roles are asked
+    # individually by the cluster flow.
     offer, _state = _offer_for(
         {"bundles_offered": {"primary:priya sharma": 2}}, monkeypatch
     )
@@ -418,3 +421,97 @@ def test_fallback_reply_never_escapes_the_focus(monkeypatch):
     resp = _chat_with_context(monkeypatch, context)
     assert "Who should care" not in resp.reply
     assert "review the proposed values" in resp.reply
+
+
+# --- reviewer fixes (full Part 3 verdict, delivered post-build) -------------
+
+
+def test_pruned_member_cannot_anchor_primary():
+    # wants_poa declined: the answered POA agent is PRUNED — it must
+    # not anchor an offer filling executor + healthcare.
+    answers = dict(
+        BASE, wants_poa_document=False, poa_agent_person="Priya Sharma"
+    )
+    offer = pending_bundle_offer(_v2_sets(), answers)
+    assert offer is None or offer["bundle"] != "primary"
+
+
+def test_pruned_member_cannot_anchor_backup():
+    answers = dict(
+        BASE,
+        wants_revocable_trust=False,
+        successor_trustee_person="Amit Sharma",
+    )
+    offer = pending_bundle_offer(_v2_sets(), answers)
+    assert offer is None or offer["bundle"] != "backup"
+
+
+def test_pruned_answered_member_does_not_suppress_offer():
+    # Executor answered; healthcare answered but PRUNED (directive
+    # declined). The pruned member must not count toward the
+    # exactly-one rule — the executor should still anchor an offer
+    # for the POA role.
+    answers = dict(
+        BASE,
+        wants_healthcare_directive=False,
+        primary_executor_person="Priya Sharma",
+        healthcare_agent_person="Priya Sharma",
+    )
+    offer = pending_bundle_offer(_v2_sets(), answers)
+    assert offer is not None and offer["bundle"] == "primary"
+    assert offer["anchor_key"] == "primary_executor_person"
+    assert offer["fill_keys"] == ["poa_agent_person"]
+
+
+def _offer_at_cap(state, turns_now, monkeypatch):
+    monkeypatch.setattr(
+        interview_repo, "count_turns", lambda c, sid: turns_now
+    )
+    return _offer_for(state, monkeypatch)
+
+
+def test_offer_at_cap_is_verdict_only_when_fresh(monkeypatch):
+    # Gating review I-1 + batch re-review I-1: at MAX presentations
+    # the offer is consumable as a verdict ONLY on the exact next
+    # turn boundary after the final presentation (turn rows: the
+    # presentation turn's pair makes the count presented_at + 2).
+    state = {
+        "bundles_offered": {"primary:priya sharma": 2},
+        "bundles_last_presented": {"primary:priya sharma": 10},
+    }
+    offer, out_state = _offer_at_cap(state, 12, monkeypatch)
+    assert offer is not None
+    assert offer.get("verdict_only") is True
+    assert offer["presented_before"] is True
+    # Verdict-only turns do not spend further presentations.
+    assert out_state["bundles_offered"]["primary:priya sharma"] == 2
+
+
+def test_offer_at_cap_retired_when_another_exchange_intervened(monkeypatch):
+    # An advice refusal (or any completed exchange) between the final
+    # presentation and now makes the window stale: the user is no
+    # longer answering the bundle question.
+    state = {
+        "bundles_offered": {"primary:priya sharma": 2},
+        "bundles_last_presented": {"primary:priya sharma": 10},
+    }
+    offer, _state = _offer_at_cap(state, 14, monkeypatch)
+    assert offer is None
+
+
+def test_state_read_failure_returns_no_offer_and_flags_state(monkeypatch):
+    # Batch review I-1: a failed state read must not hand post_turn a
+    # fresh {} to persist over the stored bundle state.
+    def _boom(c, sid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(interview_repo, "get_session_state", _boom)
+    offer, state = interview_service._bundle_offer_for_turn(
+        _Conn(),
+        session_id=uuid4(),
+        pack=get_pack("US-VA", "2.0.0"),
+        answers=dict(BASE, primary_executor_person="Priya Sharma"),
+        question_labels={},
+    )
+    assert offer is None
+    assert state.get("_state_unavailable") is True

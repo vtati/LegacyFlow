@@ -3,7 +3,6 @@ document extractor run on the stronger interview model; cheap
 classification (consistency) stays on the chat model."""
 from __future__ import annotations
 
-import os
 
 from app.core.config import Settings, get_settings
 

@@ -39,6 +39,9 @@ KNOWN_FLAG_DEFAULTS: dict[str, bool] = {
     # AI interviewer: enabled by default for all firms. Per-firm overrides
     # via the admin feature-flags UI can still disable it per firm.
     "ai_interviewer": True,
+    # Interview v2 (cluster flow + role bundles): fail-closed default;
+    # enabled per firm by DB row (Demo firm) until the A/B bar passes.
+    "interview_v2": False,
 }
 
 _ENV_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})

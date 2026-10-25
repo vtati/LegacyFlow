@@ -887,3 +887,159 @@ class TestWholeMessageCopyGuard:
                 "outright, if any?"
             ),
         )
+
+
+class TestCopyGuardReviewFixes:
+    """Reviewer findings on ca4c8fa (full verdict delivered post-build)."""
+
+    GUARDIAN_PARA = (
+        "My brother Amit Sharma should be the guardian for our children "
+        "— he is trusted, he is close to the children, and he shares "
+        "our values. If he can't serve, Neha Kapoor is the backup "
+        "guardian."
+    )
+
+    def test_duplicate_label_word_counts_once(self):
+        # living_will_directives' label repeats "treatment"; one distinct
+        # word in an ack about another topic must not count as asked.
+        from app.domains.interview.service import _is_whole_message_copy
+
+        message = (
+            "About the life-prolonging treatment question from before: "
+            "if I am terminally ill or permanently unconscious then "
+            "withhold life-sustaining treatment and keep me on comfort "
+            "care only because that is what I would want for myself "
+            "and for my family at that time in every circumstance"
+        )
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=self.GUARDIAN_PARA,
+            user_message=self.GUARDIAN_PARA,
+            last_assistant_text=(
+                "Earlier we mentioned treatment. Who is your backup "
+                "guardian?"
+            ),
+            question_label=(
+                "What are your wishes about life-prolonging treatment, "
+                "for example under what conditions should treatment be "
+                "withheld?"
+            ),
+        )
+
+    def test_near_copy_with_one_word_edit_is_dropped(self):
+        from app.domains.interview.service import _is_whole_message_copy
+
+        edited = self.GUARDIAN_PARA.replace("trusted", "dependable")
+        assert _is_whole_message_copy(
+            question_type="notes",
+            value=edited,
+            user_message=self.GUARDIAN_PARA,
+            last_assistant_text="Do you have significant debts?",
+            question_label=(
+                "What share of the trust should go to your spouse "
+                "outright, if any?"
+            ),
+        )
+
+    def test_focus_membership_counts_as_asked(self):
+        from app.domains.interview.service import _is_whole_message_copy
+
+        assert not _is_whole_message_copy(
+            question_type="notes",
+            value=self.GUARDIAN_PARA,
+            user_message=self.GUARDIAN_PARA,
+            last_assistant_text="Tell me more about your wishes.",
+            question_label=(
+                "What share of the trust should go to your spouse "
+                "outright, if any?"
+            ),
+            asked_keys=frozenset({"trust_marital_share"}),
+            question_key="trust_marital_share",
+        )
+
+    def test_text_fallback_does_not_recreate_the_incident_copy(self):
+        # The guard drops the model's copy; the deterministic TEXT
+        # fallback must not re-create the same proposal in the same
+        # turn (36-word incident paragraph, channel 2).
+        from app.domains.interview.service import _deterministic_text_proposal
+        from app.domains.legal_content.pack_loader import get_pack
+
+        pack = get_pack("US-VA", "2.0.0")
+        result = _deterministic_text_proposal(
+            user_message=self.GUARDIAN_PARA,
+            assistant_reply=(
+                "Who should care for your minor children if neither "
+                "parent can?"
+            ),
+            question_sets=pack.question_sets,
+            existing_proposal_keys=set(),
+        )
+        assert result is None
+
+
+class TestBooleanBorrowReviewFixes:
+    """The polarity borrow must be polarity-ONLY and same-sentence."""
+
+    def test_borrow_fragment_with_another_topic_does_not_fabricate(self):
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "No business interests, I expect disagreement among "
+                "family members about the plan is something my brother "
+                "keeps raising."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys={"owns_or_controls_business_interest"},
+        )
+        assert result is None
+
+    def test_borrow_across_a_period_does_not_fabricate(self):
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "No. Family members expect disagreement among "
+                "themselves about the plan, according to my brother."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=_questions(),
+            existing_proposal_keys={"owns_or_controls_business_interest"},
+        )
+        assert result is None
+
+    def test_compound_label_unanimous_clauses_propose(self):
+        from app.domains.interview.service import _deterministic_boolean_proposal
+
+        qs = {
+            "household": {
+                "sections": [
+                    {
+                        "id": "basics",
+                        "questions": [
+                            {
+                                "key": "has_prior_marriage_or_children_outside",
+                                "type": "boolean",
+                                "label": (
+                                    "Do you have a prior marriage or "
+                                    "children outside your current "
+                                    "relationship?"
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        result = _deterministic_boolean_proposal(
+            user_message=(
+                "No, I have no prior marriages, and no children "
+                "outside my current marriage."
+            ),
+            assistant_reply="Tell me about your household.",
+            question_sets=qs,
+            existing_proposal_keys=set(),
+        )
+        assert result is not None
+        assert result["value"] is False
