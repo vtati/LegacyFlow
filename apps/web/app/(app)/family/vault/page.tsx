@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, Link2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Modal } from '@/components/ui/modal';
 import { Label } from '@/components/ui/label';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
@@ -133,6 +134,7 @@ export default function FamilyVaultPage(): React.JSX.Element {
   const [formError, setFormError] = useState<string | null>(null);
   const [created, setCreated] = useState<VaultShareCreated | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<VaultShare | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadShares = useCallback((id: string) => {
@@ -185,11 +187,17 @@ export default function FamilyVaultPage(): React.JSX.Element {
       .finally(() => setCreating(false));
   };
 
+  // Confirmation goes through the in-app Modal, never window.confirm:
+  // browsing contexts that suppress native dialogs make confirm() return
+  // false without showing anything, so the click silently did nothing —
+  // no dialog, no error, no state change.
   const handleRevoke = (share: VaultShare) => {
-    const confirmed = window.confirm(
-      `Revoke “${share.label}”? The link will stop working immediately.`,
-    );
-    if (!confirmed) return;
+    setRevokeTarget(share);
+  };
+
+  const confirmRevoke = () => {
+    const share = revokeTarget;
+    if (!share) return;
     setRevokingId(share.id);
     setNotice(null);
     api
@@ -197,10 +205,12 @@ export default function FamilyVaultPage(): React.JSX.Element {
       .then((revoked) => {
         setShares((prev) => prev.map((s) => (s.id === revoked.id ? revoked : s)));
         setNotice(`“${share.label}” revoked — the link no longer works.`);
+        setRevokeTarget(null);
       })
-      .catch((err: unknown) =>
-        setNotice(err instanceof Error ? `Could not revoke: ${err.message}` : 'Could not revoke.'),
-      )
+      .catch((err: unknown) => {
+        setNotice(err instanceof Error ? `Could not revoke: ${err.message}` : 'Could not revoke.');
+        setRevokeTarget(null);
+      })
       .finally(() => setRevokingId(null));
   };
 
@@ -317,6 +327,31 @@ export default function FamilyVaultPage(): React.JSX.Element {
           </section>
         </>
       )}
+
+      <Modal
+        open={revokeTarget != null}
+        onClose={() => setRevokeTarget(null)}
+        title="Revoke this share?"
+        description={
+          revokeTarget
+            ? `“${revokeTarget.label}” will stop working immediately. Anyone using the link will no longer see your plan summary.`
+            : undefined
+        }
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setRevokeTarget(null)}>
+            Keep share
+          </Button>
+          <Button
+            type="button"
+            onClick={confirmRevoke}
+            disabled={revokeTarget != null && revokingId === revokeTarget.id}
+            className="bg-lf-error-600 text-white hover:bg-lf-error-700"
+          >
+            {revokeTarget != null && revokingId === revokeTarget.id ? 'Revoking…' : 'Revoke share'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
