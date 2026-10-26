@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any
 from uuid import UUID
@@ -596,6 +597,143 @@ def _next_adaptive_question(
     return None
 
 
+#: Label words too generic to license a deterministic capture on their
+#: own — they appear in many questions' labels, so a match proves
+#: nothing about which field the user (or the previous reply) meant.
+#: The 2026-10-25 set-6 anticipation was licensed by exactly two of
+#: these ("should" + "handle") inside the EXECUTOR question and minted
+#: a POA-agent proposal nobody had stated.
+_GENERIC_LABEL_WORDS = {
+    "should", "handle", "serve", "first", "choice", "cannot", "would",
+    "could", "become", "unable", "yourself", "person", "there", "their",
+    "about", "which", "after", "before", "other", "while",
+}
+
+_PHONE_SPAN_RE = re.compile(
+    r"(?<!\d)(?:\+?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\d[\d\s().\-]{5,18}\d)(?!\d)"
+)
+_DATE_SPAN_RE = re.compile(r"^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$")
+_ZIP4_SPAN_RE = re.compile(r"^\d{5}-\d{4}$")
+
+
+def _extract_phone_value(text: Any) -> str | None:
+    """The phone-shaped span inside `text`, or None.
+
+    A phone field's value must BE a phone number — never the sentence
+    that carried it (set-6 Pruned: the trust sentence "No, I don't want
+    a revocable living trust." was stored as healthcare_agent_phone).
+    Non-phone digit runs are rejected (review round 2, I-3): ISO dates,
+    ZIP+4 codes, and contiguous runs whose length is not a plausible
+    phone length (7-digit local, 10-digit national, 11 with country
+    code) — separated forms keep the 7-15 digit window. The pattern is
+    digit-boundary anchored (review round 3, C-1): a match may not be
+    a substring of a longer digit run, so a 16-digit card number can
+    never truncate into a "phone" and an 11-digit number survives
+    whole.
+    """
+    if not isinstance(text, str) or not text:
+        return None
+    for match in _PHONE_SPAN_RE.finditer(text):
+        span = match.group(0).strip()
+        if _DATE_SPAN_RE.match(span) or _ZIP4_SPAN_RE.match(span):
+            continue
+        digits = re.sub(r"\D", "", span)
+        if not re.search(r"[\s().\-]", span):
+            if len(digits) not in {7, 10, 11}:
+                continue
+        elif not 7 <= len(digits) <= 15:
+            continue
+        return span
+    return None
+
+
+def _is_phone_key(question_key: str) -> bool:
+    return "phone" in str(question_key)
+
+
+def _label_words(label: str) -> list[str]:
+    return [
+        w
+        for w in re.findall(r"\w+", label.lower())
+        if len(w) > 3
+        and w not in {"what", "does", "your", "with", "have", "this", "that"}
+    ]
+
+
+def _message_names_topic(
+    question_key: str,
+    user_message: str,
+    question_sets: dict[str, dict[str, Any]],
+) -> bool:
+    """Whether the user's message itself names the candidate's topic.
+
+    The deterministic text fallback selects its field from the PREVIOUS
+    reply's wording; without a message-side check, any message that
+    happens to follow a multi-ask reply gets stamped onto whichever
+    field's label the reply contained (the set-6 phone bleed). A
+    distinctive label word in the message — or the field's own value
+    shape, for addresses — is the minimum evidence the message is an
+    answer to that field at all.
+    """
+    from app.domains.intake import question_sets as qs
+
+    message_lower = user_message.lower()
+    for _, _, question in qs.iter_questions(question_sets):
+        if str(question.get("key")) != question_key:
+            continue
+        words = _label_words(str(question.get("label") or ""))
+        distinctive = [
+            w for w in words if len(w) >= 5 and w not in _GENERIC_LABEL_WORDS
+        ]
+        if not distinctive:
+            return True  # nothing distinctive to check against
+        matched = [
+            w
+            for w in words
+            if len(w) >= 4 and w in message_lower and w not in _GENERIC_LABEL_WORDS
+        ]
+        if any(w in message_lower for w in distinctive):
+            return True
+        # Terse restatements of the label's own words are genuine
+        # answers too ("The rest goes to my brother" for the residuary
+        # question): two label content words, or one in a short reply.
+        if len(matched) >= 2:
+            return True
+        if matched and len(user_message.split()) <= 12:
+            return True
+        if question_key.endswith("_address") and _address_shaped(user_message):
+            return True
+        # Bare-value answers (review round 2, C-1): canonical answers
+        # to several fields contain NO label words at all ("Richmond,
+        # Virginia" for a city/state field, "Reyansh, 7 and Haasini,
+        # 13" for the children list, "50%" for a share). A short reply
+        # with no negation, no question, and NO CLAUSE VERB is a
+        # value, not a paragraph — the verb requirement is what keeps
+        # short off-topic clauses out (review round 3, I-2: "Skip the
+        # trust entirely", "Everything goes to charity", "I changed
+        # my mind" are bleed shapes, not values).
+        tokens = user_message.split()
+        if (
+            len(tokens) <= 6
+            and "?" not in user_message
+            and not re.search(
+                r"\b(no|not|never|none|don'?t|doesn'?t|isn'?t|aren'?t|won'?t|can'?t)\b",
+                message_lower,
+            )
+            and not re.search(
+                r"\b(is|are|was|were|go|goes|going|want|wants|skip|skipped|"
+                r"decline|declined|change|changed|have|has|had|will|would|"
+                r"can|could|should|do|does|did|get|gets|take|takes|put|puts|"
+                r"give|gives|keep|keeps|leave|leaves|make|makes|use|uses|"
+                r"need|needs|like|likes|prefer|prefers)\b",
+                message_lower,
+            )
+        ):
+            return True
+        return False
+    return True
+
+
 def _deterministic_person_proposal(
     *,
     user_message: str,
@@ -649,10 +787,32 @@ def _deterministic_person_proposal(
                 if len(w) > 3 and w not in {"what", "does", "your", "with", "have", "this", "that", "who"}
             ]
             key_matches = sum(1 for w in key_words if w in ctx)
-            label_matches = sum(1 for w in label_words if w in ctx)
+            matched_label_words = [w for w in label_words if w in ctx]
+            label_matches = len(matched_label_words)
+            # Label licensing of a PRIMARY key needs a DISTINCTIVE
+            # matched word, not just any two: generic words ("should",
+            # "handle") appear in sibling questions and licensed the
+            # set-6 fabrication where the executor question minted a
+            # POA-agent proposal. Qualified (successor / backup) keys
+            # are exempt: their labels are generic BY DESIGN ("Who
+            # should serve if your first choice cannot?") and their
+            # discipline is the qualification machinery below (plus,
+            # on the G3 path, successor licensing against the answered
+            # primary) — requiring a distinctive word there would kill
+            # the sanctioned bare-name successor capture.
+            distinctive_matches = sum(
+                1
+                for w in matched_label_words
+                if len(w) >= 5 and w not in _GENERIC_LABEL_WORDS
+            )
+            qualified_key = any(
+                q in key for q in ("backup", "alternate", "successor", "secondary")
+            )
             key_roles = {r for r in roles if r in key}
             role_match = bool(key_roles & ctx_roles)
-            if role_match or label_matches >= 2 or (key_matches >= 1 and label_matches >= 2):
+            if role_match or (
+                label_matches >= 2 and (qualified_key or distinctive_matches >= 1)
+            ):
                 found.append(key)
         qualified = [
             k for k in found
@@ -696,6 +856,7 @@ def _deterministic_text_proposal(
     question_sets: dict[str, dict[str, Any]],
     existing_proposal_keys: set[str],
     allow_bundled: bool = False,
+    server_asked: bool = False,
 ) -> dict[str, Any] | None:
     """Deterministic fallback for text/notes questions: for these
     types the user's answer IS the value (an address, a residuary note).
@@ -757,8 +918,33 @@ def _deterministic_text_proposal(
         # a paragraph value at 0.80 beats silently losing the answer.
         return None
 
+    key = candidates[0]
+    if _is_phone_key(key):
+        # A phone field's value must be a phone number, never the
+        # sentence that carried it (set-6 Pruned turn 8: the trust
+        # sentence became healthcare_agent_phone because the previous
+        # reply contained the phone label verbatim). Extract the
+        # number itself; no number in the message, no proposal.
+        span = _extract_phone_value(message)
+        if span is None:
+            return None
+        return {
+            "question_key": key,
+            "value": span,
+            # Below the 0.9 auto-confirm threshold ON PURPOSE: human-reviewed.
+            "confidence": 0.80,
+            "source_snippet": message[:500],
+        }
+    if not server_asked and not _message_names_topic(key, message, question_sets):
+        # The candidate was selected from the previous reply's wording;
+        # the message itself never names this field's topic, so stamping
+        # the whole message onto it is the set-6 bleed shape. The G3
+        # sweep passes server_asked=True: its field is in the server's
+        # own focus, which establishes topicality on its own.
+        return None
+
     return {
-        "question_key": candidates[0],
+        "question_key": key,
         "value": message[:2000],
         # Below the 0.9 auto-confirm threshold ON PURPOSE: human-reviewed.
         "confidence": 0.80,
@@ -1823,6 +2009,11 @@ def _focus_completeness_proposals(
         }
         if fallback_fn is _deterministic_text_proposal:
             kwargs["allow_bundled"] = True
+            # The scoped field is in the server's own focus — topicality
+            # is established by the focus itself, so the text fallback's
+            # message-topic gate does not apply here (its shape rules,
+            # e.g. phone extraction, still do).
+            kwargs["server_asked"] = True
         fallback = fallback_fn(**kwargs)
         if fallback is None or fallback.get("question_key") != key:
             continue
@@ -2111,6 +2302,298 @@ def _gap_without_keys(
     if not questions:
         return None
     return {**gap, "questions": questions}
+
+
+def shadow_questions_for(
+    question_sets: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+    focus_questions: list[dict[str, Any]],
+    *,
+    covered_keys: frozenset[str] | set[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Gate-shadow fields for a cluster-focus turn (v8, 2026-10-25).
+
+    A question whose applicability is PENDING only because a boolean
+    gate in this turn's focus is unanswered — and which becomes
+    applicable when that gate flips true — rides along as a shadow
+    field: the prompt may record it when (and only when) the user
+    answers the gate yes and states the value in the same message.
+    Without this, a user who states the gate and its gated facts in
+    one breath ("Yes, I want a trust. Amit is the successor trustee.
+    Put everything into the trust...") has only the gate recorded and
+    must repeat the rest next turn — the set-6 trust paragraph took
+    three sends, and the assets beneficiaries (gated on
+    has_retirement_accounts / has_life_insurance) took until turn 10.
+    Applicability is computed with the pack's own partition (the
+    single source of truth), differenced against the gate-true trial.
+    """
+    from app.domains.intake import question_sets as qs
+
+    focus_keys = {str(q["key"]) for q in focus_questions}
+    gate_labels = {
+        str(q["key"]): str(q.get("label") or "")
+        for q in focus_questions
+        if str(q.get("type") or "") == "boolean"
+    }
+    gates = list(gate_labels)
+    if not gates:
+        return []
+    _applicable, pending, _pruned = qs.partition_questions(question_sets, answers)
+    shadows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for gate in gates:
+        trial = dict(answers)
+        trial[gate] = True
+        applicable_trial, _p, _pr = qs.partition_questions(question_sets, trial)
+        trial_keys = {str(q.get("key")) for _, _, q in applicable_trial}
+        for _set_id, _section_id, question in pending:
+            key = str(question.get("key"))
+            if (
+                key not in trial_keys
+                or key in focus_keys
+                or key in covered_keys
+                or key in answers
+                or key in seen
+                or key == gate
+            ):
+                continue
+            seen.add(key)
+            shadows.append(
+                {
+                    "key": key,
+                    "label": str(question.get("label") or ""),
+                    "type": str(question.get("type") or ""),
+                    "gate_key": gate,
+                    "gate_label": gate_labels.get(gate, ""),
+                }
+            )
+    return shadows
+
+
+def _governing_expressions(
+    question_sets: dict[str, dict[str, Any]], key: str
+) -> list[str]:
+    """The applies_if expressions governing a question (its section's
+    and its own), for gate-mode inspection."""
+    exprs: list[str] = []
+    for question_set in question_sets.values():
+        for section in question_set.get("sections", []):
+            for question in section.get("questions", []):
+                if str(question.get("key")) != key:
+                    continue
+                if section.get("applies_if"):
+                    exprs.append(str(section["applies_if"]))
+                if question.get("applies_if"):
+                    exprs.append(str(question["applies_if"]))
+    return exprs
+
+
+def _gate_mode(
+    question_sets: dict[str, dict[str, Any]], key: str, gate: str
+) -> str:
+    """"opt_out" when the gate governs the key through a `!= false`
+    expression (the field applies UNLESS the gate is false — the POA
+    and healthcare sections), else "opt_in" (the field applies only
+    when the gate is true — the trust / guardian / beneficiary gates).
+    """
+    for expr in _governing_expressions(question_sets, key):
+        normalized = re.sub(r"\s+", " ", expr)
+        if f"{gate} != false" in normalized or f"{gate} != False" in normalized:
+            return "opt_out"
+    return "opt_in"
+
+
+def gate_dependents_map(
+    question_sets: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """{dependent key: ((gate, mode), ...)} for every question whose
+    applicability turns on a boolean gate.
+
+    Candidates are questions PENDING on an unanswered gate and
+    questions PRUNED by an answered gate (review round 2, I-1: a
+    pruned dependent was previously absent from the map, so a proposal
+    for it was never dropped even with its gate recorded False).
+    Attribution is by the pack's own partition, differenced against
+    the gate-true trial. Licensing (see _drop_unlicensed_gate_proposals):
+    opt-in gates must be true; opt-out gates must not be false.
+    """
+    from app.domains.intake import question_sets as qs
+
+    applicable, pending, pruned = qs.partition_questions(question_sets, answers)
+    applicable_now = {str(q.get("key")) for _, _, q in applicable}
+    candidate_keys: list[str] = []
+    for _set_id, _section_id, question in [*pending, *pruned]:
+        key = str(question.get("key"))
+        if key not in candidate_keys:
+            candidate_keys.append(key)
+    if not candidate_keys:
+        return {}
+    boolean_keys = [
+        str(q.get("key"))
+        for _, _, q in qs.iter_questions(question_sets)
+        if str(q.get("type") or "") == "boolean"
+    ]
+    result: dict[str, list[tuple[str, str]]] = {}
+    for gate in boolean_keys:
+        if gate in answers:
+            # An answered gate still controls its PRUNED dependents
+            # (they must stay dropped-able); only the false case adds
+            # map entries, trialed below at True. Falseness uses the
+            # gate-value vocabulary, not identity (review round 3,
+            # M-1): "false" / "no" / 0 count as answered-false too.
+            if not _gate_value_false(answers.get(gate)):
+                continue
+        trial = dict(answers)
+        trial[gate] = True
+        applicable_trial, _p, _pr = qs.partition_questions(question_sets, trial)
+        trial_keys = {str(q.get("key")) for _, _, q in applicable_trial}
+        for key in candidate_keys:
+            if key in trial_keys and key not in applicable_now and key != gate:
+                pair = (gate, _gate_mode(question_sets, key, gate))
+                if pair not in result.get(key, []):
+                    result.setdefault(key, []).append(pair)
+    return {key: tuple(pairs) for key, pairs in result.items()}
+
+
+def _gate_value_true(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"true", "yes"}:
+        return True
+    return False
+
+
+def _gate_value_false(value: Any) -> bool:
+    if value is False:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"false", "no"}:
+        return True
+    return False
+
+
+def _drop_unlicensed_gate_proposals(
+    drafts: list[Any],
+    answers: dict[str, Any],
+    dependents: dict[str, Any],
+) -> list[Any]:
+    """Drop proposals for gate-dependent keys whose gate doesn't license them.
+
+    A gated field recorded while its opt-in gate is false or
+    unanswered — or its opt-out gate is false — is a wrong-source
+    artifact (a trust field for a user who declined the trust). The
+    prompt licenses shadow captures on a yes only; this is the
+    deterministic backstop, judged against the answers plus this
+    turn's own accepted proposals. Licensing precedence: this turn's
+    drafts outrank the base map (recorded answers merged with pending
+    proposal values); among duplicate drafts of one key the first
+    wins, matching the storage loop (review round 2 M-1, round 3
+    I-1). Dependents entries may be a gate name, a tuple of gate
+    names (opt-in), or (gate, mode) pairs from gate_dependents_map.
+    """
+    if not dependents:
+        return list(drafts)
+    truth = dict(answers)
+    drafted: set[str] = set()
+    for draft in drafts:
+        # This turn's statement outranks the base (recorded answers
+        # merged with stale PENDING values) in both directions —
+        # review round 3, I-1. Among duplicate drafts of one key the
+        # FIRST still wins, matching the storage loop (round 2, M-1).
+        if draft.question_key not in drafted:
+            truth[draft.question_key] = draft.value
+            drafted.add(draft.question_key)
+
+    def _licensed(key: str) -> bool:
+        entries = dependents.get(key)
+        if not entries:
+            return True
+        if isinstance(entries, str):
+            entries = ((entries, "opt_in"),)
+        pairs: list[tuple[str, str]] = []
+        for entry in entries:
+            if isinstance(entry, str):
+                pairs.append((entry, "opt_in"))
+            elif isinstance(entry, (tuple, list)) and entry:
+                pairs.append(
+                    (str(entry[0]), str(entry[1]) if len(entry) > 1 else "opt_in")
+                )
+            # Malformed entries are ignored (fail open on the entry,
+            # never crash the turn) — review round 3, M-4.
+        for gate, mode in pairs:
+            value = truth.get(gate)
+            if mode == "opt_out":
+                if not _gate_value_false(value):
+                    return True
+            elif _gate_value_true(value):
+                return True
+        return False
+
+    return [draft for draft in drafts if _licensed(draft.question_key)]
+
+
+def _copy_guard_asked_keys(
+    *,
+    v2_on: bool,
+    window_focus_keys: frozenset[str] | set[str],
+    prev_focus_keys: frozenset[str] | set[str],
+    focus_keys: list[str],
+) -> frozenset[str]:
+    """The copy guard's asked-set for this turn.
+
+    v2: the two-turn window PLUS the current turn's focus keys — a
+    faithful copy for a field the server is asking about RIGHT NOW is
+    an answer, not a fabrication (set-6 Sharma #1 lost whole turns
+    when the current cluster's paragraph was dropped because the
+    window still held the previous cluster's keys). The caller passes
+    an EMPTY focus list on first-presentation bundle turns, whose
+    fill keys are offered rather than asked (review round 2, M-5).
+    v1: unchanged.
+    """
+    if v2_on:
+        return frozenset(window_focus_keys) | frozenset(focus_keys)
+    return frozenset(prev_focus_keys)
+
+
+def _numeric_text_value(question_type: str, value: Any) -> str | None:
+    """String form of a numeric scalar proposed for a text/notes field.
+
+    Models emit JSON-native numbers for numeric content (the trust
+    distribution age as int 25); discarding them costs a re-ask turn
+    for a faithful value. Booleans are NOT coerced: a bool for a text
+    field is a polarity answer to the label's yes/no half, the exact
+    fabrication shape the type-shape gate exists to drop (bool is an
+    int subclass in Python — excluded explicitly).
+    """
+    if question_type not in {"text", "notes"}:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return str(value)
+
+
+def _is_duplicate_answer(
+    question_key: str,
+    value: Any,
+    answers: dict[str, Any],
+    question_type: str = "",
+) -> bool:
+    """A proposal restating the recorded answer verbatim is noise, not
+    extraction — in the set-6 stall the model re-proposed answered
+    trust fields for six straight turns. A DIFFERENT value is a
+    genuine correction signal and is kept for human review.
+
+    Person fields compare EXACTLY (review round 2, M-6): legal names
+    are casing-sensitive, so a casing-only change is a correction,
+    not a duplicate.
+    """
+    if question_key not in answers:
+        return False
+    if question_type == "person":
+        return isinstance(value, str) and value == answers[question_key]
+    return _canonical_proposal_value(value) == _canonical_proposal_value(
+        answers[question_key]
+    )
 
 
 def _v2_enabled(conn: Any, *, firm_id: UUID, pack: LoadedPack) -> bool:
@@ -5083,6 +5566,8 @@ def post_turn(
     cluster_gap = None
     presented_offers: list[dict[str, Any]] = []
     verdict_offers: list[dict[str, Any]] = []
+    shadow_questions: list[dict[str, Any]] = []
+    next_gap_shadow_questions: list[dict[str, Any]] = []
     then_gap = None
     bundle_state: dict[str, Any] = {}
     signed_in_name = None
@@ -5130,6 +5615,17 @@ def post_turn(
             ):
                 signed_in_name = _signed_in_name(
                     conn, scope.matter.get("household_id")
+                )
+            if cluster_gap is not None:
+                # Gate-shadow fields (v8): conditional questions whose
+                # gate sits in this turn's focus ride along as
+                # record-on-yes fields, so one full answer paragraph
+                # lands in one turn instead of three.
+                shadow_questions = shadow_questions_for(
+                    pack.question_sets,
+                    answers,
+                    cluster_gap["questions"],
+                    covered_keys=frozenset(pending_keys) | frozenset(answers.keys()),
                 )
         elif all(o.get("presented_before") for o in presented_offers):
             # Pure verdict turn: every presented offer was already
@@ -5180,6 +5676,17 @@ def post_turn(
                 repo.update_session_state(conn, session_id, bundle_state)
             except Exception:
                 logger.warning("bundle state persist failed", exc_info=True)
+        if then_gap is not None:
+            # The verdict turn's prompt also names the then-gap fields;
+            # its gates' shadow fields ride along (review C-2) so a
+            # reply that answers the gate and its gated facts at once
+            # is fully extracted this turn.
+            next_gap_shadow_questions = shadow_questions_for(
+                pack.question_sets,
+                answers,
+                then_gap["questions"],
+                covered_keys=frozenset(pending_keys) | frozenset(answers.keys()),
+            )
     focus_keys: list[str] = []
     focus_question_text: str | None = None
     if presented_offers:
@@ -5228,7 +5735,9 @@ def post_turn(
     )
     history = _history_messages(conn, session_id)
     prompt_version = (
-        prompts.PROMPT_TEMPLATE_VERSION_V7
+        prompts.PROMPT_TEMPLATE_VERSION_V8
+        if (shadow_questions or next_gap_shadow_questions)
+        else prompts.PROMPT_TEMPLATE_VERSION_V7
         if (cluster_gap is not None or presented_offers)
         else prompts.PROMPT_TEMPLATE_VERSION_V5
     )
@@ -5244,6 +5753,8 @@ def post_turn(
         bundle_offers=presented_offers or None,
         signed_in_name=signed_in_name,
         next_gap=then_gap,
+        shadow_questions=shadow_questions or None,
+        next_gap_shadow_questions=next_gap_shadow_questions or None,
     )
 
     # Stronger extractor on v2 turns only (config OPENAI_INTERVIEW_MODEL_V2,
@@ -5303,6 +5814,19 @@ def post_turn(
         logger.warning("rejected-proposal read failed", exc_info=True)
         rejected_pairs = set()
     _prior_user_messages = [m.content for m in history if m.role == "user"]
+    # Copy-guard focus (review round 2, M-5): the current focus counts
+    # as "asked" on cluster turns and bundle VERDICT turns, but NOT on
+    # a bundle's first-presentation turn — there the focus holds the
+    # fill keys, which are offered for a yes/no, not asked as value
+    # questions; a whole-message copy naming one must stay guarded.
+    copy_guard_focus_keys = (
+        focus_keys
+        if (
+            cluster_gap is not None
+            or (presented_offers and all(o.get("presented_before") for o in presented_offers))
+        )
+        else []
+    )
     for draft in response.proposals:
         if draft.question_key not in known_keys:
             logger.warning(
@@ -5318,6 +5842,20 @@ def post_turn(
                 session_id,
             )
             continue
+        _coerced = (
+            _numeric_text_value(question_types.get(draft.question_key, ""), draft.value)
+            if v2_on
+            else None
+        )
+        if _coerced is not None:
+            from app.domains.ai.provider import FieldProposalDraft
+
+            draft = FieldProposalDraft(
+                question_key=draft.question_key,
+                value=_coerced,
+                confidence=draft.confidence,
+                source_snippet=draft.source_snippet,
+            )
         if not _value_shape_ok(
             question_types.get(draft.question_key, ""), draft.value
         ):
@@ -5332,6 +5870,51 @@ def post_turn(
                 session_id,
             )
             continue
+        if v2_on and _is_duplicate_answer(
+            draft.question_key,
+            draft.value,
+            answers,
+            question_types.get(draft.question_key, ""),
+        ):
+            # A verbatim restatement of the recorded answer is noise,
+            # not extraction (set-6 stall: answered trust fields
+            # re-proposed for six straight turns). Different values
+            # still flow through as correction signals.
+            logger.info(
+                "Dropping duplicate-of-answer proposal for %r (session %s)",
+                draft.question_key,
+                session_id,
+            )
+            continue
+        if v2_on and _is_phone_key(draft.question_key):
+            # A phone field's value must be the number itself — a
+            # model draft carrying prose (or the whole message) is
+            # the set-6 bleed shape at the model layer. The span is
+            # read from the draft first, then from the user's message
+            # (the grounding source) when the draft's own formatting
+            # defeats the pattern — a correct number must not be
+            # discarded over its punctuation (review I-2).
+            span = (
+                _extract_phone_value(draft.value)
+                if isinstance(draft.value, str)
+                else None
+            ) or _extract_phone_value(message)
+            if span is None:
+                logger.warning(
+                    "Dropping phone proposal without a phone-shaped value for %r (session %s)",
+                    draft.question_key,
+                    session_id,
+                )
+                continue
+            if span != draft.value:
+                from app.domains.ai.provider import FieldProposalDraft
+
+                draft = FieldProposalDraft(
+                    question_key=draft.question_key,
+                    value=span,
+                    confidence=draft.confidence,
+                    source_snippet=draft.source_snippet,
+                )
         if (
             draft.question_key,
             _canonical_proposal_value(draft.value),
@@ -5352,7 +5935,12 @@ def post_turn(
             last_assistant_text=last_assistant_text,
             question_label=question_labels.get(draft.question_key, ""),
             prior_assistant_text=prior_assistant_text,
-            asked_keys=window_focus_keys if v2_on else prev_focus_keys,
+            asked_keys=_copy_guard_asked_keys(
+                v2_on=v2_on,
+                window_focus_keys=window_focus_keys,
+                prev_focus_keys=prev_focus_keys,
+                focus_keys=copy_guard_focus_keys,
+            ),
             question_key=draft.question_key,
             focus_authoritative=v2_on,
             sibling_draft_count=max(0, len(response.proposals) - 1),
@@ -5485,6 +6073,43 @@ def post_turn(
                     )
                 )
                 all_covered.add(fb["question_key"])
+
+    if v2_on and valid_proposals:
+        # Gate-truth licensing (v8): a proposal for a gate-dependent
+        # field survives only when its gate is true in the recorded
+        # answers, in this turn's accepted proposals, or in a PENDING
+        # proposal from an earlier turn (the user's own stated gate
+        # value awaiting their confirmation — review C-1: licensing
+        # must not depend on whether the gate card was confirmed
+        # before or after the dependent was stated). Shadow capture
+        # licenses gated fields on a yes — this is the deterministic
+        # backstop for every other path that might mint one.
+        dependents = gate_dependents_map(pack.question_sets, answers)
+        if dependents:
+            licensing_answers = dict(answers)
+            try:
+                for _row in repo.list_open_proposals(conn, session_id):
+                    licensing_answers.setdefault(
+                        str(_row.get("question_key")), _row.get("proposed_value")
+                    )
+            except Exception:
+                logger.warning(
+                    "open-proposal read for gate licensing failed", exc_info=True
+                )
+            kept_proposals = _drop_unlicensed_gate_proposals(
+                valid_proposals, licensing_answers, dependents
+            )
+            if len(kept_proposals) != len(valid_proposals):
+                dropped_keys = sorted(
+                    {d.question_key for d in valid_proposals}
+                    - {d.question_key for d in kept_proposals}
+                )
+                logger.warning(
+                    "Dropping gate-unlicensed proposals %s (session %s)",
+                    dropped_keys,
+                    session_id,
+                )
+            valid_proposals = kept_proposals
 
     trace_hash = _trace_hash(f"{message}|{version}|{','.join(d.content_id for d in retrieved)}")
     _store_turn(

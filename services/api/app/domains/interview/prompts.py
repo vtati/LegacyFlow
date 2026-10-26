@@ -31,6 +31,34 @@ PROMPT_TEMPLATE_VERSION_V5 = "v5"
 # verdict turn's prompt no longer re-asks the offer. The single-offer
 # first-presentation rendering is byte-identical to v6.
 PROMPT_TEMPLATE_VERSION_V7 = "v7"
+# v8 = v7 + gate-shadow fields (v2 path only, 2026-10-25): when a focus
+# gate's conditional questions ride along as record-on-yes shadow
+# fields, the prompt gains a GATE FIELDS section. Turns without shadow
+# fields render the v7 text byte-for-byte.
+PROMPT_TEMPLATE_VERSION_V8 = "v8"
+
+
+def _gate_fields_block(shadow_questions: list[dict]) -> str:
+    """The GATE FIELDS section for a set of gate-shadow fields."""
+    shadow_lines = "\n".join(
+        f"  * {s['label']} ({s['key']})"
+        + (
+            f" — unlocked by a yes to: {s['gate_label']}"
+            if s.get("gate_label")
+            else ""
+        )
+        for s in shadow_questions
+    )
+    return f"""
+
+GATE FIELDS — record on a yes only:
+- Some fields above are yes/no gate questions. If the user answers \
+yes to a gate in this message AND states a value for any field below \
+in the same message, record that value too — these fields belong to \
+that gate and are unlocked by its yes:
+{shadow_lines}
+- If the user answers no to a gate, do NOT record any of its fields \
+from this message."""
 
 
 def build_system_prompt(
@@ -47,6 +75,8 @@ def build_system_prompt(
     signed_in_name: str | None = None,
     bundle_offers: list[dict] | None = None,
     next_gap: dict | None = None,
+    shadow_questions: list[dict] | None = None,
+    next_gap_shadow_questions: list[dict] | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -140,6 +170,14 @@ even when that other role is still unanswered."""
 name: "You're signed in as {signed_in_name} — is that the full legal \
 name you'd like on the documents?" Record their confirmed legal name \
 as testator_full_name."""
+        if shadow_questions:
+            # Gate-shadow fields (v8): conditional questions whose gate
+            # is being asked THIS turn. A user who answers the gate and
+            # states the gated values in one breath must not have to
+            # repeat them next turn — record them on the yes, and only
+            # on the yes (the server drops gated proposals whose gate
+            # did not land true).
+            cluster_block += _gate_fields_block(shadow_questions)
     if offers and all(o.get("presented_before") for o in offers):
         # Verdict turn (v7): the offer(s) were presented in an earlier
         # message and the user is answering NOW. Re-asking would burn
@@ -168,6 +206,13 @@ repeat this offer.
 - The system records a yes automatically — do NOT emit proposals \
 for these roles or addresses yourself. If the user says no, \
 acknowledge briefly and move on.{next_block}"""
+        if next_gap_shadow_questions:
+            # The next-gap gate's shadow fields ride this prompt too
+            # (review C-2): a cooperative user answers the appended
+            # gate AND its gated facts in one message, and without the
+            # shadow section those facts are invisible to extraction
+            # until a later turn re-asks them.
+            cluster_block += _gate_fields_block(next_gap_shadow_questions)
     elif len(offers) >= 2:
         # Merged presentation (v7): every pending offer in ONE message
         # — the A/B showed one presentation + verdict exchange PER
