@@ -84,9 +84,20 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+-- raw_user_meta_data/raw_app_meta_data: the handle_new_user trigger reads
+-- them, mirroring the real Supabase auth.users shape.
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
+-- The storage-buckets migration inserts into storage.buckets; stub the
+-- schema/table so the migration sweep can run on a bare pgserver.
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE TABLE IF NOT EXISTS storage.buckets (
+    id text PRIMARY KEY, name text, public boolean
+);
 """
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
@@ -181,9 +192,12 @@ def _exec(db, sql: str, params: tuple = ()) -> None:
 def create_user(db, sub: str) -> None:
     email = USERS.get(sub, f"{sub}@example.test")
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
+    # The on_auth_user_created trigger already provisioned the profiles row
+    # (the pattern test_interview.py relies on); upsert the display name.
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (sub, email, f"Synthetic {email}"),
     )
 
@@ -746,7 +760,13 @@ def test_vault_share_lifecycle(db, api_client):
         api_client, ATTORNEY_A, matter_id, label="Synthetic vault share", expires_at=expires
     )
     share_id = created["id"]
-    raw_token = created["access_token"]
+    # The create response is the web client's one-time reveal: it must carry
+    # the raw token under `token` (the name the client, the /vault/access
+    # payload, and the files download-token response all use) — never
+    # `access_token`, which in this codebase means a Supabase JWT.
+    assert "access_token" not in created
+    assert created["revoked_at"] is None
+    raw_token = created["token"]
     assert isinstance(raw_token, str) and len(raw_token) >= 16
 
     # the raw token is never stored — only a hash column exists

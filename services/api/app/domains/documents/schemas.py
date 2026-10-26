@@ -208,8 +208,15 @@ class VaultShareCreateOut(BaseModel):
     matter_id: UUID
     label: str
     expires_at: datetime
+    # A fresh share is never revoked; the field keeps the create response
+    # shape-compatible with VaultShareOut (and the web client's
+    # VaultShareCreated, which extends the list item type).
+    revoked_at: datetime | None = None
     created_at: datetime
-    access_token: str = Field(description="Raw token — shown once. Only a SHA-256 hash is stored.")
+    # Named `token` — the name the web client, the /vault/access payload,
+    # and the files download-token response all use for a one-time token.
+    # (`access_token` in this codebase means a Supabase JWT.)
+    token: str = Field(description="Raw token — shown once. Only a SHA-256 hash is stored.")
 
 
 class VaultShareOut(BaseModel):

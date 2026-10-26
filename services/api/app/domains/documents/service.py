@@ -1911,7 +1911,7 @@ def create_vault_share(
         label=row["label"],
         expires_at=row["expires_at"],
         created_at=row["created_at"],
-        access_token=raw_token,
+        token=raw_token,
     )
     return out, raw_token
 
