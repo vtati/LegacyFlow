@@ -108,9 +108,11 @@ class TestPersonFallbackRoleParity:
 
 
 class TestRoleWordLicensing:
+    # The persona's exact bequests paragraph (A/B harness ground truth).
     BEQUESTS = (
         "No, I don't have any specific bequests. Everything else — "
-        "the residue of my estate — should go to my wife, Priya Sharma."
+        "the residuary of my estate — goes to my wife Priya Sharma, "
+        "and if she can't take it, equally to our three children."
     )
 
     def test_residuary_sentence_cannot_mint_the_executor(self):
@@ -118,6 +120,26 @@ class TestRoleWordLicensing:
         # scenery) licensed primary_executor_person from the message
         # channel. A primary key now needs one of its own ROLE words
         # among the matched label words.
+        out = svc._deterministic_person_proposal(
+            user_message=self.BEQUESTS,
+            assistant_reply=(
+                "Next, a few things: 1) Are there specific items or "
+                "amounts you want to leave to particular people or "
+                "charities? 2) Who should receive everything else — the "
+                "rest of your estate after debts, expenses, and specific "
+                "gifts are handled?"
+            ),
+            question_sets=GUARDIAN_SETS,
+            existing_proposal_keys=set(),
+        )
+        assert out is None
+
+    def test_estate_scenery_alone_never_licenses_a_primary(self):
+        # Set 8 regression pin: the role-word set must be nomination
+        # NOUNS — "estate" (executor evidence vocabulary) licensed
+        # the turn-4 mint even after the first role-word fix. The
+        # reply asks only bequests + residuary (the production
+        # shape); neither channel may license the executor from it.
         out = svc._deterministic_person_proposal(
             user_message=self.BEQUESTS,
             assistant_reply=(
@@ -212,6 +234,129 @@ class TestAddressAnnotation:
             ),
         )
         assert "do NOT ask this directly" not in text
+
+
+class TestTopicalitySpecificity:
+    """Set 8: section-common words ("healthcare") cannot establish
+    topicality for a sibling field — judged on the REAL pack."""
+
+    AGENTS = (
+        "For the financial power of attorney, my agent is Maya Lee "
+        "and the successor agent is David Lee. For healthcare, my "
+        "agent is Maya Lee and David Lee is the successor healthcare "
+        "agent."
+    )
+    DETAILS = (
+        "A few remaining details: no additional powers beyond the "
+        "standard ones for my financial agent. My healthcare agent's "
+        "phone number is 804-555-0132, and there are no limitations "
+        "on what she may decide. For my living will: if I am "
+        "terminally ill or permanently unconscious, withhold "
+        "life-sustaining treatment and keep me on comfort care only. "
+        "No, I do not wish to donate organs."
+    )
+
+    def _pack_sets(self):
+        from app.domains.legal_content.pack_loader import get_pack
+
+        return get_pack("US-VA").question_sets
+
+    def test_agents_paragraph_is_not_limitations_topical(self):
+        assert (
+            svc._message_names_topic(
+                "healthcare_agent_limitations", self.AGENTS,
+                self._pack_sets(), multi_ask=True,
+            )
+            is False
+        )
+
+    def test_agents_paragraph_is_not_living_will_topical(self):
+        assert (
+            svc._message_names_topic(
+                "living_will_directives", self.AGENTS,
+                self._pack_sets(), multi_ask=True,
+            )
+            is False
+        )
+
+    def test_details_paragraph_is_topical_for_its_fields(self):
+        sets = self._pack_sets()
+        assert svc._message_names_topic(
+            "healthcare_agent_limitations", self.DETAILS, sets,
+            multi_ask=True,
+        )
+        assert svc._message_names_topic(
+            "living_will_directives", self.DETAILS, sets, multi_ask=True
+        )
+
+    GUARDIAN = (
+        "My brother Amit Sharma should be the guardian for our "
+        "children — he is trusted, he is close to the children, and "
+        "he shares our values. If he can't serve, Neha Kapoor is the "
+        "backup guardian."
+    )
+    TRUST = (
+        "Yes, I want a revocable living trust. Amit Sharma is the "
+        "successor trustee. Put everything — all assets — into the "
+        "trust. The children should receive their inheritance "
+        "outright at age 25. Everything should go to my spouse "
+        "outright as the marital share."
+    )
+
+    def test_thin_label_uses_role_family(self):
+        # guardian_reason's label has no distinctive words; its own
+        # paragraph is topical via the guardian family ...
+        assert svc._message_names_topic(
+            "guardian_reason", self.GUARDIAN, self._pack_sets(),
+            multi_ask=True,
+        )
+        # ... but the trust paragraph's lone "children" is scenery.
+        assert (
+            svc._message_names_topic(
+                "guardian_reason", self.TRUST, self._pack_sets(),
+                multi_ask=True,
+            )
+            is False
+        )
+
+    def test_family_scenery_collocation_is_not_a_reason(self):
+        # Review probe: two family hits, zero reason language.
+        probe = (
+            "Yes, I want a revocable living trust, and my brother is "
+            "named guardian of the estate paperwork for tax purposes. "
+            "The children should receive their inheritance outright "
+            "at age 25, and everything else goes to my spouse as the "
+            "marital share of the trust property overall."
+        )
+        assert (
+            svc._message_names_topic(
+                "guardian_reason", probe, self._pack_sets(),
+                multi_ask=True,
+            )
+            is False
+        )
+
+
+class TestOffersBranchInventory:
+    def test_single_offer_turn_renders_inventory(self):
+        text = prompts.build_system_prompt(
+            pack_id="us-va", jurisdiction_code="US-VA",
+            missing_required_keys=["poa_agent_person"],
+            answered_required=24, total_required=41, answered_keys=[],
+            bundle_offers=[{
+                "anchor_name": "123 Main Street, Austin, Texas",
+                "anchor_key": "testator_street_address",
+                "bundle": "address",
+                "fill_keys": ["primary_executor_address"],
+                "fill_labels": ["What is the city and state where your executor lives?"],
+                "question_text": "Should your executor use your address?",
+            }],
+            other_questions=[
+                {"key": "wants_revocable_trust",
+                 "label": "Do you want a revocable living trust?"},
+            ],
+        )
+        assert "OTHER FIELDS" in text
 
 
 class TestMultiAskTopicality:

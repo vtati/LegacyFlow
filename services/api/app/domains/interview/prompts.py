@@ -316,6 +316,13 @@ yes/no question offering {anchor_name} for these additional roles too:
 user says yes, the system records it automatically — do NOT emit \
 proposals for these roles yourself; just acknowledge. If they say no, \
 acknowledge and move on. Never repeat this offer."""
+    if other_questions and "OTHER FIELDS" not in cluster_block:
+        # The offers branches above REPLACE the cluster block (the
+        # cluster/verdict branches append the inventory themselves).
+        # A first-presentation turn still answers the PREVIOUS
+        # question, so the inventory belongs here too (set 8: the
+        # details paragraph extracted zero on an offers turn).
+        cluster_block += _other_fields_block(other_questions)
     text = f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \

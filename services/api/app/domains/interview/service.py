@@ -606,7 +606,22 @@ def _next_adaptive_question(
 _GENERIC_LABEL_WORDS = {
     "should", "handle", "serve", "first", "choice", "cannot", "would",
     "could", "become", "unable", "yourself", "person", "there", "their",
-    "about", "which", "after", "before", "other", "while",
+    "about", "which", "after", "before", "other", "while", "optional",
+}
+
+# Each role's NOMINATION vocabulary: the noun itself plus the words
+# that define the role in its label (the guardian label speaks of
+# children, never of "guardians"; the POA label speaks of financial
+# affairs). "estate" stays out: it is scenery that appears in bequest
+# sentences. Shared by the person-fallback licensing gate and the
+# topicality family path for content-thin labels.
+_ROLE_FAMILY_WORDS = {
+    "guardian": {"guardian", "guardians", "children", "kids", "child"},
+    "executor": {"executor", "executors", "executrix"},
+    "trustee": {"trustee", "trustees", "trust"},
+    "agent": {"agent", "agents"},
+    "healthcare": {"healthcare", "medical", "agent", "agents"},
+    "poa": {"agent", "agents", "attorney", "financial", "finances", "power"},
 }
 
 _PHONE_SPAN_RE = re.compile(
@@ -701,15 +716,73 @@ def _message_names_topic(
             for w in words
             if len(w) >= 4 and w in message_lower and w not in _GENERIC_LABEL_WORDS
         ]
-        if any(w in message_lower for w in distinctive):
+        # Section-common words cannot establish topicality (set 8):
+        # "healthcare"/"agent" sit in the limitations label AND in
+        # every agent label, so the agents paragraph "named the
+        # topic" and was stamped onto healthcare_agent_limitations in
+        # both Pruned runs. A label word counts only when it is
+        # specific to this field's neighbourhood (in <3 other
+        # labels): the distinctive shortcut always uses specific
+        # words; the matched-words paths use them in multi-ask
+        # regimes, where fat paragraphs make coincidental matches
+        # likely.
+        label_word_counts: dict[str, int] = {}
+        for _, _, other_q in qs.iter_questions(question_sets):
+            if str(other_q.get("key")) == question_key:
+                continue
+            for w in set(_label_words(str(other_q.get("label") or ""))):
+                label_word_counts[w] = label_word_counts.get(w, 0) + 1
+
+        def _specific(word: str) -> bool:
+            return label_word_counts.get(word, 0) < 3
+
+        if distinctive and any(
+            w in message_lower for w in distinctive if _specific(w)
+        ):
             return True
+        counted = [w for w in matched if _specific(w)] if multi_ask else matched
         # Terse restatements of the label's own words are genuine
         # answers too ("The rest goes to my brother" for the residuary
         # question): two label content words, or one in a short reply.
-        if len(matched) >= 2:
+        if len(counted) >= 2:
             return True
-        if matched and len(user_message.split()) <= 12:
+        if counted and len(user_message.split()) <= 12:
             return True
+        if not distinctive:
+            # Content-thin labels ("Why is this person a good fit?")
+            # cannot be matched literally — the field's role family
+            # IS the topic (guardian_reason's answer talks about the
+            # guardian and the children). Two distinct family words
+            # required, word-boundary matched: one shared word is
+            # scenery ("children" alone in a trust paragraph does
+            # not make it a guardian answer).
+            family_words: set[str] = set()
+            for token in question_key.split("_"):
+                family_words |= _ROLE_FAMILY_WORDS.get(token, set())
+            hits = {
+                w
+                for w in family_words
+                if re.search(rf"\b{re.escape(w)}\b", message_lower)
+            }
+            if question_key.endswith("_reason") and len(hits) >= 2:
+                # A *_reason answer must carry REASON language, not
+                # just family scenery (review: "guardian of the
+                # estate paperwork" + "children" in a trust
+                # paragraph satisfied the two-hit rule without any
+                # guardian-nomination content). The genuine answer
+                # explains WHY: trusted / close / values / ...
+                reason_markers = (
+                    "trusted", "close", "values", "best", "responsible",
+                    "dependable", "reliable", "caring", "patient",
+                    "loves", "loved", "knows", "bond", "experienced",
+                )
+                if not any(
+                    re.search(rf"\b{m}\b", message_lower)
+                    for m in reason_markers
+                ):
+                    hits = set()
+            if len(hits) >= 2:
+                return True
         if question_key.endswith("_address") and _address_shaped(user_message):
             return True
         # Bare-value answers (review round 2, C-1): canonical answers
@@ -814,18 +887,18 @@ def _deterministic_person_proposal(
                 for w in matched_label_words
                 if len(w) >= 5 and w not in _GENERIC_LABEL_WORDS
             )
-            # Role-word licensing (set-7 turn 4): a PRIMARY key's
-            # distinctive match must be one of the key's own ROLE words,
-            # not scenery from its label. The residuary sentence
-            # ("...the residue of my estate — should go to my wife,
-            # Priya Sharma") matched "should" + "estate" and minted
-            # the executor from a bequest. Role words = the key's
-            # role-evidence vocabulary plus its own tokens.
+            # Role-word licensing (set-7/8 turn 4): a PRIMARY key's
+            # distinctive match must be one of the key's own role
+            # NOUNS, not scenery from its label. The residuary
+            # sentence ("...the residue of my estate — should go to
+            # my wife, Priya Sharma") matched "should" + "estate" and
+            # minted the executor from a bequest, twice — "estate" is
+            # role EVIDENCE vocabulary, but it is not a nomination
+            # word. Nomination nouns only: executor / guardian /
+            # trustee / agent.
             role_words: set[str] = set()
             for part in _key_parts(key):
-                role_words |= set(_ROLE_EVIDENCE_STRONG.get(part, frozenset()))
-                if len(part) >= 4:
-                    role_words.add(part)
+                role_words |= _ROLE_FAMILY_WORDS.get(part, set())
             role_matches = sum(
                 1 for w in matched_label_words if w in role_words
             )
@@ -2144,6 +2217,25 @@ def _focus_completeness_proposals(
             # capture must clear the same role bar as a model proposal.
             logger.info(
                 "Completeness fallback skipped cross-role person %r",
+                key,
+            )
+            continue
+        if (
+            fallback_fn is _deterministic_text_proposal
+            and len(user_message.split()) > 25
+            and not _message_names_topic(
+                key, user_message, question_sets, multi_ask=True
+            )
+        ):
+            # A fat paragraph that never names this field's topic is
+            # not this field's answer, even scoped (set 8: the
+            # re-sent agents paragraph stamped onto living_will /
+            # limitations through the sweep, whose server_asked pass
+            # skips the topic gate). The sanctioned sweep capture —
+            # the focus field's own paragraph — names its topic and
+            # is unaffected.
+            logger.info(
+                "Completeness fallback skipped off-topic text capture %r",
                 key,
             )
             continue
@@ -5834,10 +5926,7 @@ def post_turn(
     # a reference list on cluster and verdict turns so a volunteered
     # off-focus paragraph can be extracted the turn it arrives.
     other_questions: list[dict[str, Any]] | None = None
-    if v2_on and (
-        cluster_gap is not None
-        or (presented_offers and all(o.get("presented_before") for o in presented_offers))
-    ):
+    if v2_on and (cluster_gap is not None or presented_offers):
         _exclude = (
             set(focus_keys)
             | {s["key"] for s in (shadow_questions or [])}
