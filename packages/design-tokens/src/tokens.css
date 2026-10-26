@@ -295,6 +295,21 @@
 /* Aurora field layer — apply to a positioned parent or as a body wash. */
 .lf-aurora { background-image: var(--lf-gradient-aurora); }
 
+/* Gradient focus ring — a 2px signature-gradient border for the one card
+   that holds the user's current focus (Lumen Aurora Phase 3, intake).
+   The padding-box layer paints the elevated surface over the gradient
+   border-box layer, so the card interior stays a plain surface and only
+   the rim carries the gradient. The selector is doubled on purpose:
+   tokens.css is bundled before the Tailwind utilities, so at equal
+   specificity the card's own border utilities would win — (0,2,0) beats
+   them regardless of order (verified against the real card, 2026-10-26). */
+.lf-gradient-ring.lf-gradient-ring {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--lf-canvas-elevated), var(--lf-canvas-elevated)) padding-box,
+    var(--lf-gradient-primary) border-box;
+}
+
 /* Glass surface — translucent elevated color + blur, for sticky headers
    floating over the aurora canvas (Lumen Aurora Phase 2). */
 .lf-glass {

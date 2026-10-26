@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { api, type VaultShare, type VaultShareCreated } from '@/lib/api-client';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { STATUS_DOT_CLASS, formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 function ShareStatus({ share }: { share: VaultShare }) {
@@ -17,7 +17,10 @@ function ShareStatus({ share }: { share: VaultShare }) {
     <span
       className={cn(
         'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
-        revoked ? 'bg-lf-error-100 text-lf-error-700' : 'bg-lf-success-100 text-lf-success-700',
+        STATUS_DOT_CLASS,
+        revoked
+          ? 'bg-lf-error-100 text-lf-error-700 before:bg-lf-error-600'
+          : 'bg-lf-success-100 text-lf-success-700 before:bg-lf-success-600',
       )}
     >
       {revoked ? 'Revoked' : 'Active'}
@@ -81,7 +84,7 @@ function TokenReveal({
   };
 
   return (
-    <Card className="border-lf-accent-600" aria-label="New vault share">
+    <Card className="border-lf-accent-600 bg-lf-panel-cyan" aria-label="New vault share">
       <CardHeader>
         <CardTitle>Share created — save this link now</CardTitle>
         <CardDescription>
@@ -217,6 +220,7 @@ export default function FamilyVaultPage(): React.JSX.Element {
       ) : null}
       {!mattersLoading && !mattersError && matters.length === 0 && (
         <EmptyState
+          variant="aurora"
           title="No matters yet"
           description="Your vault shares will appear here once your firm starts a plan for your household."
         />
@@ -244,8 +248,8 @@ export default function FamilyVaultPage(): React.JSX.Element {
 
       {matterId && !loading && !error && (
         <>
-          <Card>
-            <CardHeader>
+          <Card className="overflow-hidden">
+            <CardHeader className="bg-lf-panel-sky">
               <CardTitle>Create a share</CardTitle>
               <CardDescription>
                 The recipient sees a redacted summary — no account needed, no full documents.
@@ -290,6 +294,7 @@ export default function FamilyVaultPage(): React.JSX.Element {
             <h2 className="text-base font-semibold text-lf-text">Shares</h2>
             {shares.length === 0 ? (
               <EmptyState
+                variant="aurora"
                 title="No shares yet"
                 description="Create a share above to give someone a read-only, redacted view of your plan."
               />

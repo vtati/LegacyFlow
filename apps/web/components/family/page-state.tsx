@@ -78,10 +78,32 @@ interface EmptyStateProps {
   title: string;
   description: string;
   action?: React.ReactNode;
+  /**
+   * `aurora` renders the Lumen Aurora treatment (aurora field wash +
+   * gradient medallion) — opt-in per surface (Phase 3 family surfaces).
+   * The default `plain` treatment is unchanged; professional pages share
+   * this component and keep it.
+   */
+  variant?: 'plain' | 'aurora';
 }
 
 /** Empty state with optional call-to-action. */
-export function EmptyState({ title, description, action }: EmptyStateProps) {
+export function EmptyState({ title, description, action, variant = 'plain' }: EmptyStateProps) {
+  if (variant === 'aurora') {
+    return (
+      <Card className="relative overflow-hidden">
+        <div aria-hidden="true" className="absolute inset-0 bg-lf-aurora" />
+        <CardContent className="relative flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <span className="flex size-11 items-center justify-center rounded-full bg-lf-gradient-action text-white shadow-lf-glow">
+            <Inbox className="size-5" aria-hidden="true" />
+          </span>
+          <p className="font-lf-serif text-lg font-medium text-lf-text">{title}</p>
+          <p className="max-w-md text-sm text-lf-text-muted">{description}</p>
+          {action}
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">

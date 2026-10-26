@@ -28,6 +28,7 @@ export default function FamilyIntakeIndexPage(): React.JSX.Element {
 
       {!loading && !error && matters.length === 0 && (
         <EmptyState
+          variant="aurora"
           title="No matters yet"
           description="When your firm starts a plan for your household, its intake questions will appear here."
         />

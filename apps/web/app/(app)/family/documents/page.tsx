@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
+import { DocumentTypeTile, documentTypeLabel } from '@/components/documents/document-type-tile';
 import { WatermarkNotice } from '@/components/documents/watermark-notice';
 import { api, type DraftDocument } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
@@ -103,6 +104,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
       ) : null}
       {!mattersLoading && !mattersError && matters.length === 0 && (
         <EmptyState
+          variant="aurora"
           title="No matters yet"
           description="Your documents will appear here once your firm starts a plan for your household."
         />
@@ -126,6 +128,7 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
           )}
           {documents.length === 0 ? (
             <EmptyState
+              variant="aurora"
               title="No documents yet"
               description="Your firm will share watermarked draft documents here once your plan takes shape."
             />
@@ -138,12 +141,14 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
                       key={document.id}
                       className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                     >
-                      <div className="min-w-0">
+                      <DocumentTypeTile fileName={document.file_name} />
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-lf-text">
                           {document.file_name}
                         </p>
                         <p className="text-xs text-lf-text-subtle">
-                          Draft · v{document.version} · {formatDateTime(document.created_at)}
+                          {documentTypeLabel(document.file_name)} · Draft · v{document.version} ·{' '}
+                          {formatDateTime(document.created_at)}
                         </p>
                       </div>
                       <Button

@@ -141,6 +141,16 @@ describe('design tokens — Lumen Aurora additions (2026-10-24)', () => {
     expect(tokens.gradient.action).toBe('linear-gradient(115deg, #0E7C9C 0%, #6553E3 100%)');
   });
 
+  it('ships the gradient-ring utility for focused family surfaces (Phase 3)', () => {
+    const css = readFileSync(new URL('../tokens.css', import.meta.url), 'utf8');
+    // The doubled selector is load-bearing: tokens.css is bundled before
+    // Tailwind utilities, so (0,2,0) specificity is what lets the ring win
+    // over a Card's border/background utilities. Pin it.
+    expect(css).toContain('.lf-gradient-ring.lf-gradient-ring');
+    expect(css).toContain('var(--lf-gradient-primary) border-box');
+    expect(css).toContain('var(--lf-canvas-elevated)) padding-box');
+  });
+
   it('adds hero radius and glow shadow', () => {
     expect(tokens.radius.hero).toBe('20px');
     expect(tokens.shadow.glow).toContain('14 155 191');

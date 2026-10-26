@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { useMatters } from '@/components/family/matter-context';
 import { ProgressBar } from '@/components/family/progress-bar';
+import { StatusPill } from '@/components/family/status-pill';
 import {
   api,
   type AnswerMap,
@@ -17,8 +18,7 @@ import {
   type Question,
   type QuestionSetsResponse,
 } from '@/lib/api-client';
-import { formatStatus, statusBadgeClass } from '@/lib/format';
-import { cn } from '@/lib/utils';
+
 
 const NOMINATION_TYPES = ['guardian', 'executor', 'trustee'] as const;
 
@@ -147,18 +147,14 @@ function MatterPlanCard({ plan }: { plan: MatterPlan }) {
               {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code}
             </CardDescription>
           </div>
-          <span
-            className={cn(
-              'inline-block rounded-full px-2.5 py-1 text-xs font-medium',
-              statusBadgeClass(matter.status),
-            )}
-          >
-            {formatStatus(matter.status)}
-          </span>
+          <StatusPill status={matter.status} />
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-1.5">
+        <section
+          aria-label={`${matter.title} completeness`}
+          className="space-y-1.5 rounded-lf-card bg-lf-panel-cyan p-4 sm:p-5"
+        >
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-lf-text">Plan completeness</span>
             <span className="font-medium text-lf-text">{displayPct}%</span>
@@ -170,18 +166,21 @@ function MatterPlanCard({ plan }: { plan: MatterPlan }) {
               complete
             </p>
           )}
-        </div>
+        </section>
 
-        <section aria-label={`${matter.title} nominations`}>
+        <section
+          aria-label={`${matter.title} nominations`}
+          className="rounded-lf-card bg-lf-panel-mint p-4 sm:p-5"
+        >
           <h3 className="text-sm font-semibold text-lf-text">Key roles</h3>
-          <dl className="mt-2 divide-y divide-lf-border rounded-lf-control border border-lf-border">
+          <dl className="mt-2 divide-y divide-lf-success-200">
             {NOMINATION_TYPES.map((type) => {
               const list = (plan.nominations[type] ?? []).slice().sort(
                 (a, b) => a.priority - b.priority,
               );
               const first = list[0];
               return (
-                <div key={type} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div key={type} className="flex items-center justify-between gap-3 py-2.5">
                   <dt className="text-sm text-lf-text-muted">{NOMINATION_LABELS[type]}</dt>
                   <dd className="text-sm font-medium text-lf-text">
                     {first ? (
@@ -204,7 +203,10 @@ function MatterPlanCard({ plan }: { plan: MatterPlan }) {
         </section>
 
         {plan.decisions.length > 0 && (
-          <section aria-label={`${matter.title} choices`}>
+          <section
+            aria-label={`${matter.title} choices`}
+            className="rounded-lf-card bg-lf-panel-sky p-4 sm:p-5"
+          >
             <h3 className="text-sm font-semibold text-lf-text">Your choices so far</h3>
             <dl className="mt-2 space-y-1.5">
               {plan.decisions.map((decision) => (
@@ -217,7 +219,10 @@ function MatterPlanCard({ plan }: { plan: MatterPlan }) {
           </section>
         )}
 
-        <section aria-label={`${matter.title} next steps`}>
+        <section
+          aria-label={`${matter.title} next steps`}
+          className="rounded-lf-card bg-lf-panel-amber p-4 sm:p-5"
+        >
           <h3 className="text-sm font-semibold text-lf-text">Next steps</h3>
           <ul className="mt-2 space-y-1.5">
             {plan.nextSteps.map((step) => (
@@ -335,6 +340,7 @@ export default function FamilyMyPlanPage(): React.JSX.Element {
 
       {!mattersLoading && !mattersError && matters.length === 0 && (
         <EmptyState
+          variant="aurora"
           title="No matters yet"
           description="Your plan overview will appear here once your firm starts a matter for your household."
         />
@@ -349,7 +355,7 @@ export default function FamilyMyPlanPage(): React.JSX.Element {
       {!loading && !error && plans.length > 0 && summary.unnamed > 0 && (
         <p
           role="status"
-          className="flex items-start gap-2 rounded-lf-control border border-lf-accent-600 bg-lf-accent-50 px-4 py-3 text-sm text-lf-accent-800"
+          className="flex items-start gap-2 rounded-lf-control border border-lf-warning-500 bg-lf-warning-50 px-4 py-3 text-sm text-lf-warning-700"
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           {summary.unnamed === 1

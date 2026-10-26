@@ -51,22 +51,24 @@ export function formatMoney(valueCents: number | null | undefined, currency = 'U
  * sage = complete, terracotta tint = in progress, warm gray = not started,
  * red tint = attention.
  */
+/** Shared status-dot treatment (colored dot before the label via ::before). */
+export const STATUS_DOT_CLASS =
+  'before:mr-1.5 before:inline-block before:size-1.5 before:rounded-full before:align-middle before:content-[""]';
+
 export function statusBadgeClass(status: string): string {
-  const dot =
-    'before:mr-1.5 before:inline-block before:size-1.5 before:rounded-full before:align-middle before:content-[""]';
   const normalized = status.toLowerCase();
   if (normalized.includes('approv') || normalized.includes('complet')) {
-    return `${dot} bg-lf-success-100 text-lf-success-700 before:bg-lf-success-600`;
+    return `${STATUS_DOT_CLASS} bg-lf-success-100 text-lf-success-700 before:bg-lf-success-600`;
   }
   if (
     normalized.includes('review') ||
     normalized.includes('submit') ||
     normalized.includes('pending')
   ) {
-    return `${dot} bg-lf-accent-100 text-lf-accent-800 before:bg-lf-accent-600`;
+    return `${STATUS_DOT_CLASS} bg-lf-accent-100 text-lf-accent-800 before:bg-lf-accent-600`;
   }
   if (normalized.includes('reject') || normalized.includes('block')) {
-    return `${dot} bg-lf-error-100 text-lf-error-700 before:bg-lf-error-600`;
+    return `${STATUS_DOT_CLASS} bg-lf-error-100 text-lf-error-700 before:bg-lf-error-600`;
   }
-  return `${dot} bg-lf-canvas-subtle text-lf-text-muted before:bg-lf-text-subtle`;
+  return `${STATUS_DOT_CLASS} bg-lf-canvas-subtle text-lf-text-muted before:bg-lf-text-subtle`;
 }

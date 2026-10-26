@@ -186,6 +186,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   if (sections.length === 0) {
     return (
       <EmptyState
+        variant="aurora"
         title="No questions available"
         description="Your firm's intake questions are not published yet. Please check back later or ask your firm."
         action={
@@ -315,7 +316,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                     >
                       {index + 1}
                     </span>
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate">{entry.section.title}</span>
                       {setProgress && (
                         <span
@@ -331,6 +332,17 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                           {setProgress.percent_complete}% complete
                         </span>
                       )}
+                      {setProgress && (
+                        <span
+                          className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-lf-accent-100"
+                          aria-hidden="true"
+                        >
+                          <span
+                            className="lf-lumen-fill block h-full rounded-full"
+                            style={{ width: `${setProgress.percent_complete}%` }}
+                          />
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>
@@ -341,7 +353,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
 
         <div className="space-y-6">
           {activeSection && (
-            <Card key={activeSection.section.id}>
+            <Card key={activeSection.section.id} className="lf-gradient-ring shadow-lf-card">
               <CardHeader>
                 <CardDescription>{activeSection.setTitle}</CardDescription>
                 <h2
