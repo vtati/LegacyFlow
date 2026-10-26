@@ -763,6 +763,7 @@ def get_progress(conn: Any, *, actor_sub: str, matter_id: UUID) -> IntakeProgres
     matters_repo.update_completeness(conn, matter_id, overall)
     return IntakeProgressOut(
         sets=per_set,
+        sections=qs.compute_section_progress(pack.question_sets, answers),
         completeness_pct=overall,
         overall=qs.build_overall_progress(per_set, overall),
     )

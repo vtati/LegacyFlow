@@ -270,6 +270,8 @@ export interface SetProgress {
 
 export interface IntakeProgressResponse {
   sets: Record<string, SetProgress>;
+  /** Per-section breakdown: { setId: { sectionId: progress } }. */
+  sections?: Record<string, Record<string, SetProgress>>;
   overall: SetProgress;
   completeness_pct: number;
 }

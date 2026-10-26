@@ -289,7 +289,13 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
         <nav aria-label="Intake sections" className="lg:sticky lg:top-24 lg:self-start">
           <ol className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {sections.map((entry, index) => {
-              const setProgress = progress?.sets[entry.setId];
+              // Per-SECTION progress: the set-level figure repeated under
+              // every section misleads (one answer in section 1 made
+              // section 2 show the same %). Fall back to the set figure
+              // only if the payload predates the per-section breakdown.
+              const setProgress =
+                progress?.sections?.[entry.setId]?.[entry.section.id] ??
+                progress?.sets[entry.setId];
               const isActive = index === activeIndex;
               return (
                 <li key={entry.section.id} className="shrink-0 lg:shrink">

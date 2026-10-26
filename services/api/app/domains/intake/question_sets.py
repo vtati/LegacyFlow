@@ -383,6 +383,58 @@ def compute_progress(
     return per_set, overall, missing, pruned_required
 
 
+def compute_section_progress(
+    question_sets: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+) -> dict[str, dict[str, QuestionSetProgress]]:
+    """Per-section progress, from the same partition as ``compute_progress``.
+
+    Returns ``{set_id: {section_id: QuestionSetProgress}}`` in pack order.
+    Semantics match the per-set figures exactly — pruned questions leave
+    the denominator, pending questions still count, and
+    ``percent_complete`` is the answered share of the section's
+    applicable+pending questions — so a section's numbers always sum to
+    its set's. Every section is pre-registered (zeroed) so the payload
+    stays shape-stable even when a whole section prunes. The wizard's
+    section nav reads this: a set-level percentage repeated under each
+    section misleads (one answer in section 1 made section 2 show the
+    same %).
+    """
+    totals: dict[str, dict[str, dict[str, int]]] = {}
+    order: list[tuple[str, str]] = []
+    for set_id, question_set in question_sets.items():
+        totals[set_id] = {}
+        for section in question_set.get("sections", []):
+            section_id = str(section.get("id", ""))
+            totals[set_id][section_id] = {"total": 0, "answered": 0, "req": 0, "req_ok": 0}
+            order.append((set_id, section_id))
+    for state, set_id, section_id, question in _partition_rows(question_sets, answers):
+        if state == "pruned":
+            continue
+        stats = totals[set_id][section_id]
+        stats["total"] += 1
+        answered = is_answered(answers.get(str(question["key"])))
+        if answered:
+            stats["answered"] += 1
+        if question.get("required"):
+            stats["req"] += 1
+            if answered:
+                stats["req_ok"] += 1
+
+    per_section: dict[str, dict[str, QuestionSetProgress]] = {}
+    for set_id, section_id in order:
+        stats = totals[set_id][section_id]
+        total = stats["total"]
+        per_section.setdefault(set_id, {})[section_id] = QuestionSetProgress(
+            total_questions=total,
+            answered=stats["answered"],
+            required_total=stats["req"],
+            required_answered=stats["req_ok"],
+            percent_complete=round(100.0 * stats["answered"] / total, 2) if total else 0.0,
+        )
+    return per_section
+
+
 def build_overall_progress(
     per_set: dict[str, QuestionSetProgress], completeness_pct: float
 ) -> QuestionSetProgress:

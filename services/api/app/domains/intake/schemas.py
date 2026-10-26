@@ -43,5 +43,9 @@ class IntakeProgressOut(BaseModel):
     """Per-set progress plus the overall required-question completeness."""
 
     sets: dict[str, QuestionSetProgress]
+    # Per-section breakdown ({set_id: {section_id: progress}}) with the
+    # same semantics as the per-set rows; the wizard's section nav reads
+    # this so each section shows its own answered share.
+    sections: dict[str, dict[str, QuestionSetProgress]] = {}
     completeness_pct: float
     overall: QuestionSetProgress
