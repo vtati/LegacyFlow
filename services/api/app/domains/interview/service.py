@@ -664,6 +664,8 @@ def _message_names_topic(
     question_key: str,
     user_message: str,
     question_sets: dict[str, dict[str, Any]],
+    *,
+    multi_ask: bool = False,
 ) -> bool:
     """Whether the user's message itself names the candidate's topic.
 
@@ -674,6 +676,13 @@ def _message_names_topic(
     distinctive label word in the message — or the field's own value
     shape, for addresses — is the minimum evidence the message is an
     answer to that field at all.
+
+    A key whose label has NO distinctive words (guardian_reason: "Why
+    is this person a good fit?") passes unchecked in a single-ask
+    regime — the message is the answer to the one question asked. In
+    a MULTI-ASK regime that free pass is the set-7 stamp: the trust
+    paragraph was filed as guardian_reason in both Sharma runs. There
+    the ordinary matched-word / bare-value evidence is required.
     """
     from app.domains.intake import question_sets as qs
 
@@ -685,7 +694,7 @@ def _message_names_topic(
         distinctive = [
             w for w in words if len(w) >= 5 and w not in _GENERIC_LABEL_WORDS
         ]
-        if not distinctive:
+        if not distinctive and not multi_ask:
             return True  # nothing distinctive to check against
         matched = [
             w
@@ -805,13 +814,28 @@ def _deterministic_person_proposal(
                 for w in matched_label_words
                 if len(w) >= 5 and w not in _GENERIC_LABEL_WORDS
             )
+            # Role-word licensing (set-7 turn 4): a PRIMARY key's
+            # distinctive match must be one of the key's own ROLE words,
+            # not scenery from its label. The residuary sentence
+            # ("...the residue of my estate — should go to my wife,
+            # Priya Sharma") matched "should" + "estate" and minted
+            # the executor from a bequest. Role words = the key's
+            # role-evidence vocabulary plus its own tokens.
+            role_words: set[str] = set()
+            for part in _key_parts(key):
+                role_words |= set(_ROLE_EVIDENCE_STRONG.get(part, frozenset()))
+                if len(part) >= 4:
+                    role_words.add(part)
+            role_matches = sum(
+                1 for w in matched_label_words if w in role_words
+            )
             qualified_key = any(
                 q in key for q in ("backup", "alternate", "successor", "secondary")
             )
             key_roles = {r for r in roles if r in key}
             role_match = bool(key_roles & ctx_roles)
             if role_match or (
-                label_matches >= 2 and (qualified_key or distinctive_matches >= 1)
+                label_matches >= 2 and (qualified_key or role_matches >= 1)
             ):
                 found.append(key)
         qualified = [
@@ -837,6 +861,41 @@ def _deterministic_person_proposal(
 
     name = _extract_person_name(user_message)
     if name is None:
+        return None
+
+    # Role parity (set 7): the G3 scoped path and the model path both
+    # apply role discipline to person captures; the unscoped fallback
+    # did not, so an executor paragraph minted backup_guardian_person
+    # from the previous reply's guardian wording (Sharma #2 turn 6).
+    # A message that speaks a different role family — or swaps the
+    # primary into a successor clause — cannot ground this nomination.
+    # Successor keys keep their own discipline (review I-1): a
+    # role-FREE successor phrasing ("...should be the one to step in
+    # and take over if I cannot serve...") is exactly what successor
+    # licensing exists to judge, so for those keys only the hard
+    # smear case is blocked here — the message nominates with a
+    # DIFFERENT role NOUN (executor / guardian / trustee / agent are
+    # nomination words; scenery like "health reasons" or "my estate"
+    # is not).
+    if asked_key in SUCCESSOR_PERSON_KEYS:
+        _nouns = {
+            "guardian": {"guardian", "guardians"},
+            "executor": {"executor", "executors", "executrix"},
+            "trustee": {"trustee", "trustees"},
+            "agent": {"agent", "agents"},
+            "healthcare": {"agent", "agents"},
+            "poa": {"agent", "agents"},
+        }
+        _token_set = set(_norm_tokens(user_message))
+        _spoken = set().union(*_nouns.values()) & _token_set
+        _own = set().union(
+            *(_nouns.get(part, set()) for part in _key_parts(asked_key))
+        )
+        if _spoken and not (_spoken & _own):
+            return None
+    elif _person_role_mismatch(
+        asked_key, user_message, assistant_context=assistant_reply
+    ) or _primary_role_swapped(name, user_message):
         return None
 
     return {
@@ -935,7 +994,15 @@ def _deterministic_text_proposal(
             "confidence": 0.80,
             "source_snippet": message[:500],
         }
-    if not server_asked and not _message_names_topic(key, message, question_sets):
+    if not server_asked and not _message_names_topic(
+        key,
+        message,
+        question_sets,
+        multi_ask=(
+            assistant_reply.count("?") >= 2
+            or len(re.findall(r"(?m)^\s*\d+[).]", assistant_reply)) >= 2
+        ),
+    ):
         # The candidate was selected from the previous reply's wording;
         # the message itself never names this field's topic, so stamping
         # the whole message onto it is the set-6 bleed shape. The G3
@@ -2368,6 +2435,35 @@ def shadow_questions_for(
                 }
             )
     return shadows
+
+
+def other_questions_for(
+    question_sets: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+    *,
+    exclude: frozenset[str] | set[str],
+) -> list[dict[str, Any]]:
+    """The Lever E reference inventory (prompt v9): every question the
+    pack's partition counts as applicable or pending under the current
+    answers, minus the turn's focus / shadow / offer keys. The model
+    can only extract a volunteered off-focus paragraph against keys
+    and labels it can actually see (set 7: the details, agents and
+    trust paragraphs each extracted ~zero when they arrived outside
+    the focus, and had to be re-sent)."""
+    from app.domains.intake import question_sets as qs
+
+    applicable, pending, _pruned = qs.partition_questions(question_sets, answers)
+    out: list[dict[str, Any]] = []
+    seen = set(exclude) | set(answers.keys())
+    for _set_id, _section_id, question in [*applicable, *pending]:
+        key = str(question.get("key"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {"key": key, "label": str(question.get("label") or key)}
+        )
+    return out
 
 
 def _governing_expressions(
@@ -5734,8 +5830,29 @@ def post_turn(
         focus_question_text=focus_question_text,
     )
     history = _history_messages(conn, session_id)
+    # Lever E inventory (v9): the remaining applicable fields ride as
+    # a reference list on cluster and verdict turns so a volunteered
+    # off-focus paragraph can be extracted the turn it arrives.
+    other_questions: list[dict[str, Any]] | None = None
+    if v2_on and (
+        cluster_gap is not None
+        or (presented_offers and all(o.get("presented_before") for o in presented_offers))
+    ):
+        _exclude = (
+            set(focus_keys)
+            | {s["key"] for s in (shadow_questions or [])}
+            | {s["key"] for s in (next_gap_shadow_questions or [])}
+            | {k for o in presented_offers for k in o["fill_keys"]}
+            | {k for o in verdict_offers for k in o["fill_keys"]}
+            | set(pending_keys)
+        )
+        other_questions = other_questions_for(
+            pack.question_sets, answers, exclude=_exclude
+        ) or None
     prompt_version = (
-        prompts.PROMPT_TEMPLATE_VERSION_V8
+        prompts.PROMPT_TEMPLATE_VERSION_V9
+        if other_questions
+        else prompts.PROMPT_TEMPLATE_VERSION_V8
         if (shadow_questions or next_gap_shadow_questions)
         else prompts.PROMPT_TEMPLATE_VERSION_V7
         if (cluster_gap is not None or presented_offers)
@@ -5755,6 +5872,7 @@ def post_turn(
         next_gap=then_gap,
         shadow_questions=shadow_questions or None,
         next_gap_shadow_questions=next_gap_shadow_questions or None,
+        other_questions=other_questions,
     )
 
     # Stronger extractor on v2 turns only (config OPENAI_INTERVIEW_MODEL_V2,
@@ -6003,11 +6121,30 @@ def post_turn(
         all_covered = existing_keys | proposed_keys | set(answers.keys()) | decided_keys | dropped_copy_keys | dropped_grounding_keys | dropped_rejected_keys
 
         # Try boolean fallback first, then person-name, then text/notes.
+        # Engagement discipline (set 7, refined by review I-4): the
+        # TEXT fallback's value is the WHOLE message by construction.
+        # When the model already extracted >=2 values from a message,
+        # the message is multi-topic and the model demonstrably
+        # engaged it — a whole-message stamp onto a sibling field is
+        # then always the bleed shape (the agents paragraph filed as
+        # healthcare_agent_limitations), so the text fallback abstains
+        # (the same rule G3 applies to its own text captures). The
+        # PERSON fallback still runs on engaged turns: its licensing
+        # is role-word based (a nomination must be tied to its role in
+        # the message's or reply's own words), which is what separates
+        # a stated nomination from an inference. The boolean fallback
+        # is polarity-disciplined and always runs (gates steer).
+        model_proposals = len(valid_proposals)
         for fallback_fn in (
             _deterministic_boolean_proposal,
             _deterministic_person_proposal,
             _deterministic_text_proposal,
         ):
+            if (
+                fallback_fn is _deterministic_text_proposal
+                and model_proposals >= 2
+            ):
+                continue
             fallback = fallback_fn(
                 user_message=message,
                 assistant_reply=last_assistant_msg,

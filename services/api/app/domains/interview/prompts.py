@@ -36,6 +36,31 @@ PROMPT_TEMPLATE_VERSION_V7 = "v7"
 # fields, the prompt gains a GATE FIELDS section. Turns without shadow
 # fields render the v7 text byte-for-byte.
 PROMPT_TEMPLATE_VERSION_V8 = "v8"
+# v9 = v8 + OTHER FIELDS inventory (v2 path only, 2026-10-25, Lever E):
+# the remaining applicable fields render as a reference list so a
+# paragraph the user volunteers outside the focus can still be
+# extracted against real keys/labels (set 7: off-focus paragraphs
+# extracted ~zero and had to be re-sent). Turns without the inventory
+# render the v8/v7 text byte-for-byte.
+PROMPT_TEMPLATE_VERSION_V9 = "v9"
+
+
+def _other_fields_block(other_questions: list[dict]) -> str:
+    """The OTHER FIELDS reference inventory (Lever E, prompt v9)."""
+    lines = "\n".join(
+        f"  * {q['label']} ({q['key']})" for q in other_questions
+    )
+    return f"""
+
+OTHER FIELDS — reference only, do NOT ask about these this turn:
+- If the user's message explicitly states a value for any field \
+below, record it in the same proposals call — a volunteered \
+paragraph must never be lost because it arrived outside the focus.
+{lines}
+- Record an other-field value ONLY when the message states it for \
+THAT field. A person named for one purpose (for example, as the \
+recipient of the residue) is NOT thereby nominated for a role, and \
+a fact stated for one field is never evidence for another."""
 
 
 def _gate_fields_block(shadow_questions: list[dict]) -> str:
@@ -77,6 +102,7 @@ def build_system_prompt(
     next_gap: dict | None = None,
     shadow_questions: list[dict] | None = None,
     next_gap_shadow_questions: list[dict] | None = None,
+    other_questions: list[dict] | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -120,8 +146,29 @@ def build_system_prompt(
     answered_str = ", ".join(answered) if answered else "none"
     cluster_block = ""
     if cluster_gap is not None:
+        def _field_line(q: dict) -> str:
+            line = f"  * {q['label']} ({q['key']})"
+            if (
+                not cluster_gap.get("sweep")
+                and str(q["key"]).endswith("_address")
+                and not str(q["key"]).startswith("testator")
+            ):
+                # A role address is collected through the server's
+                # yes/no shared-address offer, not a direct question:
+                # asked directly in the same message that names the
+                # person (whose offer has not been presented yet), it
+                # is unanswerable drift (set 7, Sharma #2 turns 5-6).
+                # The testator's OWN address fields are direct-ask by
+                # design and are never annotated; sweep turns are the
+                # last resort and keep direct asks.
+                line += (
+                    " — do NOT ask this directly; the system collects "
+                    "it through a yes/no shared-address offer"
+                )
+            return line
+
         field_lines = "\n".join(
-            f"  * {q['label']} ({q['key']})" for q in cluster_gap["questions"]
+            _field_line(q) for q in cluster_gap["questions"]
         )
         cluster_names = " + ".join(
             cluster_gap.get("clusters") or [cluster_gap["cluster"]]
@@ -178,6 +225,9 @@ as testator_full_name."""
             # on the yes (the server drops gated proposals whose gate
             # did not land true).
             cluster_block += _gate_fields_block(shadow_questions)
+        if other_questions:
+            # Lever E inventory (v9).
+            cluster_block += _other_fields_block(other_questions)
     if offers and all(o.get("presented_before") for o in offers):
         # Verdict turn (v7): the offer(s) were presented in an earlier
         # message and the user is answering NOW. Re-asking would burn
@@ -213,6 +263,8 @@ acknowledge briefly and move on.{next_block}"""
             # shadow section those facts are invisible to extraction
             # until a later turn re-asks them.
             cluster_block += _gate_fields_block(next_gap_shadow_questions)
+        if other_questions:
+            cluster_block += _other_fields_block(other_questions)
     elif len(offers) >= 2:
         # Merged presentation (v7): every pending offer in ONE message
         # — the A/B showed one presentation + verdict exchange PER
