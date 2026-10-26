@@ -34,6 +34,52 @@ export function useMatters(): UseMattersResult {
   return { matters, loading, error, reload: load };
 }
 
+/**
+ * Resolve each matter's coverage from the LIVE intake-progress endpoint.
+ *
+ * The stored `completeness_pct` on a matter summary is a lifecycle proxy
+ * (the API sets it from the matter's status at creation and on every
+ * status transition), so it routinely disagrees with the answer-driven
+ * figure — a fresh matter showed 9% stored while its live progress was
+ * 0%. Any surface that shows coverage must use this resolver so the same
+ * matter never displays two percentages at once. Until a matter's live
+ * figure lands (or if its fetch fails), the stored value is the
+ * fallback — the same fallback for every number on the screen.
+ */
+export function useLiveCoverage(
+  matters: MatterSummary[],
+): (matter: MatterSummary) => number {
+  const [liveById, setLiveById] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (matters.length === 0) return;
+    let cancelled = false;
+    for (const matter of matters) {
+      api
+        .getIntakeProgress(matter.id)
+        .then((progress) => {
+          if (!cancelled) {
+            setLiveById((prev) => ({
+              ...prev,
+              [matter.id]: Math.round(progress.completeness_pct),
+            }));
+          }
+        })
+        .catch(() => {
+          // Keep the stored fallback for this matter.
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [matters]);
+
+  return useCallback(
+    (matter: MatterSummary) => liveById[matter.id] ?? matter.completeness_pct,
+    [liveById],
+  );
+}
+
 interface MatterSelectProps {
   matters: MatterSummary[];
   value: string | null;

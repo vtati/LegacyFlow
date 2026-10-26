@@ -6,11 +6,18 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
-import { formatStatus, useMatters } from '@/components/family/matter-context';
+import {
+  formatStatus,
+  useLiveCoverage,
+  useMatters,
+} from '@/components/family/matter-context';
 
 /** Intake matter picker — choose which matter's questions to answer. */
 export default function FamilyIntakeIndexPage(): React.JSX.Element {
   const { matters, loading, error, reload } = useMatters();
+  // Coverage reads the live intake-progress figure, not the stored
+  // lifecycle proxy (see useLiveCoverage).
+  const coverage = useLiveCoverage(matters);
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -48,13 +55,13 @@ export default function FamilyIntakeIndexPage(): React.JSX.Element {
                     </p>
                   </div>
                   <ProgressBar
-                    value={matter.completeness_pct}
+                    value={coverage(matter)}
                     label={`${matter.title} intake progress`}
                   />
                 </div>
                 <Button asChild className="shrink-0">
                   <Link href={`/family/intake/${matter.id}`}>
-                    {matter.completeness_pct > 0 ? 'Continue intake' : 'Start intake'}
+                    {coverage(matter) > 0 ? 'Continue intake' : 'Start intake'}
                     <ArrowRight className="size-4" aria-hidden="true" />
                   </Link>
                 </Button>

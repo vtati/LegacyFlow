@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -21,11 +21,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { CoverageRing } from '@/components/family/coverage-ring';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { CreateMatterModal } from '@/components/family/create-matter-modal';
-import { useMatters } from '@/components/family/matter-context';
+import { useLiveCoverage, useMatters } from '@/components/family/matter-context';
 import { ProgressBar } from '@/components/family/progress-bar';
 import { StatusPill } from '@/components/family/status-pill';
 import { cn } from '@/lib/utils';
-import { api, type MatterSummary } from '@/lib/api-client';
+import { type MatterSummary } from '@/lib/api-client';
 
 type JewelTone = 'cyan' | 'sky' | 'violet' | 'mint' | 'amber' | 'navy';
 
@@ -186,7 +186,7 @@ function nextStepFor(matter: MatterSummary, pct: number): NextStep {
   };
 }
 
-function MatterCard({ matter }: { matter: MatterSummary }) {
+function MatterCard({ matter, pct }: { matter: MatterSummary; pct: number }) {
   return (
     <Card>
       <CardContent className="space-y-5 p-6">
@@ -207,10 +207,10 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-sm">
             <span className="text-lf-text-muted">Intake completeness</span>
-            <span className="font-medium text-lf-text">{matter.completeness_pct}%</span>
+            <span className="font-medium text-lf-text">{pct}%</span>
           </div>
           <ProgressBar
-            value={matter.completeness_pct}
+            value={pct}
             label={`${matter.title || 'Untitled matter'} intake progress`}
           />
         </div>
@@ -247,35 +247,19 @@ export default function FamilyHomePage(): React.JSX.Element {
   const householdName = matters[0]?.household?.name ?? 'your household';
   const householdId = matters[0]?.household?.id ?? null;
   const primaryMatter = matters[0] ?? null;
-  const primaryMatterId = primaryMatter?.id ?? null;
-  // The stored completeness_pct is a lifecycle proxy once a matter leaves
-  // intake (the API overwrites it on status transitions); the ring and the
-  // next step read the live intake-progress figure, like My Plan does.
-  const [livePct, setLivePct] = useState<number | null>(null);
-  useEffect(() => {
-    if (!primaryMatterId) {
-      setLivePct(null);
-      return;
-    }
-    let cancelled = false;
-    api
-      .getIntakeProgress(primaryMatterId)
-      .then((progress) => {
-        if (!cancelled) setLivePct(Math.round(progress.completeness_pct));
-      })
-      .catch(() => {
-        if (!cancelled) setLivePct(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [primaryMatterId]);
-  const ringPct = livePct ?? primaryMatter?.completeness_pct ?? 0;
+  // Every coverage number on this page — the ring, the band line, the
+  // next step, the average, and each matter card — resolves through the
+  // live intake-progress figure for that matter. The stored
+  // completeness_pct is a lifecycle proxy (the API overwrites it on
+  // status transitions) and showed 9% on a fresh matter whose live
+  // progress was 0%, next to a ring reading the live 0%.
+  const coverage = useLiveCoverage(matters);
+  const ringPct = primaryMatter ? coverage(primaryMatter) : 0;
   const primaryTitle = primaryMatter?.title || 'Untitled matter';
   const nextStep = primaryMatter ? nextStepFor(primaryMatter, ringPct) : null;
   const averageCoverage =
     matters.length > 0
-      ? Math.round(matters.reduce((sum, m) => sum + m.completeness_pct, 0) / matters.length)
+      ? Math.round(matters.reduce((sum, m) => sum + coverage(m), 0) / matters.length)
       : 0;
 
   return (
@@ -424,7 +408,7 @@ export default function FamilyHomePage(): React.JSX.Element {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {matters.map((matter) => (
-              <MatterCard key={matter.id} matter={matter} />
+              <MatterCard key={matter.id} matter={matter} pct={coverage(matter)} />
             ))}
           </div>
         </section>

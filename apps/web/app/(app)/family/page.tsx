@@ -7,7 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
 import { AssistantPanel } from '@/components/ai/assistant-panel';
-import { MatterSelect, formatStatus, useMatters } from '@/components/family/matter-context';
+import {
+  MatterSelect,
+  formatStatus,
+  useLiveCoverage,
+  useMatters,
+} from '@/components/family/matter-context';
 import { api, type MatterSummary } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
@@ -22,7 +27,7 @@ function statusTone(status: string): string {
   return 'bg-lf-primary-50 text-lf-primary-800';
 }
 
-function MatterCard({ matter }: { matter: MatterSummary }) {
+function MatterCard({ matter, pct }: { matter: MatterSummary; pct: number }) {
   return (
     <Card>
       <CardHeader>
@@ -46,12 +51,12 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
       <CardContent className="space-y-4">
         <div className="flex items-center gap-3">
           <ProgressBar
-            value={matter.completeness_pct}
-            label={`${matter.title} progress: ${Math.round(matter.completeness_pct)}% complete`}
+            value={pct}
+            label={`${matter.title} progress: ${Math.round(pct)}% complete`}
             className="flex-1"
           />
           <span className="shrink-0 text-xs font-medium text-lf-text-muted" aria-hidden="true">
-            {Math.round(matter.completeness_pct)}%
+            {Math.round(pct)}%
           </span>
         </div>
         <Link
@@ -69,6 +74,9 @@ function MatterCard({ matter }: { matter: MatterSummary }) {
 /** Family dashboard — the family's matters with progress and continue links. */
 export default function FamilyDashboardPage(): React.JSX.Element {
   const { matters, loading, error, reload } = useMatters();
+  // Coverage reads the live intake-progress figure, not the stored
+  // lifecycle proxy (see useLiveCoverage).
+  const coverage = useLiveCoverage(matters);
   const [assistantMatterId, setAssistantMatterId] = useState<string | null>(null);
 
   return (
@@ -94,7 +102,7 @@ export default function FamilyDashboardPage(): React.JSX.Element {
       {!loading && !error && matters.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {matters.map((matter) => (
-            <MatterCard key={matter.id} matter={matter} />
+            <MatterCard key={matter.id} matter={matter} pct={coverage(matter)} />
           ))}
         </div>
       )}
