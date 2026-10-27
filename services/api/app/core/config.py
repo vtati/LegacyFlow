@@ -1,6 +1,7 @@
 """Application configuration loaded from the environment (pydantic-settings)."""
 
 import tempfile
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -122,6 +123,63 @@ class Settings(BaseSettings):
         if self.SUPABASE_URL:
             return f"{self.SUPABASE_URL.rstrip('/')}/auth/v1"
         return None
+
+
+@dataclass(frozen=True)
+class ModelCapabilities:
+    """Chat-completions payload contract for one model.
+
+    * ``send_temperature`` — False for model families that reject the
+      ``temperature`` parameter outright (a 400, verified live for the
+      gpt-5 family on 2026-10-25).
+    * ``completion_token_param`` — the output-cap parameter the model
+      accepts (``"max_completion_tokens"``), or None to send no cap.
+    * ``reasoning_effort_none_with_tools`` — True when function tools are
+      only accepted with ``reasoning_effort="none"`` (also a verified
+      live 400 otherwise).
+    """
+
+    send_temperature: bool
+    completion_token_param: str | None
+    reasoning_effort_none_with_tools: bool
+
+
+# The two verified contracts. The legacy shape stays byte-identical for
+# the models every non-v2 path still uses; the next-gen shape is the
+# gpt-5 contract verified live on 2026-10-25.
+_LEGACY_CONTRACT = ModelCapabilities(
+    send_temperature=True,
+    completion_token_param=None,
+    reasoning_effort_none_with_tools=False,
+)
+_NEXT_GEN_CONTRACT = ModelCapabilities(
+    send_temperature=False,
+    completion_token_param="max_completion_tokens",
+    reasoning_effort_none_with_tools=True,
+)
+
+#: Explicit per-model payload contracts (F5, 2026-10-26). This table
+#: replaces name-prefix routing: a rename or a new family can no longer
+#: silently change request shape — a model is either listed here or it
+#: resolves to :data:`DEFAULT_MODEL_CAPABILITIES`.
+MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
+    "gpt-4o": _LEGACY_CONTRACT,
+    "gpt-4o-mini": _LEGACY_CONTRACT,
+    "gpt-5.5": _NEXT_GEN_CONTRACT,
+}
+
+#: Safe default for models not in the table: the modern contract.
+#: Omitting ``temperature`` can never produce a 400 (the model uses its
+#: own default), ``max_completion_tokens`` is accepted by every current
+#: OpenAI chat model, and pinning reasoning to "none" alongside tools
+#: matches the only verified tools contract. A future model that needs
+#: different handling gets an explicit table entry, not a prefix rule.
+DEFAULT_MODEL_CAPABILITIES = _NEXT_GEN_CONTRACT
+
+
+def model_capabilities(model: str) -> ModelCapabilities:
+    """Return the payload contract for ``model`` (name-normalized)."""
+    return MODEL_CAPABILITIES.get(model.strip().lower(), DEFAULT_MODEL_CAPABILITIES)
 
 
 @lru_cache(maxsize=1)

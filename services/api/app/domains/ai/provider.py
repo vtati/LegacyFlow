@@ -340,16 +340,35 @@ def _propose_tool_spec() -> dict[str, Any]:
     }
 
 
-def _is_next_gen_model(model: str) -> bool:
-    """gpt-5+ family: different chat-completions parameter contract.
+def _apply_model_contract(
+    payload: dict[str, Any],
+    model: str,
+    *,
+    temperature: float,
+    completion_cap: int = 6000,
+    with_tools: bool,
+) -> dict[str, Any]:
+    """Shape ``payload`` to the model's explicit capability contract.
 
-    Verified live (2026-10-25): function tools + reasoning_effort other
-    than 'none' is a 400 on /v1/chat/completions, temperature is not
-    accepted, and the output cap is max_completion_tokens. The gpt-4o /
-    gpt-4o-mini payload shape below stays byte-identical for the legacy
-    models every non-v2 path still uses.
+    The contract comes from :data:`app.core.config.MODEL_CAPABILITIES`
+    (F5) — never from the model name's prefix. Verified live
+    (2026-10-25) for the gpt-5 family: function tools + reasoning_effort
+    other than 'none' is a 400 on /v1/chat/completions, temperature is
+    not accepted, and the output cap is max_completion_tokens. The
+    gpt-4o / gpt-4o-mini payload shape stays byte-identical for the
+    legacy models every non-v2 path still uses.
     """
-    return model.strip().lower().startswith(("gpt-5", "gpt-6"))
+    from app.core.config import model_capabilities
+
+    caps = model_capabilities(model)
+    if caps.send_temperature:
+        payload["temperature"] = temperature
+    if caps.completion_token_param is not None:
+        payload[caps.completion_token_param] = completion_cap
+    if with_tools and caps.reasoning_effort_none_with_tools:
+        # Reasoning pinned to 'none' so function tools are accepted.
+        payload["reasoning_effort"] = "none"
+    return payload
 
 
 class OpenAIChatProvider:
@@ -384,16 +403,13 @@ class OpenAIChatProvider:
             + [{"role": m.role, "content": m.content} for m in messages],
             "tools": [_propose_tool_spec()],
             "tool_choice": "auto",
-            "temperature": 0.2,
         }
-        if _is_next_gen_model(self._model):
-            # gpt-5+ contract (see _is_next_gen_model): no temperature,
-            # reasoning pinned to 'none' so function tools are accepted,
-            # generous completion cap so tool-call arguments never
-            # truncate mid-JSON.
-            payload.pop("temperature")
-            payload["reasoning_effort"] = "none"
-            payload["max_completion_tokens"] = 6000
+        # Payload contract per the capability table (F5): legacy models
+        # get temperature and nothing else; next-gen models get no
+        # temperature, reasoning pinned to 'none' (so function tools are
+        # accepted), and a generous completion cap so tool-call
+        # arguments never truncate mid-JSON.
+        _apply_model_contract(payload, self._model, temperature=0.2, with_tools=True)
         try:
             response = get_http_client().post(
                 "https://api.openai.com/v1/chat/completions",

@@ -169,20 +169,36 @@ def test_payload_next_gen_model_uses_gpt5_shape():
 
 
 @pytest.mark.parametrize(
-    "model,expected",
+    "model,send_temperature,token_param,reasoning_none",
     [
-        ("gpt-5.5", True),
-        ("gpt-5.4-mini", True),
-        ("gpt-6-sol", True),
-        ("GPT-5.5", True),
-        (" gpt-5.5 ", True),
-        ("gpt-4o", False),
-        ("gpt-4o-mini", False),
-        ("gpt-4.1", False),
+        # Explicit table entries: the legacy contract stays byte-identical
+        # (temperature sent, no completion cap, no reasoning_effort).
+        ("gpt-4o", True, None, False),
+        ("gpt-4o-mini", True, None, False),
+        # The verified gpt-5 contract (2026-10-25): no temperature,
+        # max_completion_tokens, reasoning pinned to 'none' with tools.
+        ("gpt-5.5", False, "max_completion_tokens", True),
+        ("GPT-5.5", False, "max_completion_tokens", True),
+        (" gpt-5.5 ", False, "max_completion_tokens", True),
+        # Unknown models resolve to the SAFE default (the modern
+        # contract): omitting temperature can never 400, and
+        # max_completion_tokens is accepted by every current model.
+        # Name prefixes no longer decide anything (F5).
+        ("gpt-5.4-mini", False, "max_completion_tokens", True),
+        ("gpt-6-sol", False, "max_completion_tokens", True),
+        ("gpt-4.1", False, "max_completion_tokens", True),
+        ("some-future-model", False, "max_completion_tokens", True),
     ],
 )
-def test_next_gen_model_detection(model: str, expected: bool):
-    assert ai_provider._is_next_gen_model(model) is expected
+def test_model_capability_table(
+    model: str, send_temperature: bool, token_param: str | None, reasoning_none: bool
+):
+    from app.core.config import model_capabilities
+
+    caps = model_capabilities(model)
+    assert caps.send_temperature is send_temperature
+    assert caps.completion_token_param == token_param
+    assert caps.reasoning_effort_none_with_tools is reasoning_none
 
 
 # --- service seam ------------------------------------------------------------
