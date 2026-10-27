@@ -105,13 +105,28 @@ function GateCard({ gate, deciding, onDecide }: GateCardProps) {
   );
 }
 
-/** Gates tab: approval gates with approve/reject actions for pending gates. */
-export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element {
+/**
+ * Gates tab: approval gates with approve/reject actions for pending gates,
+ * plus creation of a document_release gate when none is pending/approved.
+ * Creation lives here as well as in the decision panel (R2): deciding alone
+ * was a dead end when no gate existed yet, and release-production 409'd.
+ * The API only allows creating/deciding a document_release gate while the
+ * matter is APPROVED_FOR_ASSEMBLY, so the affordance is gated on
+ * `matterStatus` when the caller provides it.
+ */
+export function GatesTab({
+  matterId,
+  matterStatus,
+}: {
+  matterId: string;
+  matterStatus?: string;
+}): React.JSX.Element {
   const [gates, setGates] = useState<Gate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -147,8 +162,39 @@ export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element 
       .finally(() => setDecidingId(null));
   };
 
+  const handleCreateDocumentRelease = () => {
+    setCreating(true);
+    setActionError(null);
+    firmApi
+      .createGate(matterId, { gate_type: 'document_release', notes: null })
+      .then((created) =>
+        setGates((prev) =>
+          [created, ...prev].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+        ),
+      )
+      .catch((err: unknown) =>
+        setActionError(
+          err instanceof Error ? err.message : 'Could not create the document release gate.',
+        ),
+      )
+      .finally(() => setCreating(false));
+  };
+
   if (loading) return <LoadingState lines={3} label="Loading approval gates…" />;
   if (error != null) return <ErrorState error={error} onRetry={load} />;
+
+  // A pending gate is decidable below and an approved one already satisfies
+  // release-production; only offer creation when neither exists (a rejected
+  // gate may be re-created — the API only conflicts on a pending duplicate).
+  const hasUsableReleaseGate = gates.some(
+    (g) =>
+      g.gate_type === 'document_release' && (g.status === 'pending' || g.status === 'approved'),
+  );
+  const canCreateReleaseGate =
+    !hasUsableReleaseGate &&
+    (matterStatus === undefined || matterStatus === 'APPROVED_FOR_ASSEMBLY');
 
   return (
     <div className="space-y-4">
@@ -157,12 +203,33 @@ export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element 
           {actionError}
         </p>
       )}
-      {gates.length === 0 ? (
+      {canCreateReleaseGate && (
+        <Card>
+          <CardContent className="space-y-3 p-5">
+            <div>
+              <p className="text-sm font-semibold text-lf-text">Document release gate</p>
+              <p className="mt-1 text-sm text-lf-text-muted">
+                Final documents cannot be released until the attorney approves a document
+                release gate for this matter. Create the gate here, then approve it below.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={creating}
+              onClick={handleCreateDocumentRelease}
+            >
+              {creating ? 'Creating…' : 'Create document release gate'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      {gates.length === 0 && !canCreateReleaseGate ? (
         <EmptyState
           title="No approval gates"
           description="Approval gates appear here when the plan reaches a step that needs attorney sign-off."
         />
-      ) : (
+      ) : gates.length === 0 ? null : (
         <ul className="space-y-3">
           {gates.map((gate) => (
             <li key={gate.id}>

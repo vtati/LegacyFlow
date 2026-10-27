@@ -187,7 +187,9 @@ export default function FirmMatterDetailPage({
             {tab === 'review' && <ReviewPacketTab matterId={matterId} />}
             {tab === 'comments' && <CommentsTab matterId={matterId} />}
             {tab === 'clarifications' && <ClarificationsTab matterId={matterId} />}
-            {tab === 'gates' && <GatesTab matterId={matterId} />}
+            {tab === 'gates' && (
+              <GatesTab matterId={matterId} matterStatus={matter.matter.status} />
+            )}
           </div>
         </>
       )}
