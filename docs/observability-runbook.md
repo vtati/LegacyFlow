@@ -115,6 +115,33 @@ Postgres is the system of record. Supabase manages backups:
 - **Migrations are the schema source of truth** — never hand-edit production
   schema; add a new migration file instead.
 
+## Interview turn encryption key (`INTERVIEW_TURN_ENCRYPTION_KEY`)
+
+Interview turn bodies (the verbatim conversation) are Fernet-encrypted at
+rest under this single key (ADR-002; `app/core/crypto.py`). Treat the key
+like a database credential: it lives only in the deployment's secret store,
+is backed up with the same care as the database credentials, and is never
+logged, committed, or pasted into tickets.
+
+- **Unset or invalid** — the interviewer fails closed by design: sessions
+  cannot start and existing bodies cannot be read. This is the safe state,
+  not an outage to "fix" by disabling encryption.
+- **Key loss** — every `interview_turn_bodies` ciphertext becomes
+  permanently unreadable; there is no recovery path. What survives: field
+  proposals, `ai_traces`, saved intake answers, escalations, and the rest
+  of the structured record — those are the permanent audit trail, and they
+  are not encrypted under this key. The loss is the verbatim transcript
+  text (which is retention-purged `INTERVIEW_TURN_RETENTION_DAYS` after a
+  matter reaches a terminal state anyway), not the legal record.
+- **Rotation** — there is NO re-encryption migration today. Each body row
+  stores a `key_version` label, but decryption always uses the single
+  configured key, so changing the env var (with or without bumping
+  `INTERVIEW_TURN_KEY_VERSION`) strands all previously encrypted bodies
+  exactly like a loss. Do not rotate this key until a re-encryption
+  migration (decrypt under old key, re-encrypt under new, per row) has
+  been written, tested, and run; rotate the database credentials freely,
+  but schedule this key's rotation as its own project.
+
 ## Incident quick reference
 
 1. **API down** — check `GET /healthz`; container logs (JSON) for tracebacks;
