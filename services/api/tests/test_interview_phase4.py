@@ -635,3 +635,75 @@ def test_parked_gate_still_blocks_document_generation_inputs():
     )
     assert "marital_status" not in dmissing
     assert parked_required == ["marital_status"]
+
+
+
+# ---------------------------------------------------------------------------
+# Review I-1: the sweep framing never races pending bundle verdicts
+# ---------------------------------------------------------------------------
+
+
+def _sweep_gap():
+    gap = _cluster_gap(
+        [
+            ("has_debts", "Do you have any debts?"),
+            ("has_life_insurance", "Do you have life insurance?"),
+        ]
+    )
+    gap["sweep"] = True
+    return gap
+
+
+def test_sweep_suppressed_while_verdicts_pending():
+    focus = _sweep_gap()
+    out = interview_service._focus_without_sweep_on_verdict_turns(
+        focus, [{"decline_key": "declined_x"}]
+    )
+    assert out is not None
+    assert "sweep" not in out
+    # The questions themselves are untouched — only the framing goes.
+    assert [q["key"] for q in out["questions"]] == [
+        q["key"] for q in focus["questions"]
+    ]
+
+
+def test_sweep_kept_without_verdicts_and_noops():
+    focus = _sweep_gap()
+    assert (
+        interview_service._focus_without_sweep_on_verdict_turns(focus, [])
+        is focus
+    )
+    plain = _cluster_gap([("has_debts", "Do you have any debts?")])
+    assert (
+        interview_service._focus_without_sweep_on_verdict_turns(
+            plain, [{"decline_key": "declined_x"}]
+        )
+        is plain
+    )
+    assert (
+        interview_service._focus_without_sweep_on_verdict_turns(
+            None, [{"decline_key": "declined_x"}]
+        )
+        is None
+    )
+
+
+def test_suppressed_sweep_renders_no_wrapup_line():
+    gap = interview_service._focus_without_sweep_on_verdict_turns(
+        _sweep_gap(), [{"decline_key": "declined_x"}]
+    )
+    text = prompts.build_system_prompt(
+        missing_required_keys=["has_debts", "has_life_insurance"],
+        cluster_gap=gap,
+        natural_questions=True,
+        **_BASE_KW,
+    )
+    assert "last open items in the whole interview" not in text
+    # ...while the unsuppressed sweep keeps the Phase 4 wrap-up line.
+    text2 = prompts.build_system_prompt(
+        missing_required_keys=["has_debts", "has_life_insurance"],
+        cluster_gap=_sweep_gap(),
+        natural_questions=True,
+        **_BASE_KW,
+    )
+    assert "last open items in the whole interview" in text2

@@ -554,8 +554,9 @@ def test_bundle_fill_keys_skip_decided_proposals():
 # returns tool-calls only, so this fallback IS the ask path — and it
 # asked only the FIRST focus key, silently discarding the merged /
 # batched / sweep focus lists the v7 selector computed. A multi-key
-# focus must render as one numbered multi-ask message; a single
-# askable key keeps the exact legacy rendering.
+# focus must render as ONE multi-ask message covering the whole focus
+# (Phase 4 P1: composed as flowing prose, never a numbered list); a
+# single askable key keeps the exact legacy rendering.
 
 
 def test_fallback_reply_asks_all_focus_keys(monkeypatch):

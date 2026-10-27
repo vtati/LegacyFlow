@@ -2592,6 +2592,27 @@ def next_gap_focus(
     return result
 
 
+def _focus_without_sweep_on_verdict_turns(
+    focus: dict[str, Any] | None,
+    verdict_offers: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Suppress the completeness-sweep framing while bundle verdicts
+    are in play (review I-1 on the Phase 4 branch).
+
+    The sweep line tells the model the focus is the whole remainder
+    of the interview and to wrap up. On a turn where offers sit in
+    their verdict window, the bundle machinery owns the framing —
+    the same principle the G3 capture applies ("the bundle machinery
+    owns those turns"). The focus QUESTIONS are unchanged (a sweep
+    only fires when the focus already covers the remainder); only
+    the wrap-up presentation is dropped, so the pending verdicts are
+    never raced by a finish-up ask.
+    """
+    if focus is None or not verdict_offers or not focus.get("sweep"):
+        return focus
+    return {k: v for k, v in focus.items() if k != "sweep"}
+
+
 def _gap_without_keys(
     gap: dict[str, Any] | None, excluded_keys: set[str]
 ) -> dict[str, Any] | None:
@@ -6175,6 +6196,13 @@ def post_turn(
                 answers=answers,
                 pending_proposal_keys=frozenset(pending_keys),
                 parked_keys=parked,
+            )
+            # While verdicts are in play the bundle machinery owns
+            # the turn's framing: drop the sweep wrap-up presentation
+            # (questions unchanged) so it never races a pending
+            # verdict (Phase 4 review I-1).
+            cluster_gap = _focus_without_sweep_on_verdict_turns(
+                cluster_gap, verdict_offers
             )
             if cluster_gap is not None and "identity" in (
                 cluster_gap.get("clusters") or [cluster_gap["cluster"]]
