@@ -56,6 +56,17 @@ _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 _NAME_SEQ_RE = re.compile(r"[A-Z][a-z]+(?: [A-Z][a-z]+)+")
 _WITNESS_SIG_RE = re.compile(r"witness[^\n]{0,30}signature|signature[^\n]{0,30}witness", re.I)
 _TESTATOR_SIG_RE = re.compile(r"signature[^\n]{0,40}testator|testator[^\n]{0,40}signature", re.I)
+#: The v2 templates lay signature blocks out as a rule line followed by
+#: a role-labeled name line ("____\nArjun Sharma, Testator") and witness
+#: blocks headed "Witness 1:" / "Witness 2:" with the word "Signature" on
+#: its own line — neither matches the same-line patterns above, so the
+#: structural shapes count too (first production run: clean will read
+#: as 0 witness signatures).
+_TESTATOR_BLOCK_RE = re.compile(
+    r"_{8,}[^\n]*\n(?:[^\n]*\n){0,2}[^\n]{0,80}(testator|declarant|principal|grantor)",
+    re.I,
+)
+_WITNESS_HEADER_RE = re.compile(r"witness\s*\d+\s*:", re.I)
 _CODE_RE = re.compile(r"\d+(?:\.\d+)*-\d+")
 
 
@@ -163,6 +174,7 @@ def _check_name_consistency(
 ) -> list[Finding]:
     context = _primary_context(snapshots)
     canonical = _canonical_names(source, context)
+    canonical_set = set(canonical)
     findings: list[Finding] = []
     emitted: set[tuple[str, str, str]] = set()
     for snap in snapshots:
@@ -175,6 +187,13 @@ def _check_name_consistency(
             for sequence in sequences:
                 for window in _windows(sequence, size):
                     if window == name:
+                        continue
+                    # A window that exactly matches a DIFFERENT canonical
+                    # person is that person's correct name, not a
+                    # misspelling — families share surnames, so similar
+                    # names (spouse Priya, daughter Diya) sit within
+                    # edit distance 2 of each other legitimately.
+                    if window in canonical_set:
                         continue
                     if _levenshtein(window.lower(), name.lower()) <= 2:
                         key = (str(snap.get("template_type")), name, window)
@@ -214,6 +233,10 @@ _ROLE_FAMILIES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 #: (nomination_type, priority) -> context slot.
+#: ("trustee", 1) is deliberately absent: the renderer sets trustee_name
+#: to the grantor by design (the grantor is the initial trustee of the
+#: revocable trust), so a priority-1 trustee nomination is not
+#: comparable to that slot — cross-checking it flagged every trust.
 _NOMINATION_SLOTS: dict[tuple[str, int], str] = {
     ("executor", 1): "executor_name",
     ("executor", 2): "alternate_executor_name",
@@ -223,7 +246,6 @@ _NOMINATION_SLOTS: dict[tuple[str, int], str] = {
     ("healthcare_agent", 2): "successor_healthcare_agent_name",
     ("financial_agent", 1): "agent_name",
     ("financial_agent", 2): "successor_agent_name",
-    ("trustee", 1): "trustee_name",
     ("trustee", 2): "successor_trustee_name",
 }
 
@@ -474,9 +496,15 @@ def _check_pack_completeness(
 def _check_unfilled_placeholders(
     snapshots: list[dict[str, Any]], source: dict[str, Any]
 ) -> list[Finding]:
-    question_keys = {str(k) for k in source.get("question_keys") or []}
-    answer_keys = {str(k) for k in (source.get("answers") or {}).keys()}
-    family_required = _FAMILY_SLOTS | question_keys | answer_keys
+    # A blank family slot is a defect only when the family actually
+    # supplied — or was required to supply — the underlying answer and
+    # it still rendered blank (the answered-but-dropped defect class).
+    # An OPTIONAL question the family skipped leaves the slot unset by
+    # design; flagging it would cry wolf on every packet (the first
+    # production run flagged 7 such blanks on a complete packet).
+    answered = {str(k) for k in (source.get("answers") or {})}
+    required_q = {str(k) for k in source.get("required_question_keys") or []}
+    slot_sources: dict[str, Any] = source.get("slot_answer_keys") or {}
     findings: list[Finding] = []
     for snap in snapshots:
         template_body = str(snap.get("template_body") or "")
@@ -484,8 +512,11 @@ def _check_unfilled_placeholders(
         for token in sorted(set(_TOKEN_RE.findall(template_body))):
             if token in context:
                 continue
-            if token not in family_required:
+            if token not in _FAMILY_SLOTS and token not in slot_sources:
                 continue  # attorney-fill (witness/notary/date blanks)
+            sources = [str(k) for k in slot_sources.get(token) or [token]]
+            if not any(k in answered or k in required_q for k in sources):
+                continue  # optional and unanswered — blank by design
             findings.append(Finding(
                 layer=LAYER,
                 check="unfilled_placeholders",
@@ -521,7 +552,7 @@ def _check_execution_requirements(
         body = str(snap.get("body_text") or "")
         requirements = profile.get("requirements") or {}
         if requirements.get("testator_signature_required"):
-            if not _TESTATOR_SIG_RE.search(body):
+            if not (_TESTATOR_SIG_RE.search(body) or _TESTATOR_BLOCK_RE.search(body)):
                 findings.append(Finding(
                     layer=LAYER,
                     check="va_execution_requirements",
@@ -540,7 +571,10 @@ def _check_execution_requirements(
         witnesses = requirements.get("witnesses") or {}
         required_count = int(witnesses.get("required_count") or 0)
         if required_count:
-            found = len(_WITNESS_SIG_RE.findall(body))
+            found = max(
+                len(_WITNESS_SIG_RE.findall(body)),
+                len(_WITNESS_HEADER_RE.findall(body)),
+            )
             if found < required_count:
                 findings.append(Finding(
                     layer=LAYER,

@@ -106,20 +106,36 @@ def _build_source_payload(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
         for row in nominations_repo.list_nominations(conn, matter_id)
     ]
     question_keys: list[str] = []
+    required_question_keys: list[str] = []
     _pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
     try:
         pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
-        question_keys = [
-            str(q["key"]) for _, _, q in intake_qs.iter_questions(pack.question_sets)
+        questions = [q for _, _, q in intake_qs.iter_questions(pack.question_sets)]
+        question_keys = [str(q["key"]) for q in questions]
+        required_question_keys = [
+            str(q["key"]) for q in questions if q.get("required")
         ]
     except FileNotFoundError:
         question_keys = []
+        required_question_keys = []
+    # Slot -> the answer keys that feed it, inverted from the documents
+    # slot table: the unfilled-placeholder check uses it to tell an
+    # answered-but-dropped slot (defect) from an optional question the
+    # family skipped (blank by design).
+    from ..documents.service import _ANSWER_SLOT_TABLE
+
+    slot_answer_keys: dict[str, list[str]] = {}
+    for answer_key, (slots, _is_person) in _ANSWER_SLOT_TABLE.items():
+        for slot in slots:
+            slot_answer_keys.setdefault(slot, []).append(answer_key)
     return {
         "persons": persons,
         "nominations": nominations,
         "answers": answers,
         "expected_set": resolve_draft_set(answers),
         "question_keys": question_keys,
+        "required_question_keys": required_question_keys,
+        "slot_answer_keys": slot_answer_keys,
     }
 
 

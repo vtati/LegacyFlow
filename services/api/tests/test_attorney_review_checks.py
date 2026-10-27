@@ -315,7 +315,11 @@ def test_family_required_blank_is_caught_attorney_fill_is_not() -> None:
         ),
     )
     snaps = [will] + _snapshots()[1:]
-    findings = _by_check(_run(snaps), "unfilled_placeholders")
+    source = _source(
+        required_question_keys=["primary_executor_address"],
+        slot_answer_keys={"executor_address": ["primary_executor_address"]},
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
     assert len(findings) == 1
     assert findings[0].field == "executor_address"
     assert findings[0].document == "will"
@@ -390,3 +394,115 @@ def test_trust_without_initial_property_is_caught() -> None:
     findings = _by_check(_run(snaps), "reference_integrity")
     assert len(findings) == 1
     assert findings[0].document == "trust"
+
+
+# ---------------------------------------------------------------------------
+# Production false-positive regressions (2026-10-27 verification gate)
+# Shapes taken from the live Sharma packet that the first production run
+# flagged wrongly: similar sibling names, optional unanswered questions,
+# the v2 template signature layout, the renderer's self-trustee default.
+# ---------------------------------------------------------------------------
+
+PRIYA_ID = "55555555-5555-5555-5555-555555555555"
+DIYA_ID = "66666666-6666-6666-6666-666666666666"
+
+
+def test_similar_family_names_are_not_misspellings() -> None:
+    persons = _persons() + [
+        {"id": PRIYA_ID, "full_name": "Priya Sharma", "kind": "adult",
+         "date_of_birth": "1987-09-03"},
+        {"id": DIYA_ID, "full_name": "Diya Sharma", "kind": "minor",
+         "date_of_birth": "2017-05-01"},
+    ]
+    will = (
+        "LAST WILL AND TESTAMENT OF Arjun Sharma\n"
+        "I give the residue to my wife, Priya Sharma. Our daughter is "
+        "Diya Sharma.\n" + WILL_EXECUTION_BLOCK
+    )
+    snaps = [_snapshot("will", will)] + _snapshots()[1:]
+    findings = _by_check(_run(snaps, _source(persons=persons)), "name_consistency")
+    assert findings == []
+
+
+def test_unfilled_optional_unanswered_slot_is_not_flagged() -> None:
+    guardianship = _snapshot(
+        "guardianship", "GUARDIANSHIP DESIGNATION\nArjun Sharma",
+        template_body="Wishes: {{upbringing_wishes}}",
+    )
+    snaps = [s if s["template_type"] != "guardianship" else guardianship
+             for s in _snapshots()]
+    source = _source(
+        required_question_keys=["testator_full_name"],
+        slot_answer_keys={"upbringing_wishes": ["children_upbringing_wishes"]},
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
+    assert findings == []
+
+
+def test_unfilled_answered_but_blank_slot_is_flagged() -> None:
+    guardianship = _snapshot(
+        "guardianship", "GUARDIANSHIP DESIGNATION\nArjun Sharma",
+        template_body="Wishes: {{upbringing_wishes}}",
+    )
+    snaps = [s if s["template_type"] != "guardianship" else guardianship
+             for s in _snapshots()]
+    source = _source(
+        answers={**_source()["answers"],
+                 "children_upbringing_wishes": "Raise them in Richmond."},
+        required_question_keys=["testator_full_name"],
+        slot_answer_keys={"upbringing_wishes": ["children_upbringing_wishes"]},
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
+    assert len(findings) == 1
+    assert findings[0].field == "upbringing_wishes"
+
+
+REAL_V2_WILL_TAIL = (
+    "IN WITNESS WHEREOF, I have signed this Will on October 27, 2026.\n\n"
+    "________________________________________\n"
+    "Arjun Sharma, Testator\n\n\n"
+    "WITNESS ATTESTATION\n\n"
+    "We, the undersigned witnesses, certify that the Testator signed this "
+    "Will in our presence, in accordance with Va. Code \u00a7 64.2-403.\n\n"
+    "Witness 1:\n\n________________________________________\nSignature\n\n"
+    "________________________________________\nPrinted Name\n\n\n"
+    "Witness 2:\n\n________________________________________\nSignature\n\n"
+    "________________________________________\nPrinted Name\n\n\n"
+    "SELF-PROVING AFFIDAVIT\n(Va. Code \u00a7 64.2-453)\n"
+)
+
+
+def test_execution_real_v2_layout_passes() -> None:
+    will = "LAST WILL AND TESTAMENT OF Arjun Sharma\n" + REAL_V2_WILL_TAIL
+    snaps = [_snapshot("will", will)] + _snapshots()[1:]
+    findings = _by_check(_run(snaps), "va_execution_requirements")
+    assert findings == []
+
+
+def test_execution_stripped_witness_headers_are_caught() -> None:
+    tail = REAL_V2_WILL_TAIL.replace("Witness 1:", "Observer 1:").replace(
+        "Witness 2:", "Observer 2:")
+    will = "LAST WILL AND TESTAMENT OF Arjun Sharma\n" + tail
+    snaps = [_snapshot("will", will)] + _snapshots()[1:]
+    findings = _by_check(_run(snaps), "va_execution_requirements")
+    assert any(f.field == "witness_block" for f in findings)
+
+
+def test_trustee_priority1_nomination_is_not_cross_checked() -> None:
+    # The renderer sets trustee_name to the grantor by design (the
+    # grantor is the initial trustee of the revocable trust), so a
+    # priority-1 trustee nomination naming someone else is not a
+    # documents-vs-records mismatch.
+    ctx = _context()
+    ctx["trustee_name"] = "Arjun Sharma"
+    ctx["successor_trustee_name"] = "Neha Kapoor"
+    snaps = [_snapshot(s["template_type"], s["body_text"], context=ctx)
+             for s in _snapshots()]
+    source = _source(nominations=_source()["nominations"] + [
+        {"nomination_type": "trustee", "person_id": BROTHER_ID,
+         "priority": 1, "status": "confirmed"},
+        {"nomination_type": "trustee", "person_id": SPOUSE_ID,
+         "priority": 2, "status": "confirmed"},
+    ])
+    findings = _by_check(_run(snaps, source), "role_consistency")
+    assert findings == []
