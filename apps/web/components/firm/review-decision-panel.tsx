@@ -184,7 +184,7 @@ export function ReviewDecisionPanel({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              maxLength={2000}
+              maxLength={1000}
               placeholder="Context for the record…"
               className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             />
@@ -228,7 +228,7 @@ export function ReviewDecisionPanel({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            maxLength={2000}
+            maxLength={1000}
             placeholder="Context for the record…"
             className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
           />

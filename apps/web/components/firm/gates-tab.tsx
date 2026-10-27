@@ -111,15 +111,21 @@ function GateCard({ gate, deciding, onDecide }: GateCardProps) {
  * Creation lives here as well as in the decision panel (R2): deciding alone
  * was a dead end when no gate existed yet, and release-production 409'd.
  * The API only allows creating/deciding a document_release gate while the
- * matter is APPROVED_FOR_ASSEMBLY, so the affordance is gated on
- * `matterStatus` when the caller provides it.
+ * matter is APPROVED_FOR_ASSEMBLY, so the creation affordance is fail-closed:
+ * it renders only when `matterStatus` is exactly APPROVED_FOR_ASSEMBLY.
+ * Deciding a gate can transition the matter server-side, so every successful
+ * decision invokes `onMatterChanged` — the parent refetches the matter and
+ * refreshes the header badge and the decision panel (mirrors how
+ * ReviewDecisionPanel reports status changes upward).
  */
 export function GatesTab({
   matterId,
   matterStatus,
+  onMatterChanged,
 }: {
   matterId: string;
   matterStatus?: string;
+  onMatterChanged?: () => void;
 }): React.JSX.Element {
   const [gates, setGates] = useState<Gate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,9 +159,13 @@ export function GatesTab({
     setActionError(null);
     firmApi
       .decideGate(gateId, { decision, notes })
-      .then((updated) =>
-        setGates((prev) => prev.map((gate) => (gate.id === updated.id ? updated : gate))),
-      )
+      .then((updated) => {
+        setGates((prev) => prev.map((gate) => (gate.id === updated.id ? updated : gate)));
+        // A decision can move the matter (e.g. document_release approval →
+        // DOCUMENTS_RELEASED); tell the parent so its status state — header
+        // badge, decision panel, and this tab's matterStatus — refreshes.
+        onMatterChanged?.();
+      })
       .catch((err: unknown) =>
         setActionError(err instanceof Error ? err.message : 'Could not record the decision.'),
       )
@@ -193,8 +203,7 @@ export function GatesTab({
       g.gate_type === 'document_release' && (g.status === 'pending' || g.status === 'approved'),
   );
   const canCreateReleaseGate =
-    !hasUsableReleaseGate &&
-    (matterStatus === undefined || matterStatus === 'APPROVED_FOR_ASSEMBLY');
+    !hasUsableReleaseGate && matterStatus === 'APPROVED_FOR_ASSEMBLY';
 
   return (
     <div className="space-y-4">
