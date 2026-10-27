@@ -237,3 +237,19 @@ def test_analysis_wrapper_parses_gateway_output(monkeypatch: pytest.MonkeyPatch)
     result = analysis._analyze_openai("gpt-4o-mini", "GENERAL WARRANTY DEED", "deed.pdf")
     assert result["document_type"] == "deed"
     assert result["key_facts"] == [{"label": "Grantor", "value": "Robert Smith"}]
+
+
+def test_json_null_message_degrades_to_empty_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review I-1: a structurally odd 200 (message: null) must degrade to
+    "{}" — the pre-gateway call sites caught AttributeError and treated
+    it as an empty result; the gateway must not 500 extraction/consistency."""
+    client = _FakeClient(
+        _FakeResponse({"choices": [{"message": None}], "usage": {"prompt_tokens": 1}})
+    )
+    monkeypatch.setattr(ai_provider, "get_http_client", lambda: client)
+    provider = ai_provider.OpenAIJsonProvider(api_key="sk-test", model="gpt-4o")
+    content, usage = provider.complete_json(
+        system_prompt="s", user_content="u", temperature=0.0, timeout=90.0
+    )
+    assert content == "{}"
+    assert usage["prompt_tokens"] == 1

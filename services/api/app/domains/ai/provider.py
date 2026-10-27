@@ -661,7 +661,14 @@ class OpenAIJsonProvider:
                 usage[key] = int((data.get("usage") or {}).get(key, 0))
             except (TypeError, ValueError):
                 pass
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or "{}"
+        # Malformed-response guard (review I-1): a structurally odd 200
+        # (message: null, a null choice) degrades to "{}" — the call
+        # sites' historic behavior — never an exception out of here.
+        try:
+            message = (data.get("choices") or [{}])[0].get("message") or {}
+            content = message.get("content") or "{}"
+        except (AttributeError, TypeError, IndexError):
+            content = "{}"
         return str(content), usage
 
 

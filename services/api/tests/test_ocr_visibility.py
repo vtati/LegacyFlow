@@ -121,3 +121,23 @@ def test_files_service_records_the_scan_status() -> None:
     from app.domains.files import service
 
     assert "extract_text_with_status" in inspect.getsource(service.complete_upload)
+
+
+def test_files_encrypted_pdf_is_failed_not_scan() -> None:
+    """Review M-1: a password-protected PDF parses and has pages, but it
+    is locked — not a scan. It must not be labeled 'unreadable_scan'
+    (the UI would wrongly tell the user it looks like a scanned image)."""
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(io.BytesIO(_make_pdf(True)))
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.encrypt("test-password")
+    buf = io.BytesIO()
+    writer.write(buf)
+    text, status = file_extraction.extract_text_with_status(
+        buf.getvalue(), "application/pdf"
+    )
+    assert status == "failed"
+    assert text == ""

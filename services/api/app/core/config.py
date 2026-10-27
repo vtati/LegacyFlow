@@ -1,5 +1,6 @@
 """Application configuration loaded from the environment (pydantic-settings)."""
 
+import re
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
@@ -172,26 +173,50 @@ _NEXT_GEN_CONTRACT = ModelCapabilities(
 
 #: Explicit per-model payload contracts (F5, 2026-10-26). This table
 #: replaces name-prefix routing: a rename or a new family can no longer
-#: silently change request shape — a model is either listed here or it
-#: resolves to :data:`DEFAULT_MODEL_CAPABILITIES`.
+#: silently change request shape — a model is either listed here, is a
+#: dated snapshot of a listed model, or resolves to
+#: :data:`DEFAULT_MODEL_CAPABILITIES`.
 MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
     "gpt-4o": _LEGACY_CONTRACT,
     "gpt-4o-mini": _LEGACY_CONTRACT,
+    "gpt-4.1": _LEGACY_CONTRACT,
+    "gpt-4.1-mini": _LEGACY_CONTRACT,
+    "gpt-4-turbo": _LEGACY_CONTRACT,
     "gpt-5.5": _NEXT_GEN_CONTRACT,
 }
 
 #: Safe default for models not in the table: the modern contract.
 #: Omitting ``temperature`` can never produce a 400 (the model uses its
-#: own default), ``max_completion_tokens`` is accepted by every current
-#: OpenAI chat model, and pinning reasoning to "none" alongside tools
-#: matches the only verified tools contract. A future model that needs
-#: different handling gets an explicit table entry, not a prefix rule.
+#: own default) and ``max_completion_tokens`` is the current parameter
+#: name; pinning reasoning to "none" alongside tools matches the only
+#: verified tools contract (gpt-5 family, 2026-10-25). A model that
+#: needs different handling gets an explicit table entry — the default
+#: is a documented bet about future models, not a silent prefix rule.
 DEFAULT_MODEL_CAPABILITIES = _NEXT_GEN_CONTRACT
+
+# Dated snapshot suffixes (``gpt-4o-2024-11-20``, ``gpt-4o-20241120``):
+# a snapshot is the same model pinned by date, so it inherits the base
+# model's contract instead of falling through to the default (review
+# I-2 — ops commonly pins OPENAI_*_MODEL to a dated snapshot).
+_SNAPSHOT_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}$|-\d{8}$")
 
 
 def model_capabilities(model: str) -> ModelCapabilities:
-    """Return the payload contract for ``model`` (name-normalized)."""
-    return MODEL_CAPABILITIES.get(model.strip().lower(), DEFAULT_MODEL_CAPABILITIES)
+    """Return the payload contract for ``model`` (name-normalized).
+
+    Exact table hit first, then the dated-snapshot base model, then
+    the safe default.
+    """
+    key = model.strip().lower()
+    caps = MODEL_CAPABILITIES.get(key)
+    if caps is not None:
+        return caps
+    base = _SNAPSHOT_SUFFIX.sub("", key)
+    if base != key:
+        caps = MODEL_CAPABILITIES.get(base)
+        if caps is not None:
+            return caps
+    return DEFAULT_MODEL_CAPABILITIES
 
 
 @lru_cache(maxsize=1)

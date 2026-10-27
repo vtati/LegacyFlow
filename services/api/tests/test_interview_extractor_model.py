@@ -175,18 +175,25 @@ def test_payload_next_gen_model_uses_gpt5_shape():
         # (temperature sent, no completion cap, no reasoning_effort).
         ("gpt-4o", True, None, False),
         ("gpt-4o-mini", True, None, False),
+        ("gpt-4.1", True, None, False),
+        ("gpt-4.1-mini", True, None, False),
+        ("gpt-4-turbo", True, None, False),
+        # Dated snapshots inherit their base model's table entry —
+        # pinning OPENAI_*_MODEL to a snapshot must not change shape
+        # (review I-2).
+        ("gpt-4o-2024-11-20", True, None, False),
+        ("gpt-4o-mini-2024-07-18", True, None, False),
+        ("gpt-5.5-2026-01-15", False, "max_completion_tokens", True),
         # The verified gpt-5 contract (2026-10-25): no temperature,
         # max_completion_tokens, reasoning pinned to 'none' with tools.
         ("gpt-5.5", False, "max_completion_tokens", True),
         ("GPT-5.5", False, "max_completion_tokens", True),
         (" gpt-5.5 ", False, "max_completion_tokens", True),
-        # Unknown models resolve to the SAFE default (the modern
-        # contract): omitting temperature can never 400, and
-        # max_completion_tokens is accepted by every current model.
+        # Genuinely unknown models resolve to the SAFE default (the
+        # modern contract): omitting temperature can never 400.
         # Name prefixes no longer decide anything (F5).
         ("gpt-5.4-mini", False, "max_completion_tokens", True),
         ("gpt-6-sol", False, "max_completion_tokens", True),
-        ("gpt-4.1", False, "max_completion_tokens", True),
         ("some-future-model", False, "max_completion_tokens", True),
     ],
 )
