@@ -2163,3 +2163,184 @@ class TestPhase4ParkedItems:
         escalated = {r["qk"] for r in rows}
         assert "marital_status" not in escalated
         assert other_missing in escalated
+
+
+# ---------------------------------------------------------------------------
+# API: parked items — reviewer fixes (3) session guard + (4) applicability
+# ---------------------------------------------------------------------------
+
+
+class TestPhase4ParkedItemsReviewFixes:
+    """Reviewer minors (3) + (4) on the Phase 4 parked-items build.
+
+    (3) park/unpark mirror post_turn's terminal-state guard: a
+    completed or abandoned session accepts no further changes.
+    (4) the parked set is applicability-aware: only a currently
+    applicable, required, unanswered item with no open proposal can be
+    parked, and a parked item whose gate later prunes drops out of the
+    open list (the marker row itself may persist).
+    """
+
+    def _make_v2_matter(self, db, interview_setup: dict[str, str]) -> str:
+        matter_id = interview_setup["matter_id"]
+        _exec(
+            db,
+            "UPDATE matters SET jurisdiction_snapshot = %s::jsonb WHERE id = %s",
+            (
+                json.dumps({**VA_SNAPSHOT, "semantic_version": "2.0.0"}),
+                matter_id,
+            ),
+        )
+        _exec(
+            db,
+            "INSERT INTO feature_flags (key, scope, scope_ref, is_enabled)"
+            " VALUES ('interview_v2', 'firm', %s, true)",
+            (interview_setup["firm_id"],),
+        )
+        return matter_id
+
+    # --- (3) session-status guard -------------------------------------
+
+    def test_park_on_completed_session_is_409(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        assert post_turn(api_client, matter_id, session_id, "hello").status_code == 200
+        done = set_session_status(api_client, matter_id, session_id, "completed")
+        assert done.status_code == 200, done.text
+        resp = _park(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+        assert "Interview session is completed" in resp.text
+
+    def test_park_on_abandoned_session_is_409(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        gone = set_session_status(api_client, matter_id, session_id, "abandoned")
+        assert gone.status_code == 200, gone.text
+        resp = _park(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+        assert "Interview session is abandoned" in resp.text
+
+    def test_unpark_on_completed_session_is_409(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        assert post_turn(api_client, matter_id, session_id, "hello").status_code == 200
+        assert _park(api_client, matter_id, session_id, "marital_status").status_code == 200
+        done = set_session_status(api_client, matter_id, session_id, "completed")
+        assert done.status_code == 200, done.text
+        resp = _unpark(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+        assert "Interview session is completed" in resp.text
+        # The rejected unpark must not have removed the marker.
+        rows = _fetchall(
+            db,
+            "SELECT question_key FROM interview_parked_items WHERE matter_id = %s",
+            (matter_id,),
+        )
+        assert {r["question_key"] for r in rows} == {"marital_status"}
+
+    def test_unpark_on_abandoned_session_is_409(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        assert _park(api_client, matter_id, session_id, "marital_status").status_code == 200
+        gone = set_session_status(api_client, matter_id, session_id, "abandoned")
+        assert gone.status_code == 200, gone.text
+        resp = _unpark(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+        assert "Interview session is abandoned" in resp.text
+
+    # --- (4) applicability-aware park ---------------------------------
+
+    def test_park_pending_gated_key_is_409(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        # primary_guardian_person is gated on has_minor_children == true;
+        # with the gate unanswered the item is pending, not applicable.
+        matter_id = self._make_v2_matter(db, interview_setup)
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = _park(api_client, matter_id, session_id, "primary_guardian_person")
+        assert resp.status_code == 409, resp.text
+
+    def test_park_optional_key_is_409(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        # guardian_reason is applicable from the start but not required;
+        # parking exists to defer required items that gate generation.
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = _park(api_client, matter_id, session_id, "guardian_reason")
+        assert resp.status_code == 409, resp.text
+
+    def test_park_open_proposal_key_is_409(
+        self,
+        api_client: TestClient,
+        db,
+        interview_setup: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        _post_with_proposal(
+            api_client,
+            matter_id,
+            session_id,
+            ai_provider.FieldProposalDraft(
+                question_key="marital_status",
+                value="single",
+                confidence=0.8,
+                source_snippet="I am single",
+            ),
+            monkeypatch,
+        )
+        proposals = api_client.get(
+            f"/v1/matters/{matter_id}/interview/sessions/{session_id}/proposals",
+            headers=_headers(CLIENT_SUB),
+        ).json()
+        open_keys = [p["question_key"] for p in proposals if p["status"] == "proposed"]
+        assert open_keys == ["marital_status"]
+        resp = _park(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+
+    def test_parked_item_pruned_by_gate_flip_leaves_open_list(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = self._make_v2_matter(db, interview_setup)
+        session_id = start_session(api_client, matter_id).json()["id"]
+        saved = _save_answers(api_client, matter_id, {"has_minor_children": True})
+        assert saved.status_code == 200, saved.text
+        resp = _park(api_client, matter_id, session_id, "primary_guardian_person")
+        assert resp.status_code == 200, resp.text
+        listed = api_client.get(
+            f"/v1/matters/{matter_id}/interview/parked-items",
+            headers=_headers(CLIENT_SUB),
+        )
+        assert [i["question_key"] for i in listed.json()] == ["primary_guardian_person"]
+
+        # Flip the gate off: the parked item prunes. The marker row may
+        # persist, but the item must no longer surface as open anywhere.
+        saved = _save_answers(api_client, matter_id, {"has_minor_children": False})
+        assert saved.status_code == 200, saved.text
+        listed = api_client.get(
+            f"/v1/matters/{matter_id}/interview/parked-items",
+            headers=_headers(CLIENT_SUB),
+        )
+        assert listed.json() == []
+        body = _get_session(api_client, matter_id, session_id).json()
+        assert body["parked_required_keys"] == []
+        item = next(
+            c for c in body["checklist"] if c["question_key"] == "primary_guardian_person"
+        )
+        assert item["parked"] is False
+        rows = _fetchall(
+            db,
+            "SELECT question_key FROM interview_parked_items WHERE matter_id = %s",
+            (matter_id,),
+        )
+        assert {r["question_key"] for r in rows} == {"primary_guardian_person"}

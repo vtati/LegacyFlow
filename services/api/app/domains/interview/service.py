@@ -2302,6 +2302,33 @@ def effective_parked_keys(
     return {k for k in parked_keys if not qs.is_answered(answers.get(k))}
 
 
+def _open_parked_keys(
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    parked_markers: frozenset[str] | set[str],
+) -> set[str]:
+    """Park markers that are still OPEN items: unanswered and in the
+    current applicable-required partition — compute_progress's missing
+    set, the same source of truth the progress endpoints use. A marker
+    whose gate later prunes (or that was parked while its question was
+    merely pending) drops out here even though the marker row persists:
+    it may never surface as an open item again."""
+    _per_set, _pct, missing, _pruned = qs.compute_progress(
+        pack.question_sets, answers
+    )
+    return set(missing) & set(parked_markers)
+
+
+def _require_session_not_closed(session: dict[str, Any]) -> None:
+    """Terminal-state guard for park/unpark, mirroring post_turn's: a
+    completed or abandoned session accepts no further changes."""
+    status = SessionStatus(str(session["status"]))
+    if status in (SessionStatus.COMPLETED, SessionStatus.ABANDONED):
+        raise ConflictError(
+            f"Interview session is {status.value}; no further changes."
+        )
+
+
 def _parked_keys(conn: Any, matter_id: UUID) -> set[str]:
     """Raw park markers for the matter. Fail-open like the bundle
     state reads: a parked-items read error must never break a turn —
@@ -5498,7 +5525,9 @@ def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> Sessio
     session_id = UUID(str(session["id"]))
     matter_id = UUID(str(session["matter_id"]))
     answers = _answers_map(conn, matter_id)
-    parked = effective_parked_keys(_parked_keys(conn, matter_id), answers)
+    # Open parked items only (applicability-aware): a marker whose gate
+    # pruned must not render as "saved for later" on the checklist.
+    parked = _open_parked_keys(pack, answers, _parked_keys(conn, matter_id))
     (
         completeness,
         missing,
@@ -5789,16 +5818,21 @@ def park_item(
 
     The item leaves the interview's focus, follow-ups and display
     missing list immediately; it still gates document generation
-    until it is answered or un-parked. Parking an answered item is a
-    conflict (nothing to defer); parking a pruned item is a conflict
-    (it does not apply to this plan); an unknown key is a validation
-    error. Idempotent for an already-parked item.
+    until it is answered or un-parked. Only a currently applicable,
+    required, unanswered item can be parked: parking an answered
+    item, a pending-gated item (its gate has not opened), a pruned
+    item (it does not apply to this plan), an optional item, or an
+    item with an open proposal awaiting review is a conflict; an
+    unknown key is a validation error. A completed or abandoned
+    session accepts no park changes (post_turn's terminal guard).
+    Idempotent for an already-parked item.
     """
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
     firm_id = UUID(str(scope.matter["firm_id"]))
     _require_flag(conn, firm_id)
     session = _load_session_for_write(conn, matter_id, session_id)
+    _require_session_not_closed(session)
     pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
     key = payload.question_key
     if key not in qs.all_question_keys(pack.question_sets):
@@ -5806,15 +5840,39 @@ def park_item(
     answers = _answers_map(conn, matter_id)
     if qs.is_answered(answers.get(key)):
         raise ConflictError("That item is already answered — nothing to park.")
-    applicable, pending, _pruned = qs.partition_questions(
+    applicable, pending, pruned = qs.partition_questions(
         pack.question_sets, answers
     )
-    live_keys = {
-        str(q.get("key")) for _s, _sec, q in [*applicable, *pending]
-    }
-    if key not in live_keys:
+    state_by_key: dict[str, str] = {}
+    required_by_key: dict[str, bool] = {}
+    for state, rows in (
+        ("applicable", applicable),
+        ("pending", pending),
+        ("pruned", pruned),
+    ):
+        for _s, _sec, question in rows:
+            qkey = str(question.get("key"))
+            state_by_key[qkey] = state
+            required_by_key[qkey] = bool(question.get("required", False))
+    state = state_by_key[key]
+    if state == "pruned":
         raise ConflictError(
             "That item does not apply to this plan — nothing to park."
+        )
+    if state == "pending":
+        raise ConflictError(
+            "That item isn't part of your plan yet — an earlier answer "
+            "decides whether it applies."
+        )
+    if not required_by_key[key]:
+        raise ConflictError(
+            "That item is optional — only required items can be saved "
+            "for later."
+        )
+    if key in repo.open_proposal_keys(conn, session_id):
+        raise ConflictError(
+            "That item has a suggested answer waiting — review it "
+            "before saving the item for later."
         )
     repo.park_item(
         conn,
@@ -5846,12 +5904,14 @@ def unpark_item(
     question_key: str,
 ) -> SessionOut:
     """Remove a park marker; the item rejoins the interview's missing
-    list and focus. Idempotent."""
+    list and focus. Idempotent. A completed or abandoned session
+    accepts no unpark changes (post_turn's terminal guard)."""
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
     firm_id = UUID(str(scope.matter["firm_id"]))
     _require_flag(conn, firm_id)
     session = _load_session_for_write(conn, matter_id, session_id)
+    _require_session_not_closed(session)
     pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
     if question_key not in qs.all_question_keys(pack.question_sets):
         raise ValidationAppError(f"Unknown question key: {question_key}")
@@ -5877,7 +5937,10 @@ def list_parked_items(
     """The matter's open (parked, still unanswered) items, in pack
     order — the Review screen's open-items list (Phase 4 P4 hook).
     Resolving an item anywhere (an answer write) removes it here with
-    no extra call: effective parked = markers minus answered keys.
+    no extra call. The list is applicability-aware: markers are
+    intersected with the current applicable-required partition
+    (compute_progress's missing set), so a parked item whose gate
+    later prunes drops out even though its marker row persists.
     """
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
@@ -5885,7 +5948,7 @@ def list_parked_items(
     _require_flag(conn, firm_id)
     pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
     answers = _answers_map(conn, matter_id)
-    parked = effective_parked_keys(_parked_keys(conn, matter_id), answers)
+    parked = _open_parked_keys(pack, answers, _parked_keys(conn, matter_id))
     if not parked:
         return []
     rows = {
