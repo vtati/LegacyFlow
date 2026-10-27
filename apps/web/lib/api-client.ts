@@ -346,6 +346,8 @@ export interface InterviewChecklistItem {
   required: boolean;
   answered: boolean;
   has_open_proposal: boolean;
+  /** Phase 4 (P4): parked with "don't know yet" — not answered, not missing. */
+  parked: boolean;
 }
 
 export interface InterviewSession {
@@ -356,6 +358,9 @@ export interface InterviewSession {
   status: 'draft' | 'in_progress' | 'paused' | 'completed' | 'abandoned';
   completeness_pct: number;
   missing_required_keys: string[];
+  /** Phase 4 (P4): required items parked with "don't know yet" —
+   * excluded from `missing_required_keys`, still gating generation. */
+  parked_required_keys: string[];
   checklist: InterviewChecklistItem[];
   open_proposal_count: number;
   turn_count: number;
@@ -375,6 +380,7 @@ export interface InterviewTurn {
   trace_hash: string;
   completeness_pct: number;
   missing_required_keys: string[];
+  parked_required_keys: string[];
   replayed: boolean;
 }
 
@@ -1039,6 +1045,18 @@ export interface FamilyApi {
     sessionId: string,
     status: 'paused' | 'in_progress' | 'abandoned' | 'completed',
   ) => Promise<InterviewSession>;
+  /** Phase 4 (P4): park an item ("don't know yet") / un-park it. Both
+   * return the refreshed session. */
+  parkInterviewItem: (
+    matterId: string,
+    sessionId: string,
+    questionKey: string,
+  ) => Promise<InterviewSession>;
+  unparkInterviewItem: (
+    matterId: string,
+    sessionId: string,
+    questionKey: string,
+  ) => Promise<InterviewSession>;
   postInterviewTurn: (
     matterId: string,
     sessionId: string,
@@ -1199,6 +1217,16 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       call<InterviewTurn>(
         `/matters/${matterId}/interview/sessions/${sessionId}/turns`,
         { method: 'POST', body: { message, idempotency_key: idempotencyKey }, track: false },
+      ),
+    parkInterviewItem: (matterId, sessionId, questionKey) =>
+      call<InterviewSession>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/parked-items`,
+        { method: 'POST', body: { question_key: questionKey } },
+      ),
+    unparkInterviewItem: (matterId, sessionId, questionKey) =>
+      call<InterviewSession>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/parked-items/${encodeURIComponent(questionKey)}`,
+        { method: 'DELETE' },
       ),
     listInterviewTurns: (matterId, sessionId) =>
       call<InterviewTurnSummary[]>(

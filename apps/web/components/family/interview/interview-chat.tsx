@@ -446,6 +446,23 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     [session, refreshSession],
   );
 
+  /** Phase 4 (P4): park / un-park a checklist item from the sidebar. */
+  const togglePark = useCallback(
+    async (questionKey: string, park: boolean) => {
+      if (session == null) return;
+      setError(null);
+      try {
+        const updated = park
+          ? await api.parkInterviewItem(matterId, session.id, questionKey)
+          : await api.unparkInterviewItem(matterId, session.id, questionKey);
+        setSession(updated);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+      }
+    },
+    [session, matterId],
+  );
+
   const uploadDocument = useCallback(
     async (file: File) => {
       if (session == null || extracting) return;
@@ -526,7 +543,12 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
 
   const paused = session.status === 'paused';
   const done = session.status === 'completed' || session.status === 'abandoned';
-  const requiredMissing = session.checklist.filter((c) => c.required && !c.answered);
+  // Phase 4 (P4): parked items are neither missing nor answered — the
+  // "still needed" count and the checklist show them distinctly.
+  const requiredMissing = session.checklist.filter(
+    (c) => c.required && !c.answered && !c.parked,
+  );
+  const parkedRequired = session.checklist.filter((c) => c.required && c.parked);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 px-4 lg:px-0">
@@ -761,6 +783,13 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                   ? 'All required items are collected.'
                   : `${requiredMissing.length} required item${requiredMissing.length === 1 ? '' : 's'} still needed.`}
               </p>
+              {parkedRequired.length > 0 && (
+                <p className="text-xs text-lf-text-muted">
+                  {parkedRequired.length} item{parkedRequired.length === 1 ? '' : 's'} saved for
+                  later — you will finish {parkedRequired.length === 1 ? 'it' : 'them'} before your
+                  documents are prepared.
+                </p>
+              )}
               <button
                 type="button"
                 className="flex w-full items-center justify-between text-sm font-medium text-lf-text"
@@ -778,7 +807,13 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                         aria-hidden="true"
                         className={cn(
                           'inline-block size-2 shrink-0 rounded-full',
-                          item.answered ? 'bg-lf-success-500' : item.has_open_proposal ? 'bg-lf-warning-500' : 'bg-lf-border',
+                          item.answered
+                            ? 'bg-lf-success-500'
+                            : item.parked
+                              ? 'bg-lf-primary-400'
+                              : item.has_open_proposal
+                                ? 'bg-lf-warning-500'
+                                : 'bg-lf-border',
                         )}
                       />
                       <span className={cn(!item.required && 'text-lf-text-muted')}>
@@ -787,7 +822,30 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                       {item.has_open_proposal && (
                         <span className="text-xs text-lf-warning-700">(awaiting review)</span>
                       )}
-                      <span className="sr-only">{item.answered ? 'answered' : 'not answered'}</span>
+                      {item.parked && (
+                        <span className="text-xs text-lf-primary-700">(saved for later)</span>
+                      )}
+                      {!done && !item.answered && !item.parked && (
+                        <button
+                          type="button"
+                          className="ml-auto shrink-0 text-xs text-lf-text-muted underline underline-offset-2 hover:text-lf-text"
+                          onClick={() => void togglePark(item.question_key, true)}
+                        >
+                          Don&rsquo;t know yet
+                        </button>
+                      )}
+                      {!done && item.parked && (
+                        <button
+                          type="button"
+                          className="ml-auto shrink-0 text-xs text-lf-primary-700 underline underline-offset-2 hover:text-lf-text"
+                          onClick={() => void togglePark(item.question_key, false)}
+                        >
+                          Answer now
+                        </button>
+                      )}
+                      <span className="sr-only">
+                        {item.answered ? 'answered' : item.parked ? 'saved for later' : 'not answered'}
+                      </span>
                     </li>
                   ))}
                 </ul>
