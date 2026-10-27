@@ -571,6 +571,62 @@ def test_renderers_watermark_unit():
     assert "not legal advice" in text
 
 
+def _docx_parts(content: bytes) -> dict[str, str]:
+    """Map every ``word/*.xml`` part name to its decoded XML text."""
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        return {
+            name: archive.read(name).decode("utf-8")
+            for name in archive.namelist()
+            if name.startswith("word/") and name.endswith(".xml")
+        }
+
+
+def test_renderers_draft_docx_footer_and_banner_carry_disclaimer():
+    # Neutral body: any DRAFT marking in the output is the renderer's own.
+    docx_bytes = render_demo_docx("Synthetic Title", "Synthetic body.", DEMO_TEXT)
+    parts = _docx_parts(docx_bytes)
+    footers = {name: xml for name, xml in parts.items() if "footer" in name}
+    assert footers, "draft DOCX must have a footer part"
+    assert any(DEMO_TEXT in xml for xml in footers.values())
+    assert DEMO_TEXT in parts["word/document.xml"]  # visible banner
+
+
+def test_renderers_final_docx_has_no_draft_marking_in_any_part():
+    # R3: the final (watermark_text=None) DOCX must carry NO draft marking
+    # in ANY carrier — document, headers or footers. The template body
+    # passed in starts with its own DRAFT line, which _strip_draft_header
+    # must keep stripping for finals.
+    body = (
+        "DRAFT — requires licensed attorney review before use.\n\n"
+        "Synthetic final body."
+    )
+    docx_bytes = render_demo_docx("Synthetic Title", body, None)
+    parts = _docx_parts(docx_bytes)
+    assert parts, "final DOCX must have word parts to inspect"
+    for name, xml in parts.items():
+        assert "DRAFT" not in xml, name
+        assert "NOT LEGALLY VALID" not in xml, name
+    assert "Synthetic final body." in parts["word/document.xml"]
+
+
+def test_renderers_final_pdf_has_no_draft_marking():
+    body = (
+        "DRAFT — requires licensed attorney review before use.\n\n"
+        "Synthetic final body."
+    )
+    pdf_bytes = render_demo_pdf("Synthetic Title", body, None)
+    text = pdf_text(pdf_bytes)
+    assert "DRAFT" not in text
+    assert "NOT LEGALLY VALID" not in text
+    assert "Synthetic final body." in text
+
+    # Mirror: the draft PDF is marked.
+    draft_text = pdf_text(render_demo_pdf("Synthetic Title", "Synthetic body.", DEMO_TEXT))
+    assert DEMO_TEXT in draft_text
+
+
 def test_render_template_content_pure():
     merged = render_template_content(
         "Hello {{household_name}}, today is {{today}}.",

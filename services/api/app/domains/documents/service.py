@@ -393,7 +393,7 @@ def _require_package(conn: Any, package_id: UUID) -> dict[str, Any]:
 
 
 def _add_docx_header_footer(
-    doc: DocxDocument, heading: str, disclaimer: str = DEMO_DISCLAIMER
+    doc: DocxDocument, heading: str, disclaimer: str | None = DEMO_DISCLAIMER
 ) -> None:
     section = doc.sections[0]
     header = section.header
@@ -407,11 +407,15 @@ def _add_docx_header_footer(
     footer.is_linked_to_previous = False
     paragraph = footer.paragraphs[0]
     paragraph.text = ""
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run(disclaimer)
-    run.font.size = Pt(9)
-    run.font.bold = True
-    run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
+    # The footer disclaimer is a DRAFT-only element: a final render
+    # passes disclaimer=None and the footer stays empty, so no draft
+    # marking survives in word/footer*.xml (R3).
+    if disclaimer is not None:
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(disclaimer)
+        run.font.size = Pt(9)
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
 
 
 def _add_docx_diagonal_watermark(doc: DocxDocument, text: str) -> None:
@@ -507,7 +511,9 @@ def render_demo_docx(title: str, body: str, watermark_text: str | None) -> bytes
     if watermark_text is None:
         body = _strip_draft_header(body)
     doc = Document()
-    _add_docx_header_footer(doc, title)
+    _add_docx_header_footer(
+        doc, title, disclaimer=DEMO_DISCLAIMER if watermark_text is not None else None
+    )
     if watermark_text is not None:
         _add_docx_diagonal_watermark(doc, watermark_text)
 
