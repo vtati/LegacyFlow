@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import io
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
@@ -135,7 +136,7 @@ def db_stale(pg_uri_stale):
     yield from _db(pg_uri_stale)
 
 
-def _client(pg_uri: str, monkeypatch, tmp_path) -> TestClient:
+def _client(pg_uri: str, monkeypatch, tmp_path) -> Iterator[TestClient]:
     storage_dir = tmp_path / "uploads"
     storage_dir.mkdir()
     monkeypatch.setenv("STORAGE_DIR", str(storage_dir))
@@ -164,17 +165,29 @@ def _client(pg_uri: str, monkeypatch, tmp_path) -> TestClient:
 
     app = create_app()
     app.include_router(files_router, prefix="/v1")
-    return TestClient(app, raise_server_exceptions=False)
+    try:
+        yield TestClient(app, raise_server_exceptions=False)
+    finally:
+        # The pool is process-wide, so leaving it bound to this
+        # fixture's database poisons later test modules that build a
+        # client without resetting it (e.g. test_slice4_ai): their
+        # requests would hit this now-stale schema. Hand the process
+        # back clean — no pool, no cached settings (the provider
+        # tests cache an AI_LLM_PROVIDER=openai settings object).
+        if core_db._pool is not None:
+            core_db._pool.close()
+            core_db._pool = None
+        get_settings.cache_clear()
 
 
 @pytest.fixture()
 def api_client(pg_uri, monkeypatch, tmp_path):
-    return _client(pg_uri, monkeypatch, tmp_path)
+    yield from _client(pg_uri, monkeypatch, tmp_path)
 
 
 @pytest.fixture()
 def api_client_stale(pg_uri_stale, monkeypatch, tmp_path):
-    return _client(pg_uri_stale, monkeypatch, tmp_path)
+    yield from _client(pg_uri_stale, monkeypatch, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -400,23 +413,42 @@ def test_schema_contract_columns_and_unreadable_scan_value(db):
 
 
 def _kill_provider(monkeypatch):
-    """Configure the OpenAI provider; make the gateway reject like the
-    2026-10-27 production incident: HTTP 429 insufficient_quota
-    (credit balance exhausted). The exception TYPE is irrelevant —
-    analyze_with_llm catches `Exception` wholesale by design."""
+    """Configure the OpenAI provider; make its JSON completion reject
+    like the 2026-10-27 production incident: HTTP 429
+    insufficient_quota (credit balance exhausted). Mirror the real
+    chain — OpenAIJsonProvider.complete_json converts the httpx 429
+    into ProviderError, which analyze_with_llm then catches — rather
+    than raising an unrelated error from the factory itself."""
     monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
     from app.core.config import get_settings
 
     get_settings.cache_clear()
+    from app.core.errors import ProviderError
     from app.domains.files import analysis
 
-    def _boom(model=None):
-        raise RuntimeError(
-            "429 insufficient_quota: You have no credits remaining (simulated)"
-        )
+    class _QuotaExhaustedProvider:
+        """Fake JSON provider whose complete_json fails as the real
+        OpenAI provider does once the gateway rejects the call."""
 
-    monkeypatch.setattr(analysis, "get_json_provider", _boom)
+        name = "openai"
+
+        def complete_json(
+            self,
+            *,
+            system_prompt: str,
+            user_content: str,
+            temperature: float,
+            timeout: float = 90.0,
+        ) -> tuple[str, dict[str, int]]:
+            raise ProviderError(
+                "429 insufficient_quota: You have no credits remaining (simulated)"
+            )
+
+    def _factory(model=None):
+        return _QuotaExhaustedProvider()
+
+    monkeypatch.setattr(analysis, "get_json_provider", _factory)
 
 
 def test_dead_provider_still_analyzes_via_rules(db, api_client, monkeypatch):
