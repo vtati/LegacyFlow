@@ -1703,6 +1703,9 @@ def test_gap_without_keys_filters_and_empties():
 IDENTITY_ANSWERS = {
     "testator_full_name": "Arjun Sharma",
     "marital_status": "married",
+    # A married identity is complete only once the spouse is named
+    # (spouse_full_name applies_if marital_status married/partnered).
+    "spouse_full_name": "Neha Kapoor",
     "primary_residence_state": "Virginia",
     "testator_street_address": "123 Main Street",
     "testator_city": "Richmond",

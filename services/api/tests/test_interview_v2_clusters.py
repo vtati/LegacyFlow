@@ -24,6 +24,10 @@ def _keys(gap):
 IDENTITY_ANSWERS = {
     "testator_full_name": "Arjun Sharma",
     "marital_status": "married",
+    # A married identity is only complete once the spouse is named —
+    # spouse_full_name (required, gated on married/partnered) is part
+    # of the identity cluster since the 2026-10-27 capture fix.
+    "spouse_full_name": "Neha Kapoor",
     "primary_residence_state": "Virginia",
     "testator_street_address": "123 Main Street",
     "testator_city": "Richmond",

@@ -199,3 +199,29 @@ def insert_relationship(
             ),
         )
         return dict(cur.fetchone())
+
+
+def update_relationship_type(
+    conn: Any, relationship_id: UUID, relationship_type: str
+) -> dict[str, Any] | None:
+    """Update a relationship row's type in place; return the row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE relationships SET relationship_type = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (relationship_type, str(relationship_id)),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_relationship(conn: Any, relationship_id: UUID) -> None:
+    """Delete a relationship row by id."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM relationships WHERE id = %s",
+            (str(relationship_id),),
+        )

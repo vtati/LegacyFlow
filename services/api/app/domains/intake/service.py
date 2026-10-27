@@ -514,6 +514,315 @@ def _sync_testator_name(
         logger.warning("Testator name sync failed: %s", e)
 
 
+_SPOUSE_TYPE_BY_STATUS = {"married": "spouse", "partnered": "partner"}
+
+# Canonical UUID shape (8-4-4-4-12 hex) — same pattern the document
+# renderer uses (documents/service.py _UUID_SHAPED). A person-reference
+# value with this shape that matches no household person is a dangling
+# ID, never a name.
+_UUID_SHAPED = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _resolve_testator_person_id(
+    conn: Any, household_id: UUID, answers: dict[str, Any]
+) -> str | None:
+    """Anchor person for the spouse sync: the testator OF THE MATTER
+    WHOSE ANSWERS THESE ARE, resolved through the SAME chain the
+    document renderer uses (documents/service.py build_template_context),
+    so the sync and the renderer always agree on whose spouse a row
+    describes:
+
+    1. the ``testator_full_name`` answer — an ID-shaped value resolves
+       to that person directly; a name-shaped value resolves to the
+       household person with that name, preferring the primary_client
+       member's person among duplicate names. A name-shaped answer
+       with NO matching person yields None (the renderer likewise
+       carries the answer text with an empty person id and looks up
+       no spouse): anchoring on anyone else could write a row about
+       the wrong person.
+    2. otherwise the primary_client member's person;
+    3. otherwise the first adult.
+
+    Member-first resolution was the review-found defect (C1): in a
+    household where each spouse has their own matter, the second
+    testator's saves anchored on the primary client — fabricating a
+    row for them and deleting theirs.
+
+    Known residue (re-review N2, theoretical): the renderer builds its
+    person maps from named persons only, while this chain can anchor
+    on a blank/"Unknown person" placeholder — unreachable today (no
+    code creates such persons, and _sync_testator_name fills the
+    placeholder before this sync whenever the save carries the name).
+    """
+    from app.domains.household import repository as household_repo
+
+    persons = household_repo.list_persons_for_household(conn, household_id)
+    if not persons:
+        return None
+    by_id = {str(p.get("id")): p for p in persons}
+    primary_pid = ""
+    for member in household_repo.list_members_for_household(conn, household_id):
+        if str(member.get("relationship_role") or "").strip().lower() == "primary_client":
+            primary_pid = str(member.get("person_id") or "")
+            break
+    raw = answers.get("testator_full_name")
+    if isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        person = _person_for_id_value(conn, household_id, text)
+        if person is not None:
+            return str(person["id"])
+        if not _UUID_SHAPED.fullmatch(text):
+            wanted = text.lower()
+            matches = [
+                p
+                for p in persons
+                if str(p.get("full_name") or "").strip().lower() == wanted
+            ]
+            if not matches:
+                return None
+            for p in matches:
+                if str(p["id"]) == primary_pid:
+                    return primary_pid
+            return str(matches[0]["id"])
+        # UUID-shaped but unmatched: the renderer falls through to the
+        # member chain, and so does this chain.
+    if primary_pid and primary_pid in by_id:
+        return primary_pid
+    for p in persons:
+        if str(p.get("kind") or "").lower() not in _MINOR_KINDS:
+            return str(p["id"])
+    return None
+
+
+def _sync_spouse_relationship(
+    conn: Any,
+    *,
+    matter_id: UUID,
+    household_id: UUID,
+    firm_id: UUID,
+    actor_id: UUID,
+    capture_enabled: bool,
+) -> None:
+    """Reconcile the testator's spouse/partner relationships row with
+    the stored answers (capture fix, 2026-10-27).
+
+    The document renderer reads the spouse ONLY from a relationships
+    row — never positionally — but until the pack gained a
+    ``spouse_full_name`` question (gated on marital_status) nothing in
+    the product ever created one, so an interview-only married matter
+    rendered the Will's spouse slot blank. This sync is the capture:
+    it runs inside save_answers — the single funnel for interview
+    confirmations, wizard saves, and Review-screen edits — and reads
+    the FULL stored answer set (post-upsert), so partial saves and
+    corrections converge identically:
+
+    * married/partnered + a captured name -> exactly one row from the
+      testator to that person, typed spouse/partner; a name change
+      re-points it, a married<->partnered change corrects the type
+      IN PLACE (the row's identity survives), stale rows to anyone
+      else are removed.
+    * any other recorded marital status -> no current spouse: the
+      testator's spouse/partner rows are removed.
+    * no marital status recorded, or married/partnered with the name
+      not yet captured -> no signal; nothing is created or removed.
+
+    Policy rulings (independent review, 2026-10-27):
+    * On capture-enabled matters the family's latest recorded answers
+      are AUTHORITATIVE for the testator's spouse/partner rows —
+      including over rows created by hand through the relationships
+      API. Every sync mutation is audit-trailed
+      (relationships.spouse_sync_created / _updated / _removed).
+    * Legacy-pack matters (``capture_enabled`` false — their pack has
+      no spouse_full_name question) are fully out of scope: their
+      saves never create or remove rows.
+    * A captured name that resolves to a MINOR person, an unmatched
+      UUID-shaped value, or the testator themselves never produces a
+      row; each abstention is logged, never silent.
+
+    The spouse person is ensured by name (or resolved from an
+    ID-shaped value) exactly like nomination answers, so the spouse
+    exists as a household person even when never nominated to a role.
+    Renaming that person later needs no sync: the row points at the
+    person ID and the renderer resolves the current name.
+
+    Best-effort + SAVEPOINT-armored like the other syncs, with the
+    savepoint opened BEFORE any write (the person ensure included):
+    a failure here must never fail the answer save or poison the
+    caller's transaction.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if not capture_enabled:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT lf_spouse_sync")
+        try:
+            _reconcile_spouse_relationship(
+                conn,
+                matter_id=matter_id,
+                household_id=household_id,
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+        except Exception:
+            with conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT lf_spouse_sync")
+                cur.execute("RELEASE SAVEPOINT lf_spouse_sync")
+            raise
+        with conn.cursor() as cur:
+            cur.execute("RELEASE SAVEPOINT lf_spouse_sync")
+    except Exception as e:  # best-effort: never fail the answer save
+        logger.warning("Spouse relationship sync failed: %s", e)
+
+
+def _reconcile_spouse_relationship(
+    conn: Any,
+    *,
+    matter_id: UUID,
+    household_id: UUID,
+    firm_id: UUID,
+    actor_id: UUID,
+) -> None:
+    """The spouse-sync reconciliation itself; runs inside the
+    caller's SAVEPOINT (see _sync_spouse_relationship)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    from app.domains.household import repository as household_repo
+
+    stored = {
+        str(row["question_key"]): row["answer"]
+        for row in repo.list_answers(conn, matter_id)
+    }
+    status_raw = stored.get("marital_status")
+    if not isinstance(status_raw, str) or not status_raw.strip():
+        return
+    status = status_raw.strip().lower()
+    desired_type = _SPOUSE_TYPE_BY_STATUS.get(status)
+    desired_person_id: str | None = None
+    if desired_type is not None:
+        raw_name = stored.get("spouse_full_name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            return  # status says married/partnered; name not captured yet
+        text = raw_name.strip()
+        person = _person_for_id_value(conn, household_id, text)
+        if person is None:
+            if _UUID_SHAPED.fullmatch(text):
+                logger.warning(
+                    "Spouse sync: spouse_full_name is an unmatched person"
+                    " ID; no row created (household %s)",
+                    household_id,
+                )
+                return
+            person = _ensure_person_for_name(conn, household_id, text)
+        if person is None:
+            return
+        if str(person.get("kind") or "").lower() in _MINOR_KINDS:
+            logger.warning(
+                "Spouse sync: captured spouse name resolves to a minor"
+                " person; no row created (household %s)",
+                household_id,
+            )
+            return
+        desired_person_id = str(person["id"])
+    testator_id = _resolve_testator_person_id(conn, household_id, stored)
+    if testator_id is None:
+        return
+    if desired_person_id is not None and desired_person_id == testator_id:
+        logger.warning(
+            "Spouse sync: spouse_full_name resolves to the testator"
+            " themselves; rows left untouched (household %s)",
+            household_id,
+        )
+        return
+
+    def _audit(action: str, row: dict[str, Any]) -> None:
+        record_audit_event(
+            conn,
+            action=action,
+            resource_type="relationship",
+            actor_user_id=actor_id,
+            actor_type="user",
+            firm_id=firm_id,
+            matter_id=matter_id,
+            resource_id=UUID(str(row["id"])),
+            after_summary={
+                "relationship_type": row.get("relationship_type"),
+                "source": "spouse_answer_sync",
+            },
+        )
+
+    rows = household_repo.list_relationships_for_household(conn, household_id)
+    involved: list[tuple[dict[str, Any], str]] = []
+    for rel in rows:
+        if str(rel.get("relationship_type") or "").strip().lower() not in (
+            "spouse",
+            "partner",
+        ):
+            continue
+        from_id = str(rel.get("from_person_id") or "")
+        to_id = str(rel.get("to_person_id") or "")
+        if testator_id in (from_id, to_id):
+            involved.append((rel, to_id if from_id == testator_id else from_id))
+    keep_id: str | None = None
+    if desired_person_id is not None and desired_type is not None:
+        for rel, other_id in involved:
+            if (
+                other_id == desired_person_id
+                and str(rel.get("relationship_type") or "").strip().lower()
+                == desired_type
+            ):
+                keep_id = str(rel["id"])
+                break
+        if keep_id is None:
+            for rel, other_id in involved:
+                if other_id == desired_person_id:
+                    updated = household_repo.update_relationship_type(
+                        conn, UUID(str(rel["id"])), desired_type
+                    )
+                    keep_id = str(rel["id"])
+                    logger.info(
+                        "Corrected relationship %s type to %s (household %s)",
+                        rel["id"],
+                        desired_type,
+                        household_id,
+                    )
+                    if updated is not None:
+                        _audit("relationships.spouse_sync_updated", updated)
+                    break
+    for rel, _other_id in involved:
+        if keep_id is not None and str(rel["id"]) == keep_id:
+            continue
+        household_repo.delete_relationship(conn, UUID(str(rel["id"])))
+        logger.info(
+            "Removed stale %s relationship %s (household %s)",
+            rel.get("relationship_type"),
+            rel["id"],
+            household_id,
+        )
+        _audit("relationships.spouse_sync_removed", rel)
+    if desired_person_id is not None and desired_type is not None and keep_id is None:
+        row = household_repo.insert_relationship(
+            conn,
+            household_id=household_id,
+            from_person_id=UUID(testator_id),
+            to_person_id=UUID(desired_person_id),
+            relationship_type=desired_type,
+        )
+        logger.info(
+            "Synced %s relationship %s -> %s (household %s)",
+            desired_type,
+            testator_id,
+            desired_person_id,
+            household_id,
+        )
+        _audit("relationships.spouse_sync_created", row)
+
+
 _CATEGORY_ASSET_TYPES = {
     "bank": "bank_account",
     "brokerage": "investment",
@@ -738,6 +1047,18 @@ def save_answers(
         conn,
         household_id=UUID(str(scope.matter["household_id"])),
         answers=answers,
+    )
+    # Spouse capture runs after the testator sync so the primary-client
+    # person exists (and carries the confirmed name) to anchor the row.
+    # Capture is enabled only when the matter's own pack defines the
+    # spouse_full_name question — legacy packs carry no such mandate.
+    _sync_spouse_relationship(
+        conn,
+        matter_id=matter_id,
+        household_id=UUID(str(scope.matter["household_id"])),
+        firm_id=UUID(str(scope.matter["firm_id"])),
+        actor_id=actor_id,
+        capture_enabled="spouse_full_name" in known_keys,
     )
     _sync_assets_from_answers(
         conn,

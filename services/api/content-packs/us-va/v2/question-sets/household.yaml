@@ -32,6 +32,16 @@ sections:
       label: Widowed
     maps_to: facts.marital_status
     cluster: identity
+  - key: spouse_full_name
+    type: text
+    label: What is your spouse or partner's name?
+    help: 'Why we ask: your will names your spouse directly, and your other documents
+      refer to them — we need the exact legal name, spelled the way it appears on
+      their ID.'
+    required: true
+    applies_if: marital_status == 'married' or marital_status == 'partnered'
+    maps_to: facts.spouse_full_name
+    cluster: identity
   - key: primary_residence_state
     type: text
     label: What state is your primary residence in?
