@@ -30,6 +30,34 @@ router = APIRouter(tags=["documents"])
 User = Annotated[Claims, Depends(get_current_user)]
 
 
+def _auto_run_attorney_review(matter_id: UUID, actor_sub: str) -> None:
+    """Best-effort advisory pre-review after a generate/submit commits.
+
+    Runs in its own transaction, after the core action is durable. The
+    reviewer is advisory: its service entry never raises, and this
+    wrapper swallows everything else — a pre-review failure must never
+    fail the family's generate or submit.
+    """
+    import logging
+    from uuid import UUID as _UUID
+
+    from app.domains.attorney_review import service as attorney_review_service
+    from app.domains.matters import repository as matters_repo
+
+    try:
+        with db.transaction() as conn:
+            matter = matters_repo.get_matter(conn, matter_id)
+            if matter is None:
+                return
+            attorney_review_service.run_review_for_matter(
+                conn, matter=matter, actor_id=_UUID(actor_sub)
+            )
+    except Exception:  # advisory hook; see docstring
+        logging.getLogger(__name__).exception(
+            "attorney_review auto-run hook failed for matter %s", matter_id
+        )
+
+
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
@@ -179,7 +207,9 @@ def get_draft_documents_state(user: User, matter_id: UUID) -> sch.DraftSetStateO
 def generate_draft_documents(user: User, matter_id: UUID) -> sch.DraftSetGenerateOut:
     """Generate/regenerate the matter's watermarked draft set (family path)."""
     with db.transaction() as conn:
-        return service.generate_draft_set(conn, actor_sub=user.sub, matter_id=matter_id)
+        result = service.generate_draft_set(conn, actor_sub=user.sub, matter_id=matter_id)
+    _auto_run_attorney_review(matter_id, user.sub)
+    return result
 
 
 @router.post(
@@ -189,9 +219,11 @@ def generate_draft_documents(user: User, matter_id: UUID) -> sch.DraftSetGenerat
 def submit_draft_documents(user: User, matter_id: UUID) -> sch.DraftSubmitOut:
     """Submit fresh drafts to the firm's routable attorney (frozen packet)."""
     with db.transaction() as conn:
-        return service.submit_for_attorney_review(
+        result = service.submit_for_attorney_review(
             conn, actor_sub=user.sub, matter_id=matter_id
         )
+    _auto_run_attorney_review(matter_id, user.sub)
+    return result
 
 
 # ---------------------------------------------------------------------------

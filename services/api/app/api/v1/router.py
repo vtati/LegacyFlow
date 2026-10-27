@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import me
 from app.domains.ai.router import router as ai_router
 from app.domains.assets.router import router as assets_router
+from app.domains.attorney_review.router import router as attorney_review_router
 from app.domains.attorneys.router import router as attorneys_router
 from app.domains.audit.router import router as audit_router
 from app.domains.decisions.router import router as decisions_router
@@ -41,6 +42,7 @@ router.include_router(attorneys_router)
 router.include_router(audit_router)
 router.include_router(review_router)
 router.include_router(documents_router)
+router.include_router(attorney_review_router)
 router.include_router(ai_router)
 router.include_router(files_router)
 router.include_router(firms_router)

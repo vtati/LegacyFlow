@@ -270,7 +270,9 @@ def _check_role_consistency(
         for p in source.get("persons") or []
     }
     for nomination in source.get("nominations") or []:
-        if str(nomination.get("status") or "active") != "active":
+        # Withdrawn nominations are dead; proposed/confirmed are live
+        # (the nominations table's status vocabulary).
+        if str(nomination.get("status") or "proposed") == "withdrawn":
             continue
         slot = _NOMINATION_SLOTS.get(
             (str(nomination.get("nomination_type")), int(nomination.get("priority") or 0))

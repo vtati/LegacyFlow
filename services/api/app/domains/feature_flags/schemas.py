@@ -16,6 +16,7 @@ class FeatureFlagKey(StrEnum):
     AI_ASSISTANCE = "ai_assistance"
     FUNDING_REMINDERS = "funding_reminders"
     AI_INTERVIEWER = "ai_interviewer"
+    ATTORNEY_REVIEWER = "attorney_reviewer"
 
 
 class FeatureFlagScope(StrEnum):

@@ -117,15 +117,15 @@ def _source(**overrides) -> dict:
         "persons": _persons(),
         "nominations": [
             {"nomination_type": "executor", "person_id": BROTHER_ID,
-             "priority": 1, "status": "active"},
+             "priority": 1, "status": "confirmed"},
             {"nomination_type": "executor", "person_id": SPOUSE_ID,
-             "priority": 2, "status": "active"},
+             "priority": 2, "status": "confirmed"},
             {"nomination_type": "financial_agent", "person_id": SPOUSE_ID,
-             "priority": 1, "status": "active"},
+             "priority": 1, "status": "confirmed"},
             {"nomination_type": "healthcare_agent", "person_id": SPOUSE_ID,
-             "priority": 1, "status": "active"},
+             "priority": 1, "status": "confirmed"},
             {"nomination_type": "guardian", "person_id": BROTHER_ID,
-             "priority": 1, "status": "active"},
+             "priority": 1, "status": "confirmed"},
         ],
         "answers": {
             "has_minor_children": True,
@@ -239,7 +239,7 @@ def test_nomination_that_disagrees_with_rendered_slot_is_caught() -> None:
     source = _source()
     source["nominations"] = [
         {"nomination_type": "executor", "person_id": SPOUSE_ID,
-         "priority": 1, "status": "active"},
+         "priority": 1, "status": "confirmed"},
     ]
     findings = _by_check(_run(source=source), "role_consistency")
     assert len(findings) == 1

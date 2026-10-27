@@ -42,6 +42,9 @@ KNOWN_FLAG_DEFAULTS: dict[str, bool] = {
     # Interview v2 (cluster flow + role bundles): fail-closed default;
     # enabled per firm by DB row (Demo firm) until the A/B bar passes.
     "interview_v2": False,
+    # Attorney Reviewer Agent (§9): advisory pre-review of frozen draft
+    # packages. Fail-closed default; enabled per firm (test firms first).
+    "attorney_reviewer": False,
 }
 
 _ENV_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})

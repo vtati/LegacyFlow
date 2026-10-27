@@ -1438,7 +1438,8 @@ def _render_demo_package(
     if template is None:
         raise ConflictError("The package's template is missing.")
 
-    body = _merge_placeholders(_template_content_body(template), build_template_context(conn, UUID(str(matter["id"]))))
+    context = build_template_context(conn, UUID(str(matter["id"])))
+    body = _merge_placeholders(_template_content_body(template), context)
     title = f"{template['name']} — Draft"
     _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
     created = _render_package_versions(
@@ -1452,6 +1453,22 @@ def _render_demo_package(
     )
     fingerprint = compute_source_fingerprint(conn, matter)
     package = repo.update_package_render(conn, package_id, "demo_released", fingerprint)
+    # Attorney Reviewer (§9): persist the frozen artifact this render
+    # produced — the pre-review analyses exactly these bytes and this
+    # context, never live answers.
+    from ...domains.attorney_review import service as attorney_review_service
+
+    attorney_review_service.record_render_snapshot(
+        conn,
+        matter=matter,
+        package_id=package_id,
+        package_version=max(int(row["version"]) for row in created),
+        source_fingerprint=fingerprint,
+        template_type=str(template["template_type"]),
+        template_body=_template_content_body(template),
+        body_text=body,
+        context=context,
+    )
     record_audit_event(
         conn,
         action="document_demo.generated",
