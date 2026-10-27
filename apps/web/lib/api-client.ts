@@ -937,6 +937,49 @@ export interface DraftSubmitResult {
   assigned_attorney: DraftAttorney;
 }
 
+/* ------------------------------------------------------- attorney review */
+
+export interface AttorneyReviewFindingLocation {
+  document: string | null;
+  field: string | null;
+  excerpt: string | null;
+}
+
+export interface AttorneyReviewFinding {
+  id: string;
+  layer: 'deterministic' | 'model';
+  check: string;
+  severity: 'should_fix' | 'question_for_attorney';
+  location: AttorneyReviewFindingLocation;
+  explanation: string;
+  suggested_fix: string | null;
+  disposition: 'open' | 'acknowledged' | 'fixed_by_regeneration' | 'stale';
+  acknowledgment_note: string | null;
+  acknowledged_by_user_id: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface AttorneyReviewRun {
+  id: string;
+  status: string;
+  model_id: string | null;
+  prompt_version: string | null;
+  source_fingerprint: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface AttorneyReviewFindings {
+  enabled: boolean;
+  run: AttorneyReviewRun | null;
+  findings: AttorneyReviewFinding[];
+}
+
+export interface AttorneyReviewRunResult {
+  run: AttorneyReviewRun;
+  findings: AttorneyReviewFinding[];
+}
+
 /* ---------------------------------------------------------------- signing */
 
 export interface SigningChecklistItem {
@@ -1169,6 +1212,13 @@ export interface FamilyApi {
   getDraftSetState: (matterId: string) => Promise<DraftSetState>;
   generateDraftSet: (matterId: string) => Promise<DraftSetGenerateResult>;
   submitDraftSet: (matterId: string) => Promise<DraftSubmitResult>;
+  /* automated pre-review (attorney reviewer, advisory) */
+  getAttorneyReviewFindings: (matterId: string) => Promise<AttorneyReviewFindings>;
+  acknowledgeAttorneyReviewFinding: (
+    matterId: string,
+    findingId: string,
+    note: string,
+  ) => Promise<AttorneyReviewFinding>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
   attest: (checklistId: string, input: AttestInput) => Promise<SigningAttestation>;
@@ -1419,6 +1469,13 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       call<DraftSubmitResult>(`/matters/${matterId}/draft-documents/submit`, {
         method: 'POST',
       }),
+    getAttorneyReviewFindings: (matterId) =>
+      call<AttorneyReviewFindings>(`/matters/${matterId}/attorney-review/findings`),
+    acknowledgeAttorneyReviewFinding: (matterId, findingId, note) =>
+      call<AttorneyReviewFinding>(
+        `/matters/${matterId}/attorney-review/findings/${findingId}/acknowledge`,
+        { method: 'POST', body: { note } },
+      ),
     downloadDraftDocument: (downloadUrl: string) => {
       // Backend returns "/v1/document-versions/{id}/download"; strip the /v1 prefix
       // since apiFetchBlob adds it.
@@ -1616,6 +1673,14 @@ export interface FirmApi {
   ) => Promise<ReviewPacketDetail>;
   listReviewPackets: (matterId: string) => Promise<ReviewPacketSummary[]>;
   getReviewPacket: (matterId: string, packetId: string) => Promise<ReviewPacketDetail>;
+  /* automated pre-review (attorney reviewer, advisory) */
+  getAttorneyReviewFindings: (matterId: string) => Promise<AttorneyReviewFindings>;
+  runAttorneyReview: (matterId: string) => Promise<AttorneyReviewRunResult>;
+  acknowledgeAttorneyReviewFinding: (
+    matterId: string,
+    findingId: string,
+    note: string,
+  ) => Promise<AttorneyReviewFinding>;
   listComments: (matterId: string) => Promise<MatterComment[]>;
   createComment: (matterId: string, input: CommentInput) => Promise<MatterComment>;
   listClarifications: (matterId: string) => Promise<Clarification[]>;
@@ -1745,6 +1810,17 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
       call<ReviewPacketSummary[]>(`/matters/${matterId}/review-packets`),
     getReviewPacket: (matterId, packetId) =>
       call<ReviewPacketDetail>(`/matters/${matterId}/review-packets/${packetId}`),
+    getAttorneyReviewFindings: (matterId) =>
+      call<AttorneyReviewFindings>(`/matters/${matterId}/attorney-review/findings`),
+    runAttorneyReview: (matterId) =>
+      call<AttorneyReviewRunResult>(`/matters/${matterId}/attorney-review/run`, {
+        method: 'POST',
+      }),
+    acknowledgeAttorneyReviewFinding: (matterId, findingId, note) =>
+      call<AttorneyReviewFinding>(
+        `/matters/${matterId}/attorney-review/findings/${findingId}/acknowledge`,
+        { method: 'POST', body: { note } },
+      ),
     listComments: (matterId) => call<MatterComment[]>(`/matters/${matterId}/comments`),
     createComment: (matterId, input) =>
       call<MatterComment>(`/matters/${matterId}/comments`, { method: 'POST', body: input }),

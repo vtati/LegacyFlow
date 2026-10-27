@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { DraftPanel } from '@/components/family/review/draft-panel';
+import { AttorneyReviewPanel } from '@/components/family/review/attorney-review-panel';
 import { ReviewAnswers } from '@/components/family/review/review-answers';
 import { ReviewParkedItems } from '@/components/family/review/review-parked-items';
 import { ReviewPersons } from '@/components/family/review/review-persons';
@@ -15,6 +16,7 @@ import {
   api,
   type AnswerMap,
   type AnswerValue,
+  type AttorneyReviewFindings,
   type DraftSetState,
   type HouseholdResponse,
   type IntakeProgressResponse,
@@ -52,6 +54,7 @@ export default function FamilyReviewPage(): React.JSX.Element {
   const [nominations, setNominations] = useState<Nomination[]>([]);
   const [parkedItems, setParkedItems] = useState<ParkedItem[]>([]);
   const [draftState, setDraftState] = useState<DraftSetState | null>(null);
+  const [attorneyReview, setAttorneyReview] = useState<AttorneyReviewFindings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -95,6 +98,14 @@ export default function FamilyReviewPage(): React.JSX.Element {
     }
   }, []);
 
+  const refreshAttorneyReview = useCallback(async (id: string) => {
+    try {
+      setAttorneyReview(await api.getAttorneyReviewFindings(id));
+    } catch {
+      /* advisory panel only; absence must never disturb the page */
+    }
+  }, []);
+
   useEffect(() => {
     if (!matterId) return;
     let cancelled = false;
@@ -104,6 +115,8 @@ export default function FamilyReviewPage(): React.JSX.Element {
     setHousehold(null);
     setDraftState(null);
     setParkedItems([]);
+    setAttorneyReview(null);
+    void refreshAttorneyReview(matterId);
     Promise.allSettled([
       api.getQuestionSets(matterId),
       api.getAnswers(matterId),
@@ -192,12 +205,15 @@ export default function FamilyReviewPage(): React.JSX.Element {
     try {
       await api.generateDraftSet(matterId);
       await refreshDraftState(matterId);
+      // Generation auto-runs the pre-review server-side (when the firm
+      // enabled it); refetch so the findings appear with the drafts.
+      await refreshAttorneyReview(matterId);
     } catch {
       setActionError('Draft creation failed — please try again.');
     } finally {
       setGenerating(false);
     }
-  }, [matterId, refreshDraftState]);
+  }, [matterId, refreshDraftState, refreshAttorneyReview]);
 
   const handleSubmit = useCallback(async () => {
     if (!matterId) return;
@@ -206,6 +222,7 @@ export default function FamilyReviewPage(): React.JSX.Element {
     try {
       await api.submitDraftSet(matterId);
       await refreshDraftState(matterId);
+      await refreshAttorneyReview(matterId);
       reload();
     } catch {
       setActionError(
@@ -216,6 +233,15 @@ export default function FamilyReviewPage(): React.JSX.Element {
       setSubmitting(false);
     }
   }, [matterId, refreshDraftState, reload]);
+
+  const handleAcknowledgeFinding = useCallback(
+    async (findingId: string, note: string) => {
+      if (!matterId) return;
+      await api.acknowledgeAttorneyReviewFinding(matterId, findingId, note);
+      await refreshAttorneyReview(matterId);
+    },
+    [matterId, refreshAttorneyReview],
+  );
 
   return (
     <div className="space-y-6">
@@ -300,6 +326,13 @@ export default function FamilyReviewPage(): React.JSX.Element {
               actionError={actionError}
               onGenerate={handleGenerate}
               onSubmit={handleSubmit}
+            />
+          )}
+
+          {matterId && (
+            <AttorneyReviewPanel
+              data={attorneyReview}
+              onAcknowledge={handleAcknowledgeFinding}
             />
           )}
 

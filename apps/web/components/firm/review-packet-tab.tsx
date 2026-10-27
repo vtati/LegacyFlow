@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
+import { AttorneyReviewSection } from '@/components/firm/attorney-review-section';
 import { firmApi, type ReviewPacketDetail, type ReviewPacketSummary } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 
@@ -186,6 +187,8 @@ export function ReviewPacketTab({ matterId }: { matterId: string }): React.JSX.E
           </CardContent>
         </Card>
       )}
+
+      <AttorneyReviewSection matterId={matterId} />
     </div>
   );
 }
