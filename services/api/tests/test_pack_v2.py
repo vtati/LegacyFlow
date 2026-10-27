@@ -142,7 +142,15 @@ def test_poa_agent_address_question_agrees_with_address_guard():
             if q["key"] == "poa_agent_address"
         )
         label = str(question.get("label") or "").lower()
-        assert "street" in label or "full address" in label, (version, label)
+        help_text = str(question.get("help") or "").lower()
+        # Separate assertions (not a loose ``or``): a revert of either
+        # the label or the help wording must fail on its own.
+        assert "street address" in label, (version, label)
+        assert "full address" in label, (version, label)
+        assert "identifies your agent by their full address" in help_text, (
+            version,
+            help_text,
+        )
 
 
 def test_declining_documents_prunes_their_sections():

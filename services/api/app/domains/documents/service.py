@@ -393,7 +393,7 @@ def _require_package(conn: Any, package_id: UUID) -> dict[str, Any]:
 
 
 def _add_docx_header_footer(
-    doc: DocxDocument, heading: str, disclaimer: str | None = DEMO_DISCLAIMER
+    doc: DocxDocument, heading: str, disclaimer: str | None
 ) -> None:
     section = doc.sections[0]
     header = section.header
