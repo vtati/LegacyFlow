@@ -391,6 +391,42 @@ def test_self_serve_unregistered_jurisdiction_is_422_no_default_firm(db, api_cli
     assert "US-XZ" in body["detail"]
 
 
+def test_self_serve_unknown_jurisdiction_is_422_unknown_jurisdiction(db, api_client):
+    # D4 ordering pin: pack resolution runs BEFORE the registry lookup,
+    # so a jurisdiction with no usable pack at all (US-QQ has neither a
+    # pack nor a registry row) fails as unknown_jurisdiction — never as
+    # no_default_firm_for_jurisdiction.
+    setup_default_firm(db)
+    response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-QQ"})
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["code"] == "unknown_jurisdiction"
+    assert body["code"] != "no_default_firm_for_jurisdiction"
+
+
+def test_self_serve_does_not_reuse_firm_origin_household(db, api_client):
+    # D3 reuse-guard pin: the caller's pre-existing household in the
+    # default firm with origin='firm' (even with an active primary_client
+    # member row) must NOT be reused by the self-serve path — a fresh
+    # origin='self_serve' household is provisioned instead.
+    firm_id = setup_default_firm(db)
+    firm_household_id = create_household(db, firm_id, FIRMLESS, "Firm-Origin Household")
+    add_household_member(db, firm_household_id, FIRMLESS, "primary_client")
+    response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-VA"})
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["household_id"] != firm_household_id
+    household = _one(db, "SELECT * FROM households WHERE id = %s", (body["household_id"],))
+    assert household is not None
+    assert household["origin"] == "self_serve"
+    row = _one(
+        db,
+        "SELECT count(*) AS n FROM households WHERE created_by_user_id = %s",
+        (FIRMLESS,),
+    )
+    assert row["n"] == 2
+
+
 def test_dual_hat_user_omitted_household_creates_via_self_serve(db, api_client):
     firm_id = setup_default_firm(db)
     other_firm = create_firm(db, "Other Firm")

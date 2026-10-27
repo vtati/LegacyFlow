@@ -35,7 +35,7 @@ def create_matter(
     claims: Annotated[Claims, Depends(get_current_user)],
     request: Request,
 ) -> MatterOut:
-    """Create a matter for the caller's firm (firm staff+ only)."""
+    """Create a matter (firm staff, household writers, or self-serve)."""
     correlation_id = correlation_id_from_request_id(getattr(request.state, "request_id", None))
     with db.transaction() as conn:
         return service.create_matter(
