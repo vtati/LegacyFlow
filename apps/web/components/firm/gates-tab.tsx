@@ -69,7 +69,7 @@ function GateCard({ gate, deciding, onDecide }: GateCardProps) {
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 rows={2}
-                maxLength={2000}
+                maxLength={1000}
                 placeholder="Required when rejecting — what needs to change?"
                 className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text shadow-lf-subtle placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
               />
