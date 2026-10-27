@@ -379,11 +379,23 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
 
   // Return focus to the composer once a send settles (success or failure)
   // if the user was typing when it started — keeps the mobile keyboard up
-  // and the conversation stable between turns.
+  // and the conversation stable between turns. Gated at settle time, not
+  // just at send start: if the user moved on mid-send (tapped Pause, a
+  // proposal control, or scrolled up to read history) focus is NOT stolen
+  // back — restore only when focus was actually lost to <body> (the
+  // disabled-blur) or never left the composer, the composer is enabled,
+  // and the user is still parked at the latest message.
   useEffect(() => {
     if (!sending && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      composerRef.current?.focus({ preventScroll: true });
+      const el = composerRef.current;
+      if (!el || el.disabled || !stickToBottomRef.current) return;
+      const active = document.activeElement;
+      const lostToBody = active === document.body || active === document.documentElement;
+      const stillInShell = composerShellRef.current?.contains(active) ?? false;
+      if (lostToBody || stillInShell) {
+        el.focus({ preventScroll: true });
+      }
     }
   }, [sending]);
 
@@ -668,6 +680,11 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Chat thread */}
         <Card className="border-lf-border bg-lf-canvas shadow-none lg:col-span-2">
+          {/* Mobile height reserve (15.5rem) = shell header 4rem + page
+              padding 3rem + interview title block ~8.5rem, measured at
+              390x844 so the composer rests at the viewport bottom. If the
+              shell chrome or title block changes height, re-measure —
+              error/paused banners above the grid are not in the reserve. */}
           <CardContent className="flex h-[calc(100dvh-15.5rem)] flex-col p-0 lg:h-[60vh]">
             <div ref={threadRef} onScroll={onThreadScroll} className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6" aria-live="polite">
               {messages.length === 0 && (

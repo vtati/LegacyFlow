@@ -75,12 +75,10 @@ import { InterviewChat } from '../components/family/interview/interview-chat';
 const THREAD_H = 1200;
 const THREAD_VIEW = 500;
 
-let origScrollHeight: PropertyDescriptor | undefined;
-let origClientHeight: PropertyDescriptor | undefined;
-
 function stubThreadMetrics() {
-  origScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
-  origClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+  // jsdom defines the scroll-metric getters on Element.prototype; the stubs
+  // are own properties on HTMLElement.prototype that shadow them, and the
+  // restore deletes those own properties to re-expose the originals.
   const isThread = function (this: HTMLElement) {
     return this.classList?.contains('overflow-y-auto') ?? false;
   };
@@ -99,8 +97,8 @@ function stubThreadMetrics() {
 }
 
 function restoreThreadMetrics() {
-  if (origScrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', origScrollHeight);
-  if (origClientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origClientHeight);
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>)['scrollHeight'];
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>)['clientHeight'];
 }
 
 function threadEl(container: HTMLElement): HTMLElement {
@@ -203,5 +201,43 @@ describe('InterviewChat mobile UX', () => {
     await waitFor(() => expect(composer.disabled).toBe(false));
     expect((composer as HTMLTextAreaElement).value).toBe('Draft that fails');
     expect(document.activeElement).toBe(composer);
+  });
+
+  it('does not yank the reading position on unrelated re-renders, but an own send re-pins', async () => {
+    stubThreadMetrics();
+    hoisted.postInterviewTurn.mockResolvedValue({
+      id: 't7',
+      session_id: 'sess-1',
+      role: 'assistant',
+      reply: 'Reply while you were reading history.',
+      citations: [],
+      proposals: [],
+      refused: false,
+      escalated: false,
+      trace_hash: 'x',
+      completeness_pct: 45,
+      missing_required_keys: [],
+      parked_required_keys: [],
+      replayed: false,
+    } as InterviewTurn);
+    const { container } = render(<InterviewChat matterId="matter-1" />);
+    const composer = (await screen.findByLabelText(
+      'Message the intake assistant',
+    )) as HTMLTextAreaElement;
+    const thread = threadEl(container);
+    await waitFor(() => expect(thread.scrollTop).toBe(THREAD_H));
+    // User scrolls up to read history.
+    thread.scrollTop = 300;
+    fireEvent.scroll(thread);
+    // An unrelated re-render (opening the coverage checklist) must not
+    // move the thread.
+    fireEvent.click(screen.getByRole('button', { name: /coverage checklist/i }));
+    await waitFor(() => expect(thread.scrollTop).toBe(300));
+    // But the user's own send always returns to the latest message.
+    composer.focus();
+    fireEvent.change(composer, { target: { value: 'One more thing' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await screen.findByText('Reply while you were reading history.');
+    await waitFor(() => expect(thread.scrollTop).toBe(THREAD_H));
   });
 });
