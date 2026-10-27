@@ -211,6 +211,11 @@ class InterviewContext:
     # user's next answer is interpreted against this turn's focus.
     focus_keys: list[str] = field(default_factory=list)
     focus_question_text: str | None = None
+    # Phase 4 (P3): the subset of focus_keys already asked in an
+    # earlier turn. The no-text fallback weaves them in as a brief
+    # "from earlier" segment instead of presenting them as fresh
+    # questions alongside the turn's new topic.
+    focus_follow_up_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -472,7 +477,7 @@ class OpenAIChatProvider:
             # A verbatim focus question (a bundle offer) outranks the
             # generic next-item composition entirely.
             focus_text_used = bool(context.focus_question_text)
-            multi_ask_text: str | None = None
+            ask_text: str | None = None
             if focus_text_used:
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
@@ -491,18 +496,56 @@ class OpenAIChatProvider:
                     if k not in skip and k in labels
                 ]
                 next_key = askable[0] if askable else None
-                if len(askable) >= 2:
-                    # v2 turn economics (fix iteration 1, A/B set 3):
-                    # the focus IS a merged / batched / sweep list —
-                    # asking only its first key silently discarded the
-                    # rest and cost a turn per key in production, where
-                    # this no-text fallback is the habitual ask path.
-                    # Render the whole focus as one numbered ask. A
-                    # single askable key keeps the legacy rendering.
-                    multi_ask_text = " ".join(
-                        f"{i}) {labels[k]}"
-                        for i, k in enumerate(askable, start=1)
-                    )
+                if askable:
+                    # Phase 4 (P1/P3): the whole focus is asked in one
+                    # message (the v2 turn-economics requirement — a
+                    # first-key-only ask silently discarded the rest
+                    # and cost a turn per key where this fallback is
+                    # the habitual ask path), composed as flowing
+                    # prose: the turn's new topic as natural questions,
+                    # fields already asked in an earlier turn woven in
+                    # as a brief "from earlier" segment. Never an
+                    # enumerated list.
+                    follow_set = set(context.focus_follow_up_keys or [])
+                    topic_askable = [
+                        k for k in askable if k not in follow_set
+                    ]
+                    follow_askable = [
+                        k for k in askable if k in follow_set
+                    ]
+
+                    def _as_sentence(label: str) -> str:
+                        text = label.strip()
+                        if text and text[-1] not in "?.!":
+                            text += "?"
+                        return text
+
+                    segments: list[str] = []
+                    if len(topic_askable) >= 2:
+                        segments.append(
+                            "Next, a few quick things: "
+                            + " ".join(
+                                _as_sentence(labels[k])
+                                for k in topic_askable
+                            )
+                        )
+                    elif len(topic_askable) == 1:
+                        segments.append(f"Next: {labels[topic_askable[0]]}")
+                    if follow_askable:
+                        prose = " ".join(
+                            _as_sentence(labels[k]) for k in follow_askable
+                        )
+                        if segments:
+                            segments.append(f"Also, from earlier: {prose}")
+                        elif len(follow_askable) >= 2:
+                            segments.append(
+                                f"A couple of quick things from earlier: {prose}"
+                            )
+                        else:
+                            segments.append(
+                                f"One more thing from earlier: {prose}"
+                            )
+                    ask_text = " ".join(segments) if segments else None
             else:
                 next_key = next(
                     (
@@ -514,12 +557,9 @@ class OpenAIChatProvider:
                 )
             if focus_text_used:
                 pass  # reply already composed above
-            elif multi_ask_text:
-                reply = (
-                    f"Thanks — I've recorded {recorded}. "
-                    f"Next, a few things: {multi_ask_text}"
-                )
-            elif next_key:
+            elif ask_text:
+                reply = f"Thanks — I've recorded {recorded}. {ask_text}"
+            elif next_key and not context.focus_keys:
                 reply = (
                     f"Thanks — I've recorded {recorded}. "
                     f"Next: {labels[next_key]}"

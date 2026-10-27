@@ -42,6 +42,10 @@ class ChecklistItemOut(BaseModel):
     required: bool
     answered: bool
     has_open_proposal: bool
+    # Phase 4 (P4): the user parked this item ("don't know yet"). A
+    # parked item is displayed distinctly — never counted answered,
+    # never counted missing — and still gates document generation.
+    parked: bool = False
 
 
 class SessionOut(BaseModel):
@@ -57,6 +61,26 @@ class SessionOut(BaseModel):
     turn_count: int
     created_at: datetime
     updated_at: datetime
+    # Phase 4 (P4): required items currently parked, in pack order.
+    parked_required_keys: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Parked items (Phase 4, "don't know yet")
+# ---------------------------------------------------------------------------
+
+
+class ParkItemCreate(BaseModel):
+    """Park one question ("don't know yet — ask me later")."""
+
+    question_key: str = Field(min_length=1, max_length=120)
+
+
+class ParkedItemOut(BaseModel):
+    question_key: str
+    label: str
+    required: bool
+    parked_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +128,8 @@ class TurnOut(BaseModel):
     completeness_pct: float
     missing_required_keys: list[str]
     replayed: bool = False
+    # Phase 4 (P4): required items parked after this turn, in pack order.
+    parked_required_keys: list[str] = Field(default_factory=list)
 
 
 class TurnSummaryOut(BaseModel):

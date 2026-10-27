@@ -8,6 +8,7 @@ import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { DraftPanel } from '@/components/family/review/draft-panel';
 import { ReviewAnswers } from '@/components/family/review/review-answers';
+import { ReviewParkedItems } from '@/components/family/review/review-parked-items';
 import { ReviewPersons } from '@/components/family/review/review-persons';
 import { StatusPill } from '@/components/family/status-pill';
 import {
@@ -19,6 +20,7 @@ import {
   type IntakeProgressResponse,
   type Nomination,
   type NominationType,
+  type ParkedItem,
   type Person,
   type QuestionSetsResponse,
 } from '@/lib/api-client';
@@ -48,6 +50,7 @@ export default function FamilyReviewPage(): React.JSX.Element {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [nominations, setNominations] = useState<Nomination[]>([]);
+  const [parkedItems, setParkedItems] = useState<ParkedItem[]>([]);
   const [draftState, setDraftState] = useState<DraftSetState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -84,6 +87,14 @@ export default function FamilyReviewPage(): React.JSX.Element {
     );
   }, []);
 
+  const refreshParkedItems = useCallback(async (id: string) => {
+    try {
+      setParkedItems(await api.listParkedItems(id));
+    } catch {
+      /* open-items section only; the draft state carries the gates */
+    }
+  }, []);
+
   useEffect(() => {
     if (!matterId) return;
     let cancelled = false;
@@ -92,21 +103,24 @@ export default function FamilyReviewPage(): React.JSX.Element {
     setProgress(null);
     setHousehold(null);
     setDraftState(null);
+    setParkedItems([]);
     Promise.allSettled([
       api.getQuestionSets(matterId),
       api.getAnswers(matterId),
       api.getIntakeProgress(matterId),
       api.getHousehold(matterId),
       api.getDraftSetState(matterId),
+      api.listParkedItems(matterId),
       ...NOMINATION_TYPES.map((type) => api.listNominations(matterId, type)),
     ]).then((results) => {
       if (cancelled) return;
-      const [sets, saved, prog, house, state, ...nominationResults] = results;
+      const [sets, saved, prog, house, state, parked, ...nominationResults] = results;
       if (sets.status === 'fulfilled') setQuestionSets(sets.value);
       if (saved.status === 'fulfilled') setAnswers(saved.value.answers);
       if (prog.status === 'fulfilled') setProgress(prog.value);
       if (house.status === 'fulfilled') setHousehold(house.value);
       if (state.status === 'fulfilled') setDraftState(state.value);
+      if (parked.status === 'fulfilled') setParkedItems(parked.value);
       setNominations(
         nominationResults.flatMap((result) =>
           result.status === 'fulfilled' ? result.value : [],
@@ -134,15 +148,17 @@ export default function FamilyReviewPage(): React.JSX.Element {
       await api.putAnswers(matterId, { [key]: value });
       setAnswers((current) => ({ ...current, [key]: value }));
       // Saving an answer can make existing drafts stale (D4), change the
-      // completeness figure, and re-point role nominations (they
-      // materialize from answers server-side) — refetch all three.
+      // completeness figure, re-point role nominations (they
+      // materialize from answers server-side), and resolve a parked
+      // item (an answer supersedes its marker) — refetch all four.
       await Promise.all([
         refreshDraftState(matterId),
         refreshProgress(matterId),
         refreshNominations(matterId),
+        refreshParkedItems(matterId),
       ]);
     },
-    [matterId, refreshDraftState, refreshProgress, refreshNominations],
+    [matterId, refreshDraftState, refreshProgress, refreshNominations, refreshParkedItems],
   );
 
   const handleSavePersonName = useCallback(
@@ -267,6 +283,8 @@ export default function FamilyReviewPage(): React.JSX.Element {
               onSavePersonName={handleSavePersonName}
             />
           )}
+
+          {matterId && <ReviewParkedItems matterId={matterId} items={parkedItems} />}
 
           {refreshError && (
             <p role="alert" className="text-sm text-lf-error-700">

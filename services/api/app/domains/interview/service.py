@@ -56,6 +56,8 @@ from app.domains.interview.schemas import (
     ConsistencyReviewOut,
     DictationOut,
     ExtractionSummaryOut,
+    ParkedItemOut,
+    ParkItemCreate,
     ProposalDraftOut,
     ProposalOut,
     SessionCreate,
@@ -2278,6 +2280,160 @@ def _progress(pack: LoadedPack, answers: dict[str, Any]) -> tuple[float, list[st
     return completeness, missing, total_required, answered_required
 
 
+# --- Parked items (Phase 4, P4: "don't know yet") ---------------------------
+# A parked item is a first-class answer state: the user deferred the
+# question, so the interview never asks or nags about it again, progress
+# displays it distinctly (neither answered nor missing), and document
+# GENERATION stays gated — the item is unanswered, so the documents
+# domain's completeness gate (which reads the raw partition) keeps
+# refusing until the family resolves it via the Review screen edit
+# path or by returning to the interview. Markers live in
+# interview_parked_items (matter-level); an ANSWER always wins over a
+# marker (effective_parked_keys), so resolving an item anywhere —
+# intake form, proposal confirm, review-screen edit — un-parks it
+# everywhere with no extra write.
+
+
+def effective_parked_keys(
+    parked_keys: frozenset[str] | set[str], answers: dict[str, Any]
+) -> set[str]:
+    """Park markers that still bind: a marker for an answered key is
+    inert (the answer superseded it)."""
+    return {k for k in parked_keys if not qs.is_answered(answers.get(k))}
+
+
+def _open_parked_keys(
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    parked_markers: frozenset[str] | set[str],
+) -> set[str]:
+    """Park markers that are still OPEN items: unanswered and in the
+    current applicable-required partition — compute_progress's missing
+    set, the same source of truth the progress endpoints use. A marker
+    whose gate later prunes (or that was parked while its question was
+    merely pending) drops out here even though the marker row persists:
+    it may never surface as an open item again."""
+    _per_set, _pct, missing, _pruned = qs.compute_progress(
+        pack.question_sets, answers
+    )
+    return set(missing) & set(parked_markers)
+
+
+def _require_session_not_closed(session: dict[str, Any]) -> None:
+    """Terminal-state guard for park/unpark, mirroring post_turn's: a
+    completed or abandoned session accepts no further changes."""
+    status = SessionStatus(str(session["status"]))
+    if status in (SessionStatus.COMPLETED, SessionStatus.ABANDONED):
+        raise ConflictError(
+            f"Interview session is {status.value}; no further changes."
+        )
+
+
+def _parked_keys(conn: Any, matter_id: UUID) -> set[str]:
+    """Raw park markers for the matter. Fail-open like the bundle
+    state reads: a parked-items read error must never break a turn —
+    worst case a parked item is asked once more."""
+    try:
+        return set(repo.list_parked_keys(conn, matter_id))
+    except Exception:
+        logger.warning("parked-items read failed", exc_info=True)
+        return set()
+
+
+def _display_progress(
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    parked_keys: frozenset[str] | set[str],
+) -> tuple[float, list[str], int, int, list[str]]:
+    """The interview surface's progress view.
+
+    Returns (completeness_pct, missing, total_required,
+    answered_required, parked_required). Parked-required items are
+    counted NEITHER answered NOR missing: they leave the display
+    denominator entirely, exactly as pruned items do in the raw
+    partition. The RAW partition (compute_progress) is unchanged —
+    the documents gate keeps seeing parked items as missing.
+    """
+    completeness, missing, total_required, answered_required = _progress(
+        pack, answers
+    )
+    parked_required = [k for k in missing if k in parked_keys]
+    if not parked_required:
+        return completeness, missing, total_required, answered_required, []
+    display_missing = [k for k in missing if k not in parked_keys]
+    display_total = total_required - len(parked_required)
+    display_pct = (
+        round(100.0 * answered_required / display_total, 2)
+        if display_total
+        else 100.0
+    )
+    return display_pct, display_missing, display_total, answered_required, parked_required
+
+
+def _display_progress_for_matter(
+    conn: Any, pack: LoadedPack, matter_id: UUID
+) -> tuple[float, list[str], int, int, list[str]]:
+    """_display_progress with answers + park markers loaded for a matter."""
+    answers = _answers_map(conn, matter_id)
+    parked = effective_parked_keys(_parked_keys(conn, matter_id), answers)
+    return _display_progress(pack, answers, parked)
+
+
+#: Bare deferrals that park the just-asked focus (Phase 4 P4). The
+#: match is on the WHOLE normalized message: a reply that states any
+#: fact ("I don't know his phone, but his email is ...") never parks —
+#: it is an answer with a gap, not a deferral.
+_PARK_EXACT: frozenset[str] = frozenset(
+    {
+        "i don't know",
+        "i dont know",
+        "don't know",
+        "dont know",
+        "i don't know yet",
+        "i dont know yet",
+        "don't know yet",
+        "not sure",
+        "i'm not sure",
+        "im not sure",
+        "i am not sure",
+        "no idea",
+        "i have no idea",
+        "skip",
+        "skip it",
+        "skip this",
+        "skip this one",
+        "skip that",
+        "pass",
+        "i'll have to check",
+        "ill have to check",
+        "i have to check",
+        "i need to check",
+        "i need to check on that",
+        "i'll check later",
+        "ill check later",
+    }
+)
+_PARK_FILLER_PREFIXES: tuple[str, ...] = (
+    "hmm",
+    "um",
+    "uh",
+    "well",
+    "ok",
+    "okay",
+    "so",
+)
+
+
+def _is_park_request(message: str) -> bool:
+    """True only for a bare "don't know yet" / skip deferral."""
+    text = re.sub(r"\s+", " ", message.strip().lower()).rstrip(".!?").strip()
+    for prefix in _PARK_FILLER_PREFIXES:
+        if text.startswith(prefix + ", ") or text.startswith(prefix + " "):
+            text = text[len(prefix) :].lstrip(", ").strip()
+            break
+    return text in _PARK_EXACT
+
+
 # Interview v2 cluster order (spec §Interview flow): the interview walks
 # these in order; within a cluster the model asks ONE bundled question.
 CLUSTER_ORDER: tuple[str, ...] = (
@@ -2318,6 +2474,7 @@ def _gaps_by_cluster(
     question_sets: Any,
     answers: dict[str, Any],
     pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, list[dict[str, str]]]:
     """Applicable-missing REQUIRED questions (plus unanswered gate
     questions that pending content waits on), grouped by cluster.
@@ -2325,7 +2482,8 @@ def _gaps_by_cluster(
     `question_sets` is the LoadedPack mapping (set id -> set dict), as
     accepted by partition_questions / iter_questions. Pruned questions
     never appear; keys with an open proposal never appear (awaiting
-    confirmation is not a gap).
+    confirmation is not a gap); parked keys never appear (the user
+    said "don't know yet" — the interview never nags, Phase 4 P4).
     """
     applicable, pending, _pruned = qs.partition_questions(question_sets, answers)
     by_cluster: dict[str, list[dict[str, str]]] = {}
@@ -2335,6 +2493,8 @@ def _gaps_by_cluster(
         key = str(question.get("key"))
         cluster = str(question.get("cluster") or "")
         if cluster not in CLUSTER_ORDER or key in added:
+            return
+        if key in parked_keys:
             return
         if key in pending_proposal_keys:
             # Awaiting confirmation is not a gap: the focus must never
@@ -2372,6 +2532,7 @@ def next_gap_cluster(
     question_sets: Any,
     answers: dict[str, Any],
     pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Any] | None:
     """The first cluster (in CLUSTER_ORDER) with unanswered work.
 
@@ -2382,7 +2543,9 @@ def next_gap_cluster(
     {"cluster": name, "questions": [{"key", "label", "type"}]} or None when
     every applicable required question is answered.
     """
-    by_cluster = _gaps_by_cluster(question_sets, answers, pending_proposal_keys)
+    by_cluster = _gaps_by_cluster(
+        question_sets, answers, pending_proposal_keys, parked_keys
+    )
     for cluster in CLUSTER_ORDER:
         if by_cluster.get(cluster):
             return {"cluster": cluster, "questions": by_cluster[cluster]}
@@ -2391,32 +2554,44 @@ def next_gap_cluster(
 
 #: Turn-count economics (A/B follow-up iteration): when the first gap
 #: cluster is small, the NEXT cluster rides along in the same ask — one
-#: message, a numbered list, several fields answered per reply (L1/L3).
+#: message, several fields answered per reply (L1/L3). Phase 4 (brief
+#: 2026-10-26, P2) caps how much of that ride-along one turn may carry
+#: (FOCUS_MAX_QUESTIONS below); the merge now tops the cap up from the
+#: following clusters in order instead of admitting whole clusters.
 MERGE_FOCUS_MAX_QUESTIONS = 10
 #: When this few applicable required fields remain in total, the focus
 #: becomes one consolidated sweep of all of them (L4) instead of
 #: walking the remaining clusters one per turn.
 SWEEP_MAX_REMAINING = 6
+#: Phase 4 presentation cap (brief P2): a turn never ASKS more than
+#: this many pieces. Larger themes split across consecutive turns.
+FOCUS_MAX_QUESTIONS = 4
 
 
 def next_gap_focus(
     question_sets: Any,
     answers: dict[str, Any],
     pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Any] | None:
-    """The turn's question focus: like next_gap_cluster, but denser.
+    """The turn's question focus: the head of the gap queue, capped.
 
     Returns {"cluster": first cluster name, "clusters": [names],
     "questions": [...], optionally "sweep": True}:
 
+    - The questions are the first FOCUS_MAX_QUESTIONS gaps in cluster
+      order (Phase 4 P2 cap): a large cluster contributes its head and
+      continues next turn; a small cluster is topped up from the next
+      clusters in order.
     - SWEEP: when <= SWEEP_MAX_REMAINING applicable required fields
-      remain overall, the focus is ALL of them across clusters.
-    - MERGE: otherwise, when the first cluster plus the next one fit
-      within MERGE_FOCUS_MAX_QUESTIONS, both clusters are the focus.
-    - Otherwise the first cluster alone (next_gap_cluster's answer,
-      plus the "clusters" bookkeeping key).
+      remain overall AND they all fit under the cap, the focus is ALL
+      of them across clusters (the end-of-interview backstop, L4).
+      With 5-6 remaining the tail is asked as a capped focus instead —
+      a sweep may only claim a turn it fully covers.
     """
-    by_cluster = _gaps_by_cluster(question_sets, answers, pending_proposal_keys)
+    by_cluster = _gaps_by_cluster(
+        question_sets, answers, pending_proposal_keys, parked_keys
+    )
     gaps = [
         {"cluster": cluster, "questions": by_cluster[cluster]}
         for cluster in CLUSTER_ORDER
@@ -2425,22 +2600,44 @@ def next_gap_focus(
     if not gaps:
         return None
     total = sum(len(g["questions"]) for g in gaps)
-    if total <= SWEEP_MAX_REMAINING:
-        return {
-            "cluster": gaps[0]["cluster"],
-            "clusters": [g["cluster"] for g in gaps],
-            "questions": [q for g in gaps for q in g["questions"]],
-            "sweep": True,
-        }
-    first = gaps[0]
-    questions = list(first["questions"])
-    clusters = [first["cluster"]]
-    if len(gaps) > 1 and len(questions) + len(gaps[1]["questions"]) <= (
-        MERGE_FOCUS_MAX_QUESTIONS
-    ):
-        questions += gaps[1]["questions"]
-        clusters.append(gaps[1]["cluster"])
-    return {"cluster": first["cluster"], "clusters": clusters, "questions": questions}
+    ordered_pairs = [
+        (g["cluster"], q) for g in gaps for q in g["questions"]
+    ]
+    capped = ordered_pairs[:FOCUS_MAX_QUESTIONS]
+    questions = [q for _cluster, q in capped]
+    clusters: list[str] = []
+    for cluster, _q in capped:
+        if cluster not in clusters:
+            clusters.append(cluster)
+    result: dict[str, Any] = {
+        "cluster": gaps[0]["cluster"],
+        "clusters": clusters,
+        "questions": questions,
+    }
+    if total <= SWEEP_MAX_REMAINING and len(questions) == total:
+        result["sweep"] = True
+    return result
+
+
+def _focus_without_sweep_on_verdict_turns(
+    focus: dict[str, Any] | None,
+    verdict_offers: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Suppress the completeness-sweep framing while bundle verdicts
+    are in play (review I-1 on the Phase 4 branch).
+
+    The sweep line tells the model the focus is the whole remainder
+    of the interview and to wrap up. On a turn where offers sit in
+    their verdict window, the bundle machinery owns the framing —
+    the same principle the G3 capture applies ("the bundle machinery
+    owns those turns"). The focus QUESTIONS are unchanged (a sweep
+    only fires when the focus already covers the remainder); only
+    the wrap-up presentation is dropped, so the pending verdicts are
+    never raced by a finish-up ask.
+    """
+    if focus is None or not verdict_offers or not focus.get("sweep"):
+        return focus
+    return {k: v for k, v in focus.items() if k != "sweep"}
 
 
 def _gap_without_keys(
@@ -2804,13 +3001,18 @@ def _v2_enabled(conn: Any, *, firm_id: UUID, pack: LoadedPack) -> bool:
 
 
 def _cluster_gap_for_turn(
-    conn: Any, *, firm_id: UUID, pack: LoadedPack, answers: dict[str, Any]
+    conn: Any,
+    *,
+    firm_id: UUID,
+    pack: LoadedPack,
+    answers: dict[str, Any],
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Any] | None:
     """Cluster gap for this turn when the interview_v2 flag is on for the
     matter's firm + pack; None (the v5 path) otherwise."""
     if not _v2_enabled(conn, firm_id=firm_id, pack=pack):
         return None
-    return next_gap_cluster(pack.question_sets, answers)
+    return next_gap_cluster(pack.question_sets, answers, parked_keys=parked_keys)
 
 
 def _focus_for_turn(
@@ -2820,6 +3022,7 @@ def _focus_for_turn(
     pack: LoadedPack,
     answers: dict[str, Any],
     pending_proposal_keys: frozenset[str] | set[str] = frozenset(),
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Any] | None:
     """The dense question focus for this turn when the interview_v2
     flag is on for the matter's firm + pack; None (the v5 path)
@@ -2827,7 +3030,10 @@ def _focus_for_turn(
     if not _v2_enabled(conn, firm_id=firm_id, pack=pack):
         return None
     return next_gap_focus(
-        pack.question_sets, answers, pending_proposal_keys=pending_proposal_keys
+        pack.question_sets,
+        answers,
+        pending_proposal_keys=pending_proposal_keys,
+        parked_keys=parked_keys,
     )
 
 
@@ -2870,6 +3076,7 @@ def pending_bundle_offers(
     answers: dict[str, Any],
     *,
     declined: frozenset[str] | set[str] = frozenset(),
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """ALL pending bundle offers for this answer state, in priority
     order (primary, backup, address).
@@ -2916,6 +3123,7 @@ def pending_bundle_offers(
             if k != anchor_key
             and not qs.is_answered(answers.get(k))
             and k in applicable_keys
+            and k not in parked_keys
         ]
         if fill_keys:
             offers.append(
@@ -2939,7 +3147,9 @@ def pending_bundle_offers(
             fill_keys = [
                 k
                 for k in ADDRESS_BUNDLE_KEYS
-                if not qs.is_answered(answers.get(k)) and k in applicable_keys
+                if not qs.is_answered(answers.get(k))
+                and k in applicable_keys
+                and k not in parked_keys
             ]
             if fill_keys:
                 offers.append(
@@ -3001,6 +3211,7 @@ def _bundle_offers_for_turn(
     answers: dict[str, Any],
     question_labels: dict[str, str],
     limit: int | None = None,
+    parked_keys: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """The offers to present this turn + the verdict-only offers + the
     session state (mutated when an offer is presented, so the caller
@@ -3030,7 +3241,9 @@ def _bundle_offers_for_turn(
         logger.warning("bundle state read failed", exc_info=True)
         return [], [], {"_state_unavailable": True}
     declined = set(state.get("bundles_declined") or [])
-    offers = pending_bundle_offers(pack.question_sets, answers, declined=declined)
+    offers = pending_bundle_offers(
+        pack.question_sets, answers, declined=declined, parked_keys=parked_keys
+    )
     if limit is not None:
         offers = offers[:limit]
     if not offers:
@@ -3316,10 +3529,14 @@ def _bundle_question_text(offer: dict[str, Any]) -> str:
 
 
 def _bundle_questions_text(offers: list[dict[str, Any]]) -> str:
-    """Every pending offer's question, one per line — the merged
-    presentation text for the provider's no-text fallback (the model
-    path gets the same texts verbatim via the v7 prompt block)."""
-    return "\n".join(_bundle_question_text(offer) for offer in offers)
+    """Every pending offer's question, verbatim, composed as flowing
+    sentences in one message — the merged presentation text for the
+    provider's no-text fallback (the model path gets the same texts
+    verbatim via the prompt's offers block). Phase 4 (P1): sentences
+    in one paragraph, never one-per-line or numbered — the verdict
+    parser reads the user's REPLY, not this text, so the composition
+    is purely presentational."""
+    return " ".join(_bundle_question_text(offer) for offer in offers)
 
 
 #: Given names that are also common English words: a bare "will" or
@@ -5308,7 +5525,16 @@ def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> Sessio
     session_id = UUID(str(session["id"]))
     matter_id = UUID(str(session["matter_id"]))
     answers = _answers_map(conn, matter_id)
-    completeness, missing, _total_required, _answered_required = _progress(pack, answers)
+    # Open parked items only (applicability-aware): a marker whose gate
+    # pruned must not render as "saved for later" on the checklist.
+    parked = _open_parked_keys(pack, answers, _parked_keys(conn, matter_id))
+    (
+        completeness,
+        missing,
+        _total_required,
+        _answered_required,
+        parked_required,
+    ) = _display_progress(pack, answers, parked)
     open_keys = repo.open_proposal_keys(conn, session_id)
     checklist: list[ChecklistItemOut] = []
     for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
@@ -5319,6 +5545,7 @@ def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> Sessio
                 required=bool(question.get("required", False)),
                 answered=qs.is_answered(answers.get(key)),
                 has_open_proposal=key in open_keys,
+                parked=key in parked,
             )
         )
     return SessionOut(
@@ -5334,6 +5561,7 @@ def _session_out(conn: Any, session: dict[str, Any], pack: LoadedPack) -> Sessio
         turn_count=repo.count_turns(conn, session_id),
         created_at=session["created_at"],
         updated_at=session["updated_at"],
+        parked_required_keys=parked_required,
     )
 
 
@@ -5529,10 +5757,21 @@ def update_session_status(
     if target is SessionStatus.COMPLETED:
         # Nothing silently dropped: remaining required items become open
         # attorney-review escalations (idempotent per rule while open).
+        # Parked items are the exception (Phase 4 P4): the family
+        # deferred them deliberately and resolves them from the Review
+        # screen's open-items list — escalating them to the attorney as
+        # "incomplete" would double-surface them and misstate the
+        # family's intent. They keep gating document generation.
+        _answers_now = _answers_map(conn, matter_id)
         _completeness, missing, _total_required, _answered_required = _progress(
-            pack, _answers_map(conn, matter_id)
+            pack, _answers_now
+        )
+        _parked_now = effective_parked_keys(
+            _parked_keys(conn, matter_id), _answers_now
         )
         for key in missing:
+            if key in _parked_now:
+                continue
             rule_id = f"{_INTERVIEW_INCOMPLETE_RULE_ID}:{key}"
             if not escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
                 escalation_repo.insert_escalation(
@@ -5565,6 +5804,170 @@ def update_session_status(
         after_summary={"status": target.value},
     )
     return _session_out(conn, updated, pack)
+
+
+def park_item(
+    conn: Any,
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    session_id: UUID,
+    payload: ParkItemCreate,
+) -> SessionOut:
+    """Park one question ("don't know yet") from the interview surface.
+
+    The item leaves the interview's focus, follow-ups and display
+    missing list immediately; it still gates document generation
+    until it is answered or un-parked. Only a currently applicable,
+    required, unanswered item can be parked: parking an answered
+    item, a pending-gated item (its gate has not opened), a pruned
+    item (it does not apply to this plan), an optional item, or an
+    item with an open proposal awaiting review is a conflict; an
+    unknown key is a validation error. A completed or abandoned
+    session accepts no park changes (post_turn's terminal guard).
+    Idempotent for an already-parked item.
+    """
+    actor_id = matters_service.caller_id(actor_sub)
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    firm_id = UUID(str(scope.matter["firm_id"]))
+    _require_flag(conn, firm_id)
+    session = _load_session_for_write(conn, matter_id, session_id)
+    _require_session_not_closed(session)
+    pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
+    key = payload.question_key
+    if key not in qs.all_question_keys(pack.question_sets):
+        raise ValidationAppError(f"Unknown question key: {key}")
+    answers = _answers_map(conn, matter_id)
+    if qs.is_answered(answers.get(key)):
+        raise ConflictError("That item is already answered — nothing to park.")
+    applicable, pending, pruned = qs.partition_questions(
+        pack.question_sets, answers
+    )
+    state_by_key: dict[str, str] = {}
+    required_by_key: dict[str, bool] = {}
+    for state, rows in (
+        ("applicable", applicable),
+        ("pending", pending),
+        ("pruned", pruned),
+    ):
+        for _s, _sec, question in rows:
+            qkey = str(question.get("key"))
+            state_by_key[qkey] = state
+            required_by_key[qkey] = bool(question.get("required", False))
+    state = state_by_key[key]
+    if state == "pruned":
+        raise ConflictError(
+            "That item does not apply to this plan — nothing to park."
+        )
+    if state == "pending":
+        raise ConflictError(
+            "That item isn't part of your plan yet — an earlier answer "
+            "decides whether it applies."
+        )
+    if not required_by_key[key]:
+        raise ConflictError(
+            "That item is optional — only required items can be saved "
+            "for later."
+        )
+    if key in repo.open_proposal_keys(conn, session_id):
+        raise ConflictError(
+            "That item has a suggested answer waiting — review it "
+            "before saving the item for later."
+        )
+    repo.park_item(
+        conn,
+        matter_id=matter_id,
+        question_key=key,
+        parked_by_user_id=actor_id,
+    )
+    record_audit_event(
+        conn,
+        action="interview.item_parked",
+        resource_type="interview_session",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        matter_id=matter_id,
+        resource_id=session_id,
+        before_summary={},
+        after_summary={"question_key": key},
+    )
+    return _session_out(conn, session, pack)
+
+
+def unpark_item(
+    conn: Any,
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    session_id: UUID,
+    question_key: str,
+) -> SessionOut:
+    """Remove a park marker; the item rejoins the interview's missing
+    list and focus. Idempotent. A completed or abandoned session
+    accepts no unpark changes (post_turn's terminal guard)."""
+    actor_id = matters_service.caller_id(actor_sub)
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    firm_id = UUID(str(scope.matter["firm_id"]))
+    _require_flag(conn, firm_id)
+    session = _load_session_for_write(conn, matter_id, session_id)
+    _require_session_not_closed(session)
+    pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
+    if question_key not in qs.all_question_keys(pack.question_sets):
+        raise ValidationAppError(f"Unknown question key: {question_key}")
+    repo.unpark_item(conn, matter_id=matter_id, question_key=question_key)
+    record_audit_event(
+        conn,
+        action="interview.item_unparked",
+        resource_type="interview_session",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        matter_id=matter_id,
+        resource_id=session_id,
+        before_summary={"question_key": question_key},
+        after_summary={},
+    )
+    return _session_out(conn, session, pack)
+
+
+def list_parked_items(
+    conn: Any, *, actor_sub: str, matter_id: UUID
+) -> list[ParkedItemOut]:
+    """The matter's open (parked, still unanswered) items, in pack
+    order — the Review screen's open-items list (Phase 4 P4 hook).
+    Resolving an item anywhere (an answer write) removes it here with
+    no extra call. The list is applicability-aware: markers are
+    intersected with the current applicable-required partition
+    (compute_progress's missing set), so a parked item whose gate
+    later prunes drops out even though its marker row persists.
+    """
+    actor_id = matters_service.caller_id(actor_sub)
+    scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
+    firm_id = UUID(str(scope.matter["firm_id"]))
+    _require_flag(conn, firm_id)
+    pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
+    answers = _answers_map(conn, matter_id)
+    parked = _open_parked_keys(pack, answers, _parked_keys(conn, matter_id))
+    if not parked:
+        return []
+    rows = {
+        str(row["question_key"]): row
+        for row in repo.list_parked_items(conn, matter_id)
+    }
+    out: list[ParkedItemOut] = []
+    for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
+        key = str(question["key"])
+        if key in parked and key in rows:
+            out.append(
+                ParkedItemOut(
+                    question_key=key,
+                    label=str(question.get("label") or key),
+                    required=bool(question.get("required", False)),
+                    parked_at=rows[key]["created_at"],
+                )
+            )
+    return out
 
 
 def list_turns(
@@ -5732,7 +6135,18 @@ def post_turn(
         )
 
     answers = _answers_map(conn, matter_id)
-    completeness, missing, total_required, answered_required = _progress(pack, answers)
+    # Parked items (Phase 4 P4): the display view of progress — parked
+    # items are neither missing nor counted — drives the prompt state,
+    # the provider context, and the response, so nothing downstream
+    # can re-ask or nag about a deferred item.
+    parked = effective_parked_keys(_parked_keys(conn, matter_id), answers)
+    (
+        completeness,
+        missing,
+        total_required,
+        answered_required,
+        parked_required,
+    ) = _display_progress(pack, answers, parked)
     # Keys with open proposals awaiting user confirmation — the model should
     # NOT re-ask about these; instead acknowledge they're pending review.
     pending_keys = sorted(repo.open_proposal_keys(conn, session_id))
@@ -5759,6 +6173,11 @@ def post_turn(
     then_gap = None
     bundle_state: dict[str, Any] = {}
     signed_in_name = None
+    # Phase 4 (P3): question keys placed into a turn's focus by any
+    # EARLIER turn (persisted in session state). This turn's focus
+    # partitions against it: already-asked fields are woven follow-ups,
+    # never fresh questions.
+    asked_before: set[str] = set()
     # The previous turn's server-side focus (persisted in session
     # state): the copy guard treats a proposal for one of these keys
     # as answering the asked question — membership beats guessing
@@ -5776,6 +6195,7 @@ def post_turn(
             pack=pack,
             answers=answers,
             question_labels=question_labels,
+            parked_keys=parked,
         )
         state_unavailable = bool(bundle_state.pop("_state_unavailable", False))
         prev_focus_keys = frozenset(bundle_state.get("last_focus_keys") or [])
@@ -5786,6 +6206,47 @@ def post_turn(
         # next turn's prev_focus (persisted with the state write at
         # the end of this block).
         bundle_state["prev_focus_keys"] = sorted(prev_focus_keys)
+        _raw_asked = bundle_state.get("asked_focus_keys")
+        asked_before = (
+            {str(k) for k in _raw_asked} if isinstance(_raw_asked, list) else set()
+        )
+        if (
+            not presented_offers
+            and not verdict_offers
+            and _is_park_request(message)
+        ):
+            # Conversational parking (Phase 4 P4): a bare "don't know
+            # yet" defers the items the previous turn actually asked
+            # (the persisted last focus) that are still unanswered and
+            # not awaiting confirmation. The park lands BEFORE this
+            # turn's focus is chosen, so the reply moves on to fresh
+            # work in the same exchange. Offers own their turns (a
+            # deferral there is a verdict read, not a park), and a
+            # message stating any fact never reaches this branch —
+            # _is_park_request matches whole-message deferrals only.
+            _park_candidates = [
+                k
+                for k in sorted(prev_focus_keys)
+                if k not in parked
+                and not qs.is_answered(answers.get(k))
+                and k not in pending_keys
+            ]
+            for _key in _park_candidates:
+                repo.park_item(
+                    conn,
+                    matter_id=matter_id,
+                    question_key=_key,
+                    parked_by_user_id=actor_id,
+                )
+            if _park_candidates:
+                parked = parked | set(_park_candidates)
+                (
+                    completeness,
+                    missing,
+                    total_required,
+                    answered_required,
+                    parked_required,
+                ) = _display_progress(pack, answers, parked)
         if not presented_offers:
             # Verdict-only offers never block the gap: they are never
             # presented, never the prompt focus — they exist solely so
@@ -5797,6 +6258,14 @@ def post_turn(
                 pack=pack,
                 answers=answers,
                 pending_proposal_keys=frozenset(pending_keys),
+                parked_keys=parked,
+            )
+            # While verdicts are in play the bundle machinery owns
+            # the turn's framing: drop the sweep wrap-up presentation
+            # (questions unchanged) so it never races a pending
+            # verdict (Phase 4 review I-1).
+            cluster_gap = _focus_without_sweep_on_verdict_turns(
+                cluster_gap, verdict_offers
             )
             if cluster_gap is not None and "identity" in (
                 cluster_gap.get("clusters") or [cluster_gap["cluster"]]
@@ -5831,6 +6300,7 @@ def post_turn(
                 pack=pack,
                 answers=answers,
                 pending_proposal_keys=frozenset(pending_keys),
+                parked_keys=parked,
             )
             resolving_keys = {
                 k
@@ -5859,6 +6329,17 @@ def post_turn(
             )
         else:
             bundle_state["last_focus_keys"] = []
+        # Phase 4 (P3): remember every key this turn ASKS (the cluster
+        # focus + a verdict turn's then-gap) so later turns can tell
+        # fresh questions from woven follow-ups. Bundle fill keys are
+        # deliberately absent: an offer is a confirmation, not an ask —
+        # if its roles are later asked individually, that IS their
+        # first ask.
+        _asked_now = {
+            str(q["key"]) for q in (cluster_gap or {}).get("questions", [])
+        } | {str(q["key"]) for q in (then_gap or {}).get("questions", [])}
+        if _asked_now:
+            bundle_state["asked_focus_keys"] = sorted(asked_before | _asked_now)
         if not state_unavailable:
             try:
                 repo.update_session_state(conn, session_id, bundle_state)
@@ -5898,6 +6379,16 @@ def post_turn(
             focus_question_text = _bundle_questions_text(presented_offers)
     elif cluster_gap is not None:
         focus_keys = [str(q["key"]) for q in cluster_gap["questions"]]
+    # Phase 4 (P3): the follow-up partition of this turn's question
+    # focus — keys an earlier turn already asked. The prompt marks
+    # them as woven follow-ups and the provider fallback renders them
+    # as a "from earlier" segment.
+    _focus_source = cluster_gap if cluster_gap is not None else then_gap
+    follow_up_keys: set[str] = set()
+    if _focus_source is not None:
+        follow_up_keys = {
+            str(q["key"]) for q in _focus_source["questions"]
+        } & asked_before
     docs = ai_service._retrieve(message, pack, allow_sample=ai_service._allow_sample_content())
     retrieved = [
         RetrievedDocument(
@@ -5920,6 +6411,7 @@ def post_turn(
         question_labels=question_labels,
         focus_keys=focus_keys,
         focus_question_text=focus_question_text,
+        focus_follow_up_keys=sorted(follow_up_keys & set(focus_keys)),
     )
     history = _history_messages(conn, session_id)
     # Lever E inventory (v9): the remaining applicable fields ride as
@@ -5938,8 +6430,17 @@ def post_turn(
         other_questions = other_questions_for(
             pack.question_sets, answers, exclude=_exclude
         ) or None
+    # Phase 4 (P1): v2 focus/offers turns render the v10 presentation
+    # (one natural question, woven follow-ups); every other turn keeps
+    # its earlier version byte-for-byte — the ladder below is the
+    # pre-Phase-4 selection, retained verbatim for those turns.
+    natural_questions = bool(
+        v2_on and (cluster_gap is not None or presented_offers)
+    )
     prompt_version = (
-        prompts.PROMPT_TEMPLATE_VERSION_V9
+        prompts.PROMPT_TEMPLATE_VERSION_V10
+        if natural_questions
+        else prompts.PROMPT_TEMPLATE_VERSION_V9
         if other_questions
         else prompts.PROMPT_TEMPLATE_VERSION_V8
         if (shadow_questions or next_gap_shadow_questions)
@@ -5962,6 +6463,13 @@ def post_turn(
         shadow_questions=shadow_questions or None,
         next_gap_shadow_questions=next_gap_shadow_questions or None,
         other_questions=other_questions,
+        natural_questions=natural_questions,
+        follow_up_keys=follow_up_keys or None,
+        # Mirrors the conversational-park condition exactly: the
+        # prompt's deferral bullet promises the system sets the item
+        # aside, which is true only when no offer/verdict owns the
+        # turn (Phase 4 review I-2).
+        deferral_parks=not presented_offers and not verdict_offers,
     )
 
     # Stronger extractor on v2 turns only (config OPENAI_INTERVIEW_MODEL_V2,
@@ -6510,6 +7018,7 @@ def post_turn(
         trace_hash=trace_hash,
         completeness_pct=completeness,
         missing_required_keys=missing,
+        parked_required_keys=parked_required,
     )
 
 
@@ -6571,9 +7080,13 @@ def _refused_turn(
         proposal_count=0,
         trace_hash=trace_hash,
     )
-    completeness, missing, _total_required, _answered_required = _progress(
-        pack, _answers_map(conn, matter_id)
-    )
+    (
+        completeness,
+        missing,
+        _total_required,
+        _answered_required,
+        parked_required,
+    ) = _display_progress_for_matter(conn, pack, matter_id)
     return TurnOut(
         id=UUID(str(assistant_turn["id"])),
         session_id=session_id,
@@ -6586,6 +7099,7 @@ def _refused_turn(
         trace_hash=trace_hash,
         completeness_pct=completeness,
         missing_required_keys=missing,
+        parked_required_keys=parked_required,
     )
 
 
@@ -6617,9 +7131,13 @@ def _replay_turn(
         for row in repo.list_proposals_by_turn(conn, turn_id)
     ]
     pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
-    completeness, missing, _total_required, _answered_required = _progress(
-        pack, _answers_map(conn, matter_id)
-    )
+    (
+        completeness,
+        missing,
+        _total_required,
+        _answered_required,
+        parked_required,
+    ) = _display_progress_for_matter(conn, pack, matter_id)
     citations = [
         CitationOut(
             source=str(c.get("source", "")),
@@ -6641,6 +7159,7 @@ def _replay_turn(
         completeness_pct=completeness,
         missing_required_keys=missing,
         replayed=True,
+        parked_required_keys=parked_required,
     )
 
 

@@ -346,6 +346,18 @@ export interface InterviewChecklistItem {
   required: boolean;
   answered: boolean;
   has_open_proposal: boolean;
+  /** Phase 4 (P4): parked with "don't know yet" — not answered, not missing. */
+  parked: boolean;
+}
+
+/** Phase 4 (P4): one open parked item, as the Review screen lists it.
+ * The server already intersected markers with the applicable-required
+ * partition — a listed item is unanswered and still gates generation. */
+export interface ParkedItem {
+  question_key: string;
+  label: string;
+  required: boolean;
+  parked_at: string;
 }
 
 export interface InterviewSession {
@@ -356,6 +368,9 @@ export interface InterviewSession {
   status: 'draft' | 'in_progress' | 'paused' | 'completed' | 'abandoned';
   completeness_pct: number;
   missing_required_keys: string[];
+  /** Phase 4 (P4): required items parked with "don't know yet" —
+   * excluded from `missing_required_keys`, still gating generation. */
+  parked_required_keys: string[];
   checklist: InterviewChecklistItem[];
   open_proposal_count: number;
   turn_count: number;
@@ -375,6 +390,7 @@ export interface InterviewTurn {
   trace_hash: string;
   completeness_pct: number;
   missing_required_keys: string[];
+  parked_required_keys: string[];
   replayed: boolean;
 }
 
@@ -1039,6 +1055,21 @@ export interface FamilyApi {
     sessionId: string,
     status: 'paused' | 'in_progress' | 'abandoned' | 'completed',
   ) => Promise<InterviewSession>;
+  /** Phase 4 (P4): park an item ("don't know yet") / un-park it. Both
+   * return the refreshed session. */
+  parkInterviewItem: (
+    matterId: string,
+    sessionId: string,
+    questionKey: string,
+  ) => Promise<InterviewSession>;
+  unparkInterviewItem: (
+    matterId: string,
+    sessionId: string,
+    questionKey: string,
+  ) => Promise<InterviewSession>;
+  /** Phase 4 (P4): the matter's open parked items — the Review
+   * screen's open-items list. */
+  listParkedItems: (matterId: string) => Promise<ParkedItem[]>;
   postInterviewTurn: (
     matterId: string,
     sessionId: string,
@@ -1200,6 +1231,18 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         `/matters/${matterId}/interview/sessions/${sessionId}/turns`,
         { method: 'POST', body: { message, idempotency_key: idempotencyKey }, track: false },
       ),
+    parkInterviewItem: (matterId, sessionId, questionKey) =>
+      call<InterviewSession>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/parked-items`,
+        { method: 'POST', body: { question_key: questionKey } },
+      ),
+    unparkInterviewItem: (matterId, sessionId, questionKey) =>
+      call<InterviewSession>(
+        `/matters/${matterId}/interview/sessions/${sessionId}/parked-items/${encodeURIComponent(questionKey)}`,
+        { method: 'DELETE' },
+      ),
+    listParkedItems: (matterId) =>
+      call<ParkedItem[]>(`/matters/${matterId}/interview/parked-items`),
     listInterviewTurns: (matterId, sessionId) =>
       call<InterviewTurnSummary[]>(
         `/matters/${matterId}/interview/sessions/${sessionId}/turns`,

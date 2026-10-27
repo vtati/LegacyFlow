@@ -84,6 +84,7 @@ vi.mock('@/lib/api-client', () => ({
       relationships: null,
     })),
     listNominations: vi.fn(async () => []),
+    listParkedItems: vi.fn(async () => []),
     getDraftSetState: hoisted.getDraftSetState,
     putAnswers: hoisted.putAnswers,
     updatePerson: vi.fn(async () => ({})),
