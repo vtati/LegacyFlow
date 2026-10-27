@@ -296,6 +296,9 @@ export interface InterviewExtraction {
   discarded: number;
   truncated: boolean;
   ocr_used: boolean;
+  /** F7: the upload needed OCR / OCR could not run (drives the "couldn't read this scan" state). */
+  ocr_attempted?: boolean;
+  ocr_unavailable?: boolean;
 }
 
 export interface InterviewExtractionSummary {

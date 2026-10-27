@@ -357,16 +357,15 @@ def complete_upload(
 
     # Vault AI analysis, step 1: extract text now while bytes are in hand.
     # Images (and unknown types) record 'unavailable' — never fake OCR.
+    # A parsed-but-textless file (a scanned document) records
+    # 'unreadable_scan' (F7) so its state says "couldn't read this scan"
+    # explicitly instead of failing silently.
     try:
-        extracted = file_extraction.extract_text(content, str(row["mime_type"] or ""))
+        extracted, extraction_status = file_extraction.extract_text_with_status(
+            content, str(row["mime_type"] or "")
+        )
     except Exception:
-        extracted = ""
-    if extracted is None:
-        extraction_status = "unavailable"
-    elif extracted:
-        extraction_status = "done"
-    else:
-        extraction_status = "failed"
+        extracted, extraction_status = "", "failed"
     row = repo.update_extraction(
         conn,
         upload_id,

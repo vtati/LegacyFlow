@@ -186,6 +186,10 @@ class ExtractionOut(BaseModel):
     discarded: int
     truncated: bool
     ocr_used: bool = False
+    # OCR visibility (F7): the upload needed OCR / OCR could not run,
+    # so the client can show an explicit "couldn't read this scan" state.
+    ocr_attempted: bool = False
+    ocr_unavailable: bool = False
 
 
 class ExtractionSummaryOut(BaseModel):

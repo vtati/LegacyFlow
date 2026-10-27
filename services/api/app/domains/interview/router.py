@@ -350,6 +350,8 @@ async def extract_document(
         discarded=result.discarded,
         truncated=result.truncated,
         ocr_used=result.ocr_used,
+        ocr_attempted=result.ocr_attempted,
+        ocr_unavailable=result.ocr_unavailable,
     )
 
 

@@ -51,6 +51,13 @@ class ExtractedDocument:
     total_chars: int = 0
     truncated: bool = False
     ocr_used: bool = False
+    # OCR visibility (F7): a textless PDF needs OCR. ``ocr_attempted``
+    # records that the fallback was reached; ``ocr_unavailable`` records
+    # that it could not run (missing tesseract/pymupdf) or crashed — so
+    # callers can say "couldn't read this scan" explicitly instead of
+    # reporting silent emptiness.
+    ocr_attempted: bool = False
+    ocr_unavailable: bool = False
 
     @property
     def full_text(self) -> str:
@@ -188,16 +195,21 @@ def extract_text(file_bytes: bytes, filename: str) -> ExtractedDocument:
         raise ValueError(f"Document exceeds the {MAX_BYTES // (1024 * 1024)} MB limit.")
     kind = _detect_kind(filename)
     ocr_used = False
+    ocr_attempted = False
+    ocr_unavailable = False
     if kind == "pdf":
         raw_pages = _extract_pdf(file_bytes)
         if not any(p.text for p in raw_pages):
             # Image-only / scanned PDF: try OCR before giving up.
+            ocr_attempted = True
             try:
                 raw_pages = _ocr_pdf_pages(file_bytes, len(raw_pages))
                 ocr_used = any(p.text for p in raw_pages)
             except RuntimeError as exc:
+                ocr_unavailable = True
                 logger.info("OCR unavailable for %s: %s", filename, exc)
             except Exception:
+                ocr_unavailable = True
                 logger.warning("OCR crashed for %s; treating as unreadable", filename)
     else:
         raw_pages = _extract_docx(file_bytes)
@@ -211,4 +223,6 @@ def extract_text(file_bytes: bytes, filename: str) -> ExtractedDocument:
         total_chars=total_chars,
         truncated=truncated,
         ocr_used=ocr_used,
+        ocr_attempted=ocr_attempted,
+        ocr_unavailable=ocr_unavailable,
     )

@@ -30,19 +30,46 @@ def extract_text(content: bytes, mime_type: str) -> str | None:
     Raises no exceptions for corrupt files — callers treat an empty/failed
     extraction as ``extraction_status='failed'``.
     """
+    text, _status = extract_text_with_status(content, mime_type)
+    return text
+
+
+def extract_text_with_status(content: bytes, mime_type: str) -> tuple[str | None, str]:
+    """Return (extracted text, extraction_status) — F7.
+
+    Statuses: ``done`` (text extracted), ``unavailable`` (type has no
+    extractor — images), ``unreadable_scan`` (the file parsed but holds
+    no readable text: a scanned/image-only document; the vault does not
+    OCR, so the user must hear "couldn't read this scan" rather than
+    silence), ``failed`` (corrupt/unparseable file, or an empty DOCX).
+    """
     normalized = (mime_type or "").strip().lower()
     if normalized == PDF_MIME:
         text = _extract_pdf(content)
-    elif normalized == DOCX_MIME:
+        if text and text.strip():
+            collapsed = " ".join(text.split())
+            return collapsed[:MAX_EXTRACT_CHARS], "done"
+        # No text: scanned/image-only (pages parse, nothing to read) vs
+        # corrupt (the reader cannot parse the file at all).
+        return "", "unreadable_scan" if _pdf_parses(content) else "failed"
+    if normalized == DOCX_MIME:
         text = _extract_docx(content)
-    elif normalized in _IMAGE_MIMES:
-        return None
-    else:
-        return None
-    if not text or not text.strip():
-        return ""
-    collapsed = " ".join(text.split())
-    return collapsed[:MAX_EXTRACT_CHARS]
+        if text and text.strip():
+            collapsed = " ".join(text.split())
+            return collapsed[:MAX_EXTRACT_CHARS], "done"
+        return "", "failed"
+    # Images (and unknown types): no OCR in the vault — 'unavailable'.
+    return None, "unavailable"
+
+
+def _pdf_parses(content: bytes) -> bool:
+    """True when pypdf can open the file and count its pages."""
+    from pypdf import PdfReader
+
+    try:
+        return len(PdfReader(io.BytesIO(content)).pages) > 0
+    except Exception:
+        return False
 
 
 def _extract_pdf(content: bytes) -> str:

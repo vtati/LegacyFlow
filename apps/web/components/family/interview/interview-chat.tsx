@@ -460,7 +460,9 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
         );
         if (result.status === 'no_readable_text') {
           setExtractionMsg(
-            'We could not read any text from that file — not even with scan recognition. Please type the details instead.',
+            result.ocr_unavailable
+              ? 'We couldn’t read this scan — scan recognition (OCR) isn’t available on this system right now, so the file couldn’t be processed. Please type the details instead.'
+              : 'We could not read any text from that file — not even with scan recognition. Please type the details instead.',
           );
         } else if (result.status === 'failed') {
           setExtractionMsg('We could not extract this file. Please try a PDF or Word document.');

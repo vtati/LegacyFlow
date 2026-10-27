@@ -219,6 +219,14 @@ function FileRow({
         </p>
       )}
 
+      {file.extraction_status === 'unreadable_scan' && (
+        <p className="mt-2 text-xs text-lf-text-subtle">
+          We couldn’t read this file — it looks like a scanned image with no readable text, and
+          vault uploads can’t be scan-recognized. Analysis isn’t available for it; try a
+          text-based PDF or Word document instead.
+        </p>
+      )}
+
       {showDetails && expanded && (
         <div className="mt-3 rounded-lf-control border border-lf-border bg-lf-canvas-subtle p-3">
           {file.ai_summary && <p className="text-sm text-lf-text">{file.ai_summary}</p>}

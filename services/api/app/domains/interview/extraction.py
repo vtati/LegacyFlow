@@ -100,6 +100,9 @@ class ExtractionResult:
     discarded: int = 0
     truncated: bool = False
     ocr_used: bool = False
+    # OCR visibility (F7): the upload needed OCR / OCR could not run.
+    ocr_attempted: bool = False
+    ocr_unavailable: bool = False
 
 
 def _require_flag(conn: Any, firm_id: UUID) -> None:
@@ -264,6 +267,8 @@ def run_extraction(
         status=str(extraction["status"]),
         truncated=document.truncated,
         ocr_used=document.ocr_used,
+        ocr_attempted=document.ocr_attempted,
+        ocr_unavailable=document.ocr_unavailable,
     )
     if not document.has_readable_text:
         return result
