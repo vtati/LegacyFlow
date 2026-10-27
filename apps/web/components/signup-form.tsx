@@ -165,7 +165,6 @@ export function SignUpForm(): React.JSX.Element {
 
         <p className="text-center text-xs text-lf-text-subtle">
           By creating an account you agree to the Terms and Privacy Policy. Attorney review pending.
-          attorney-pending.
         </p>
       </CardContent>
     </Card>

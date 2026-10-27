@@ -130,6 +130,7 @@ function InvitationsManager() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   useEffect(() => {
     firmApi
@@ -167,10 +168,16 @@ function InvitationsManager() {
 
   const handleRevoke = (invitationId: string) => {
     setRevokingId(invitationId);
+    setRevokeError(null);
     firmApi
       .revokeInvitation(invitationId)
       .then((updated) =>
         setInvitations((prev) => prev.map((i) => (i.id === updated.id ? updated : i))),
+      )
+      // trackSave stays silent on 4xx (Stage F F3), so this inline error is
+      // the only surface a failed revoke gets — it must catch every failure.
+      .catch((err: unknown) =>
+        setRevokeError(err instanceof Error ? err.message : 'Could not revoke the invitation.'),
       )
       .finally(() => setRevokingId(null));
   };
@@ -223,6 +230,12 @@ function InvitationsManager() {
           )}
         </CardContent>
       </Card>
+
+      {revokeError && (
+        <p role="alert" className="text-sm text-lf-error-700">
+          {revokeError}
+        </p>
+      )}
 
       {invitations.length > 0 && (
         <Card>
