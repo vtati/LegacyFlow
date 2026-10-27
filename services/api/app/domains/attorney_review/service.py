@@ -65,6 +65,28 @@ def _actor_id(actor_sub: str) -> UUID:
 # ---------------------------------------------------------------------------
 
 
+def _effective_required_keys(pack: Any, answers: dict[str, Any]) -> list[str]:
+    """Pack-required question keys that actually applied to this family.
+
+    Questions flagged ``required`` but pruned by their ``applies_if``
+    gate (guardians for a childless testator, specific bequests when
+    there are none) never had to be answered — counting them as
+    required makes the unfilled-placeholder check read every pruned
+    packet as missing data. Mirrors the intake gate exactly by reusing
+    its ``compute_progress`` partition (single source of truth).
+    """
+    from ...domains.intake import question_sets as intake_qs
+
+    questions = [q for _, _, q in intake_qs.iter_questions(pack.question_sets)]
+    flagged = [str(q["key"]) for q in questions if q.get("required")]
+    try:
+        _, _, _, pruned = intake_qs.compute_progress(pack.question_sets, answers)
+    except Exception:  # a malformed pack must not break recording
+        pruned = []
+    pruned_set = {str(k) for k in pruned}
+    return [k for k in flagged if k not in pruned_set]
+
+
 def _build_source_payload(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
     """Assemble the frozen source payload from CURRENT source data.
 
@@ -112,9 +134,7 @@ def _build_source_payload(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
         pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
         questions = [q for _, _, q in intake_qs.iter_questions(pack.question_sets)]
         question_keys = [str(q["key"]) for q in questions]
-        required_question_keys = [
-            str(q["key"]) for q in questions if q.get("required")
-        ]
+        required_question_keys = _effective_required_keys(pack, answers)
     except FileNotFoundError:
         question_keys = []
         required_question_keys = []
