@@ -970,6 +970,16 @@ export interface SigningChecklist {
   created_at: string;
 }
 
+/**
+ * Optional body for POST /matters/{id}/signing-checklists. The execution
+ * profile itself is resolved server-side from the matter's pack (e.g.
+ * VA-WILL-V0); `document_type` may only be sent to assert it matches the
+ * profile's document type. Omit it to use the profile default.
+ */
+export interface SigningChecklistGenerateInput {
+  document_type?: string | null;
+}
+
 export interface AttestInput {
   requirement_id: string;
   /** Non-certifying acknowledgement the client confirms before attesting. */
@@ -1636,6 +1646,10 @@ export interface FirmApi {
   listAmendmentRequests: (matterId: string) => Promise<AmendmentRequest[]>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
+  generateChecklist: (
+    matterId: string,
+    input?: SigningChecklistGenerateInput,
+  ) => Promise<SigningChecklist>;
   /* funding */
   generateFundingTasks: (matterId: string) => Promise<FundingTask[]>;
   listFundingTasks: (matterId: string) => Promise<FundingTask[]>;
@@ -1795,7 +1809,14 @@ export function createFirmApi(options: ApiClientOptions = {}): FirmApi {
     listAmendmentRequests: (matterId) =>
       call<AmendmentRequest[]>(`/matters/${matterId}/amendments`),
     /* signing */
-    getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing/checklist`),
+    // The API route is /matters/{id}/signing-checklist (documents router);
+    // the former /signing/checklist path matched no route and always 404'd.
+    getChecklist: (matterId) => call<SigningChecklist>(`/matters/${matterId}/signing-checklist`),
+    generateChecklist: (matterId, input) =>
+      call<SigningChecklist>(`/matters/${matterId}/signing-checklists`, {
+        method: 'POST',
+        body: input ?? {},
+      }),
     /* funding */
     generateFundingTasks: (matterId) =>
       call<FundingTask[]>(`/matters/${matterId}/funding-tasks/generate`, { method: 'POST' }),
