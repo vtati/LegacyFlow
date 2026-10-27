@@ -13,6 +13,8 @@ import logging
 import re
 from typing import Any
 
+from app.domains.ai.provider import get_json_provider
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a document analyst for an estate-planning vault. \
@@ -48,7 +50,6 @@ def analyze_with_llm(extracted_text: str, filename: str) -> dict[str, Any]:
     if provider_name == "openai" and settings.OPENAI_API_KEY:
         try:
             return _analyze_openai(
-                settings.OPENAI_API_KEY,
                 settings.OPENAI_CHAT_MODEL,
                 extracted_text,
                 filename,
@@ -58,30 +59,14 @@ def analyze_with_llm(extracted_text: str, filename: str) -> dict[str, Any]:
     return _analyze_rules(extracted_text, filename)
 
 
-def _analyze_openai(api_key: str, model: str, text: str, filename: str) -> dict[str, Any]:
-    import httpx
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Filename: {filename}\n\nExtracted text:\n{text[:12000]}",
-            },
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.1,
-    }
-    response = httpx.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json=payload,
+def _analyze_openai(model: str, text: str, filename: str) -> dict[str, Any]:
+    """Classify via the JSON gateway; normalize the parsed result."""
+    content, _usage = get_json_provider(model=model).complete_json(
+        system_prompt=SYSTEM_PROMPT,
+        user_content=f"Filename: {filename}\n\nExtracted text:\n{text[:12000]}",
+        temperature=0.1,
         timeout=90.0,
     )
-    response.raise_for_status()
-    data = response.json()
-    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "{}"
     return _normalize(json.loads(content), filename)
 
 

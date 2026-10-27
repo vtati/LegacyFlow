@@ -30,6 +30,7 @@ from app.core.errors import (
     ConfigurationError,
     ProviderError,
 )
+from app.domains.ai.provider import get_json_provider
 from app.domains.escalation import repository as escalation_repo
 from app.domains.feature_flags import service as feature_flags
 from app.domains.intake import question_sets as qs
@@ -130,47 +131,21 @@ def _verified_facts(conn: Any, matter_id: UUID, session_id: UUID) -> list[dict[s
 
 
 def _review_via_openai(
-    *, api_key: str, model: str, facts: list[dict[str, Any]]
+    *, model: str, facts: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    import httpx
-
+    """Call the JSON gateway; return (raw finding items, usage)."""
     fact_lines = "\n".join(
         f"- {f['key']} = {json.dumps(f['value'])[:300]} (source: {f['provenance']})" for f in facts
     )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": "VERIFIED FACTS:\n" + fact_lines,
-            },
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.0,
-    }
     started = time.monotonic()
-    try:
-        response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
-            timeout=90.0,
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("OpenAI consistency request failed: %s", exc)
-        raise ProviderError() from exc
+    content, usage = get_json_provider(model=model).complete_json(
+        system_prompt=_SYSTEM_PROMPT,
+        user_content="VERIFIED FACTS:\n" + fact_lines,
+        temperature=0.0,
+        timeout=90.0,
+    )
     logger.info("consistency provider call latency_ms=%d", int((time.monotonic() - started) * 1000))
-    data = response.json()
-    usage: dict[str, int] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        try:
-            usage[key] = int((data.get("usage") or {}).get(key, 0))
-        except (TypeError, ValueError):
-            pass
     try:
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or "{}"
         parsed = json.loads(content)
     except (ValueError, AttributeError):
         parsed = {}
@@ -209,7 +184,6 @@ def run_consistency_review(
         if not settings.OPENAI_API_KEY:
             raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
         raw_findings, usage = _review_via_openai(
-            api_key=settings.OPENAI_API_KEY,
             model=settings.OPENAI_CONSISTENCY_MODEL,
             facts=facts,
         )

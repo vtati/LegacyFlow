@@ -582,11 +582,96 @@ class WhisperSTTProvider:
 
 
 # ---------------------------------------------------------------------------
+# JSON completion provider (F1, 2026-10-26)
+#
+# Document extraction, consistency review, and vault analysis each need
+# one structured JSON answer from a model — no tools, no conversation.
+# They used to hand-roll identical httpx POSTs to api.openai.com; they
+# now share this gateway so the HTTP call, error mapping, usage
+# accounting, and the F5 payload contract live in exactly one place.
+# Callers keep their own prompts, output parsing, and domain fallbacks.
+# ---------------------------------------------------------------------------
+
+
+class JsonCompletionProvider(Protocol):
+    """One-shot JSON-mode chat completion."""
+
+    name: str
+
+    def complete_json(
+        self,
+        *,
+        system_prompt: str,
+        user_content: str,
+        temperature: float,
+        timeout: float = 90.0,
+    ) -> tuple[str, dict[str, int]]:
+        """Return (raw message content, token usage).
+
+        Raises :class:`ProviderError` on any transport/HTTP failure —
+        the client-facing error stays generic, as with the interview
+        provider.
+        """
+        ...
+
+
+class OpenAIJsonProvider:
+    """JSON completions via the OpenAI chat-completions API."""
+
+    name = "openai"
+
+    def __init__(self, *, api_key: str, model: str) -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def complete_json(
+        self,
+        *,
+        system_prompt: str,
+        user_content: str,
+        temperature: float,
+        timeout: float = 90.0,
+    ) -> tuple[str, dict[str, int]]:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        # Same capability contract as the interview provider (F5),
+        # minus the tools-specific reasoning pin.
+        _apply_model_contract(payload, self._model, temperature=temperature, with_tools=False)
+        try:
+            response = get_http_client().post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("OpenAI JSON completion request failed: %s", exc)
+            raise ProviderError() from exc
+        data = response.json()
+        usage: dict[str, int] = {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            try:
+                usage[key] = int((data.get("usage") or {}).get(key, 0))
+            except (TypeError, ValueError):
+                pass
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or "{}"
+        return str(content), usage
+
+
+# ---------------------------------------------------------------------------
 # Registries
 # ---------------------------------------------------------------------------
 
 _LLM_FACTORIES: dict[str, Callable[[], LLMProvider]] = {}
 _STT_FACTORIES: dict[str, Callable[[], STTProvider]] = {}
+_JSON_FACTORIES: dict[str, Callable[..., JsonCompletionProvider]] = {}
 
 
 def _openai_chat_factory(model: str | None = None) -> LLMProvider:
@@ -610,12 +695,25 @@ def _whisper_factory() -> STTProvider:
     return WhisperSTTProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_WHISPER_MODEL)
 
 
+def _openai_json_factory(model: str | None = None) -> JsonCompletionProvider:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.OPENAI_API_KEY:
+        raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
+    return OpenAIJsonProvider(
+        api_key=settings.OPENAI_API_KEY,
+        model=model or settings.OPENAI_CHAT_MODEL,
+    )
+
+
 _LLM_FACTORIES["deterministic_dev"] = (
     lambda model=None: DeterministicDevInterviewProvider()
 )
 _LLM_FACTORIES["openai"] = _openai_chat_factory
 _STT_FACTORIES["deterministic_dev"] = lambda: DeterministicDevSTTProvider()
 _STT_FACTORIES["whisper"] = _whisper_factory
+_JSON_FACTORIES["openai"] = _openai_json_factory
 
 
 def get_llm_provider(name: str | None = None, *, model: str | None = None) -> LLMProvider:
@@ -647,6 +745,26 @@ def get_stt_provider(name: str | None = None) -> STTProvider:
             f"Unknown AI_STT_PROVIDER {selected!r}. Expected one of: {sorted(_STT_FACTORIES)}."
         )
     return factory()
+
+
+def get_json_provider(model: str | None = None) -> JsonCompletionProvider:
+    """Select the JSON-completion provider from ``AI_LLM_PROVIDER``.
+
+    Only the OpenAI adapter offers JSON completion; the deterministic
+    dev provider has no model behind it, so callers on that path keep
+    their existing no-call behavior and never reach this factory (the
+    ConfigurationError is the fail-closed backstop).
+    """
+    from app.core.config import get_settings
+
+    selected = get_settings().AI_LLM_PROVIDER.strip().lower()
+    factory = _JSON_FACTORIES.get(selected)
+    if factory is None:
+        raise ConfigurationError(
+            f"AI_LLM_PROVIDER {selected!r} does not provide JSON completions. "
+            f"Expected one of: {sorted(_JSON_FACTORIES)}."
+        )
+    return factory(model=model)
 
 
 def available_llm_providers() -> list[str]:

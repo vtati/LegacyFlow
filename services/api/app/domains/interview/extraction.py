@@ -35,6 +35,7 @@ from app.core.errors import (
     ProviderError,
     ValidationAppError,
 )
+from app.domains.ai.provider import get_json_provider
 from app.domains.feature_flags import service as feature_flags
 from app.domains.intake import question_sets as qs
 from app.domains.interview import repository as repo
@@ -106,6 +107,33 @@ def _require_flag(conn: Any, firm_id: UUID) -> None:
         raise AuthorizationError("The AI interviewer is not enabled for this firm.")
 
 
+def _extraction_model(conn: Any, firm_id: UUID, pack: Any) -> str:
+    """The extraction model for THIS matter's interview path (F1 drift fix).
+
+    Extraction is part of the interview, so it runs the interview's
+    model: ``OPENAI_INTERVIEW_MODEL_V2`` when the matter is on the
+    interview_v2 path, ``OPENAI_INTERVIEW_MODEL`` otherwise. (Before
+    this fix it hardcoded the v1 model, so v2 matters interviewed on
+    gpt-5.5 but extracted on gpt-4o.) The flag read mirrors the
+    interview service's fail-safe: an error falls back to the proven
+    v1 model rather than breaking the run.
+    """
+    settings = get_settings()
+    try:
+        v2_on = bool(
+            feature_flags.is_enabled(
+                conn, "interview_v2", firm_id=firm_id, pack_id=pack.manifest.pack_id
+            )
+        )
+    except Exception:
+        logger.warning(
+            "interview_v2 flag read failed; extraction falls back to the v1 model",
+            exc_info=True,
+        )
+        v2_on = False
+    return settings.OPENAI_INTERVIEW_MODEL_V2 if v2_on else settings.OPENAI_INTERVIEW_MODEL
+
+
 def _field_schema(pack: Any, question_set_id: str) -> list[dict[str, str]]:
     """The extractable fields: key + human label for the session's set."""
     schema: list[dict[str, str]] = []
@@ -147,15 +175,12 @@ def _clamp_confidence(raw: Any) -> float:
 
 def _extract_via_openai(
     *,
-    api_key: str,
     model: str,
     document_text: str,
     field_schema: list[dict[str, str]],
     ocr_used: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Call the provider; return (raw extraction items, usage)."""
-    import httpx
-
+    """Call the JSON gateway; return (raw extraction items, usage)."""
     schema_lines = "\n".join(f"- {f['key']}: {f['label']}" for f in field_schema)
     ocr_note = (
         "\nNOTE: this text came from OCR of a scanned document and may contain "
@@ -172,38 +197,16 @@ def _extract_via_openai(
         f"{document_text}\n"
         "</UNTRUSTED_DOCUMENT>"
     )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.0,
-    }
     started = time.monotonic()
-    try:
-        response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
-            timeout=90.0,
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("OpenAI extraction request failed: %s", exc)
-        raise ProviderError() from exc
+    content, usage = get_json_provider(model=model).complete_json(
+        system_prompt=_SYSTEM_PROMPT,
+        user_content=user_content,
+        temperature=0.0,
+        timeout=90.0,
+    )
     latency_ms = int((time.monotonic() - started) * 1000)
     logger.info("extraction provider call latency_ms=%d", latency_ms)
-    data = response.json()
-    usage: dict[str, int] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        try:
-            usage[key] = int((data.get("usage") or {}).get(key, 0))
-        except (TypeError, ValueError):
-            pass
     try:
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or "{}"
         parsed = json.loads(content)
     except (ValueError, AttributeError):
         parsed = {}
@@ -269,14 +272,15 @@ def run_extraction(
     if settings.AI_LLM_PROVIDER.strip().lower() == "openai":
         if not settings.OPENAI_API_KEY:
             raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
+        # Same model as this matter's interview path (v2 → the stronger
+        # extractor); provenance records the model that actually ran.
+        model_id = _extraction_model(conn, firm_id, pack)
         raw_items, usage = _extract_via_openai(
-            api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_INTERVIEW_MODEL,
+            model=model_id,
             document_text=document.full_text,
             field_schema=field_schema,
             ocr_used=document.ocr_used,
         )
-        model_id = settings.OPENAI_INTERVIEW_MODEL
         repo.insert_ai_trace(
             conn,
             firm_id=firm_id,
