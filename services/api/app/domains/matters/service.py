@@ -41,6 +41,7 @@ from app.domains.matters.state_machine import (
     gate_required_for,
     validate_transition,
 )
+from app.domains.household import repository as household_repo
 from app.domains.payouts import service as payouts_service
 from app.domains.review import repository as review_repo
 
@@ -51,6 +52,14 @@ class UnknownJurisdictionError(ValidationAppError):
     type = "urn:legacyflow:error:unknown_jurisdiction"
     title = "Unknown jurisdiction"
     detail = "No usable jurisdiction pack exists for the requested jurisdiction code."
+
+
+class NoDefaultFirmForJurisdictionError(ValidationAppError):
+    """No default firm is registered for the jurisdiction (HTTP 422, D6)."""
+
+    type = "urn:legacyflow:error:no_default_firm_for_jurisdiction"
+    title = "No default firm for jurisdiction"
+    detail = "No law firm is currently accepting self-serve plans in this jurisdiction."
 
 
 # Lifecycle order used as the server-side completeness proxy. The index of a
@@ -109,29 +118,48 @@ def create_matter(
     payload: MatterCreate,
     correlation_id: UUID | None = None,
 ) -> MatterOut:
-    """Create a matter for the caller's firm.
+    """Create a matter (D4).
 
-    Firm staff may create matters for any household in their firm.
-    Non-staff callers (families) may create matters only for households
-    where they hold the ``primary_client`` or ``collaborator`` role.
+    ``household_id`` present: the firm is resolved from the household
+    row. Firm staff of that firm, or an active household member with
+    role ``primary_client``/``collaborator``, may create; other members
+    get 403 and non-members 404 (existence-oracle).
+
+    ``household_id`` omitted (self-serve): resolve the jurisdiction pack
+    first (unknown -> 422, unchanged), then the jurisdiction's default
+    firm from the registry (none -> 422
+    ``no_default_firm_for_jurisdiction``), then find-or-create the
+    caller's self-serve household under that firm (D3).
     """
     actor_id = caller_id(actor_sub)
-    firm_id = authz.get_user_firm_id(conn, actor_id)
+    is_self_serve = payload.household_id is None
+    household: dict[str, Any] | None = None
+    firm_id: UUID | None = None
 
-    household = repo.get_household_in_firm(conn, payload.household_id, firm_id)
-    if household is None:
-        # Existence-oracle: cross-firm households read as "not found".
-        raise NotFoundError("Household not found.")
-
-    firm_role = authz.get_firm_role(conn, actor_id, firm_id)
-    if firm_role not in authz.STAFF_ROLES:
-        # Non-staff: require primary_client/collaborator on this household.
-        household_role = repo.get_household_role(conn, payload.household_id, actor_id)
-        if household_role not in ("primary_client", "collaborator"):
-            raise AuthorizationError(
-                "This action requires a firm staff role or the "
-                "primary_client/collaborator household role."
+    if not is_self_serve:
+        household = repo.get_household(conn, payload.household_id)  # type: ignore[arg-type]
+        if household is None:
+            raise NotFoundError("Household not found.")
+        firm_id = UUID(str(household["firm_id"]))
+        firm_role = authz.get_firm_role(conn, actor_id, firm_id)
+        if firm_role not in authz.STAFF_ROLES:
+            household_role = repo.get_household_role(
+                conn, payload.household_id, actor_id  # type: ignore[arg-type]
             )
+            if household_role in ("primary_client", "collaborator"):
+                pass
+            elif household_role is not None or firm_role is not None:
+                # Read-only household member, or a non-staff member of
+                # the household's own firm: known caller, not allowed.
+                raise AuthorizationError(
+                    "This action requires a firm staff role or the "
+                    "primary_client/collaborator household role."
+                )
+            else:
+                # Non-member, non-staff (incl. staff of another firm):
+                # existence-oracle — cross-firm households read as
+                # "not found".
+                raise NotFoundError("Household not found.")
 
     country_code, subdivision_code = _split_jurisdiction_code(payload.jurisdiction_code)
     resolved = repo.resolve_jurisdiction_pack(conn, country_code, subdivision_code)
@@ -141,6 +169,26 @@ def create_matter(
         pack = get_pack(payload.jurisdiction_code.upper())
     except FileNotFoundError as exc:
         raise UnknownJurisdictionError() from exc
+
+    if is_self_serve:
+        jurisdiction_code = payload.jurisdiction_code.upper()
+        default_firm_id = repo.get_default_firm_id(conn, jurisdiction_code)
+        if default_firm_id is None:
+            raise NoDefaultFirmForJurisdictionError(
+                "No law firm is currently accepting self-serve plans in "
+                f"{jurisdiction_code}. Please check back soon or contact us "
+                "for help getting started."
+            )
+        firm_id = default_firm_id
+        household = household_repo.find_or_create_self_serve_household(
+            conn,
+            user_id=actor_id,
+            firm_id=firm_id,
+            display_name=(payload.household_name or "").strip() or "My Household",
+        )
+
+    assert firm_id is not None and household is not None
+    household_id = UUID(str(household["id"]))
 
     snapshot: dict[str, Any] = {
         "pack_id": pack.manifest.pack_id,
@@ -153,10 +201,14 @@ def create_matter(
         },
     }
 
+    audit_metadata: dict[str, Any] = {"jurisdiction_code": payload.jurisdiction_code.upper()}
+    if is_self_serve:
+        audit_metadata["origin"] = "self_serve"
+
     matter = repo.insert_matter(
         conn,
         firm_id=firm_id,
-        household_id=payload.household_id,
+        household_id=household_id,
         primary_jurisdiction_id=UUID(str(resolved["jurisdiction_id"])),
         jurisdiction_pack_id=UUID(str(resolved["jurisdiction_pack_id"])),
         plan_type=payload.plan_type,
@@ -183,7 +235,7 @@ def create_matter(
         matter_id=matter_id,
         resource_id=matter_id,
         correlation_id=correlation_id,
-        metadata={"jurisdiction_code": payload.jurisdiction_code.upper()},
+        metadata=audit_metadata,
     )
     matter["household_name"] = household.get("display_name")
     return matter_out(matter)

@@ -12,7 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class MatterCreate(BaseModel):
     """Create a matter (``POST /v1/matters``)."""
 
-    household_id: UUID
+    household_id: UUID | None = None
+    household_name: str | None = Field(default=None, max_length=200)
     jurisdiction_code: str = Field(min_length=2, max_length=16)
     title: str | None = Field(default=None, max_length=200)
     plan_type: str = Field(default="will", min_length=1, max_length=50)

@@ -22,6 +22,21 @@ def get_household_in_firm(conn: Any, household_id: UUID, firm_id: UUID) -> dict[
     return dict(row) if row else None
 
 
+def get_default_firm_id(conn: Any, jurisdiction_code: str) -> UUID | None:
+    """Return the registered default firm for ``jurisdiction_code``, or None.
+
+    Reads the ``jurisdiction_default_firms`` registry (D2): one default
+    firm per jurisdiction, enforced by the table's primary key.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT firm_id FROM jurisdiction_default_firms WHERE jurisdiction_code = %s",
+            (jurisdiction_code,),
+        )
+        row = cur.fetchone()
+    return UUID(str(row["firm_id"])) if row else None
+
+
 def resolve_jurisdiction_pack(
     conn: Any, country_code: str, subdivision_code: str
 ) -> dict[str, Any] | None:

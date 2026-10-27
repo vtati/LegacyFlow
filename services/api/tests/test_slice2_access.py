@@ -625,14 +625,17 @@ def test_matter_cross_firm_access_404(api_client: TestClient, db) -> None:
     assert resp.status_code == 404, resp.text  # existence oracle, not 403
 
 
-def test_household_client_cannot_create_matter(api_client: TestClient, db) -> None:
+def test_household_client_can_create_matter(api_client: TestClient, db) -> None:
+    # Phase 2 (D4): the household_id path resolves the firm from the
+    # household, so a household-only primary_client CAN create a matter
+    # in their own household (previously 403 — the firmless dead end).
     _, household_id = setup_firm_a(db)
     resp = api_client.post(
         "/v1/matters",
         json={"household_id": household_id, "jurisdiction_code": "US-VA"},
         headers=auth(CLIENT_SUB),
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
 
 
 def test_household_client_can_read_own_matter(api_client: TestClient, db) -> None:

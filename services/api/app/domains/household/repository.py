@@ -8,19 +8,81 @@ from uuid import UUID
 
 
 def insert_household(
-    conn: Any, *, firm_id: UUID, display_name: str, created_by_user_id: UUID
+    conn: Any,
+    *,
+    firm_id: UUID,
+    display_name: str,
+    created_by_user_id: UUID,
+    origin: str = "firm",
 ) -> dict[str, Any]:
-    """Insert a household; return the row."""
+    """Insert a household; return the row.
+
+    ``origin`` defaults to ``'firm'`` so existing callers are unchanged;
+    the self-serve provisioning path passes ``'self_serve'`` (D3).
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO households (firm_id, display_name, created_by_user_id)
-            VALUES (%s, %s, %s)
+            INSERT INTO households (firm_id, display_name, created_by_user_id, origin)
+            VALUES (%s, %s, %s, %s)
             RETURNING *
             """,
-            (str(firm_id), display_name, str(created_by_user_id)),
+            (str(firm_id), display_name, str(created_by_user_id), origin),
         )
         return dict(cur.fetchone())
+
+
+def find_or_create_self_serve_household(
+    conn: Any,
+    *,
+    user_id: UUID,
+    firm_id: UUID,
+    display_name: str,
+) -> dict[str, Any]:
+    """Find the caller's self-serve household under ``firm_id``, or create it.
+
+    Find-or-create key (D3): ``(created_by_user_id = caller, firm_id,
+    origin = 'self_serve')``, reused only when the caller's member row
+    there is ``primary_client`` + ``active``; otherwise a fresh household
+    (origin ``'self_serve'``) plus a ``primary_client`` member row for
+    the caller is inserted.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT h.* FROM households h
+            JOIN household_members hm
+              ON hm.household_id = h.id
+             AND hm.user_id = %s
+             AND hm.relationship_role = 'primary_client'
+             AND hm.access_status = 'active'
+            WHERE h.created_by_user_id = %s
+              AND h.firm_id = %s
+              AND h.origin = 'self_serve'
+            ORDER BY h.created_at ASC
+            LIMIT 1
+            """,
+            (str(user_id), str(user_id), str(firm_id)),
+        )
+        row = cur.fetchone()
+    if row is not None:
+        return dict(row)
+    household = insert_household(
+        conn,
+        firm_id=firm_id,
+        display_name=display_name,
+        created_by_user_id=user_id,
+        origin="self_serve",
+    )
+    insert_household_member(
+        conn,
+        household_id=UUID(str(household["id"])),
+        user_id=user_id,
+        relationship_role="primary_client",
+        access_status="active",
+        invited_by=user_id,
+    )
+    return household
 
 
 def list_households_for_firm(conn: Any, firm_id: UUID) -> list[dict[str, Any]]:
