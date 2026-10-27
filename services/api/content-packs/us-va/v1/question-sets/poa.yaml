@@ -16,8 +16,8 @@ sections:
         maps_to: nominations.financial_agent.1
       - key: poa_agent_address
         type: text
-        label: 'What city and state does your financial agent live in?'
-        help: 'Why we ask: the document identifies your agent by residence.'
+        label: 'What is your financial agent''s full address — street address, city, and state?'
+        help: 'Why we ask: the document identifies your agent by their full address.'
         required: true
         maps_to: facts.poa_agent_address
       - key: successor_poa_agent_person

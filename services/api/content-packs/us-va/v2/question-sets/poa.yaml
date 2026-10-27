@@ -19,8 +19,8 @@ sections:
     cluster: agents
   - key: poa_agent_address
     type: text
-    label: What city and state does your financial agent live in?
-    help: 'Why we ask: the document identifies your agent by residence.'
+    label: What is your financial agent's full address — street address, city, and state?
+    help: 'Why we ask: the document identifies your agent by their full address.'
     required: true
     maps_to: facts.poa_agent_address
     cluster: agents
