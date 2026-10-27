@@ -391,6 +391,61 @@ def test_schema_contract_columns_and_unreadable_scan_value(db):
 
 
 # ---------------------------------------------------------------------------
+# Provider-hypothesis isolation (coordinator follow-up, 2026-10-26):
+# could the D-C5-2 500 be the OpenAI provider failing, not the schema?
+# No — analyze_with_llm swallows provider errors into the rules fallback
+# by design, so a dead provider can never 500 this endpoint. These two
+# tests pin that isolation: same dead provider, both schemas.
+# ---------------------------------------------------------------------------
+
+
+def _kill_provider(monkeypatch):
+    """Configure the OpenAI provider and make the gateway raise."""
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    from app.domains.files import analysis
+
+    def _boom(model=None):
+        raise RuntimeError("provider down (simulated)")
+
+    monkeypatch.setattr(analysis, "get_json_provider", _boom)
+
+
+def test_dead_provider_still_analyzes_via_rules(db, api_client, monkeypatch):
+    """Full schema + dead provider -> 200 with the rules fallback."""
+    _kill_provider(monkeypatch)
+    matter_id = setup_matter(db)
+    content = _text_pdf()
+    upload_id = _upload(api_client, matter_id, content, "will.pdf")
+    assert _complete(api_client, upload_id, content, "will.pdf").status_code == 200
+
+    response = api_client.post(
+        f"/v1/files/{upload_id}/analyze", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["analysis_source"] == "rules"
+
+
+def test_stale_schema_500s_with_dead_provider_too(db_stale, api_client_stale, monkeypatch):
+    """Stale schema + dead provider -> same 500: the failure is the DB
+    write AFTER analysis (which itself fell back fine), so provider
+    state is neither necessary nor sufficient for the D-C5-2 500."""
+    _kill_provider(monkeypatch)
+    matter_id = setup_matter(db_stale)
+    content = _text_pdf()
+    upload_id = _upload(api_client_stale, matter_id, content, "will.pdf")
+    assert _complete(api_client_stale, upload_id, content, "will.pdf").status_code == 200
+
+    response = api_client_stale.post(
+        f"/v1/files/{upload_id}/analyze", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 500, response.text
+
+
+# ---------------------------------------------------------------------------
 # Sensitivity proof: production's stale schema reproduces both 500s.
 # (If these ever PASS, the endpoints stopped depending on the §10 schema
 # and the production fix instructions must be revisited.)
