@@ -400,7 +400,10 @@ def test_schema_contract_columns_and_unreadable_scan_value(db):
 
 
 def _kill_provider(monkeypatch):
-    """Configure the OpenAI provider and make the gateway raise."""
+    """Configure the OpenAI provider; make the gateway reject like the
+    2026-10-27 production incident: HTTP 429 insufficient_quota
+    (credit balance exhausted). The exception TYPE is irrelevant —
+    analyze_with_llm catches `Exception` wholesale by design."""
     monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
     from app.core.config import get_settings
@@ -409,7 +412,9 @@ def _kill_provider(monkeypatch):
     from app.domains.files import analysis
 
     def _boom(model=None):
-        raise RuntimeError("provider down (simulated)")
+        raise RuntimeError(
+            "429 insufficient_quota: You have no credits remaining (simulated)"
+        )
 
     monkeypatch.setattr(analysis, "get_json_provider", _boom)
 
