@@ -70,11 +70,22 @@ def insert_source(conn: Any, **fields: Any) -> dict[str, Any] | None:
 def snapshots_for(
     conn: Any, *, matter_id: UUID, source_fingerprint: str
 ) -> list[dict[str, Any]]:
+    """The snapshots a run analyses: the LATEST rendered version of
+    each package under the fingerprint.
+
+    A re-render under the same fingerprint (e.g. a template fix with
+    unchanged answers) records a second snapshot set; analysing every
+    version would re-report defects the family already regenerated
+    away and would let Layer 1 and Layer 2 read different artifacts
+    (review H2). One row per package — its highest package_version.
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM attorney_review_snapshots"
+            "SELECT * FROM ("
+            " SELECT DISTINCT ON (package_id) * FROM attorney_review_snapshots"
             " WHERE matter_id = %s AND source_fingerprint = %s"
-            " ORDER BY template_type, package_version",
+            " ORDER BY package_id, package_version DESC"
+            ") AS latest ORDER BY template_type, package_version",
             (str(matter_id), source_fingerprint),
         )
         return [dict(row) for row in cur.fetchall()]
@@ -204,13 +215,20 @@ def set_disposition(conn: Any, finding_id: UUID, disposition: str) -> None:
 
 def acknowledge_finding(
     conn: Any, finding_id: UUID, *, actor_id: UUID, note: str
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
+    """Acknowledge an OPEN finding. The disposition guard makes the
+    service's latest-run check atomic with the write: if a concurrent
+    re-run already transitioned this finding (stale /
+    fixed_by_regeneration / acknowledged), the update matches nothing
+    and the caller conflicts instead of flipping it back (review L1).
+    """
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE attorney_review_findings SET disposition = 'acknowledged',"
             " acknowledged_by_user_id = %s, acknowledgment_note = %s,"
             " acknowledged_at = now(), updated_at = now()"
-            " WHERE id = %s RETURNING *",
+            " WHERE id = %s AND disposition = 'open' RETURNING *",
             (str(actor_id), note, str(finding_id)),
         )
-        return dict(cur.fetchone())
+        row = cur.fetchone()
+    return dict(row) if row else None

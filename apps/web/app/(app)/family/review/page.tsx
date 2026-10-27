@@ -55,6 +55,7 @@ export default function FamilyReviewPage(): React.JSX.Element {
   const [parkedItems, setParkedItems] = useState<ParkedItem[]>([]);
   const [draftState, setDraftState] = useState<DraftSetState | null>(null);
   const [attorneyReview, setAttorneyReview] = useState<AttorneyReviewFindings | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -206,8 +207,11 @@ export default function FamilyReviewPage(): React.JSX.Element {
       await api.generateDraftSet(matterId);
       await refreshDraftState(matterId);
       // Generation auto-runs the pre-review server-side (when the firm
-      // enabled it); refetch so the findings appear with the drafts.
+      // enabled it); it now runs in the background, so refetch now and
+      // again shortly after so the findings appear with the drafts.
       await refreshAttorneyReview(matterId);
+      window.setTimeout(() => void refreshAttorneyReview(matterId), 3000);
+      window.setTimeout(() => void refreshAttorneyReview(matterId), 12000);
     } catch {
       setActionError('Draft creation failed — please try again.');
     } finally {
@@ -223,6 +227,8 @@ export default function FamilyReviewPage(): React.JSX.Element {
       await api.submitDraftSet(matterId);
       await refreshDraftState(matterId);
       await refreshAttorneyReview(matterId);
+      window.setTimeout(() => void refreshAttorneyReview(matterId), 3000);
+      window.setTimeout(() => void refreshAttorneyReview(matterId), 12000);
       reload();
     } catch {
       setActionError(
@@ -237,11 +243,27 @@ export default function FamilyReviewPage(): React.JSX.Element {
   const handleAcknowledgeFinding = useCallback(
     async (findingId: string, note: string) => {
       if (!matterId) return;
-      await api.acknowledgeAttorneyReviewFinding(matterId, findingId, note);
-      await refreshAttorneyReview(matterId);
+      setReviewError(null);
+      try {
+        await api.acknowledgeAttorneyReviewFinding(matterId, findingId, note);
+        await refreshAttorneyReview(matterId);
+      } catch {
+        setReviewError('That acknowledgment could not be recorded — please try again.');
+      }
     },
     [matterId, refreshAttorneyReview],
   );
+
+  const handleRunReview = useCallback(async () => {
+    if (!matterId) return;
+    setReviewError(null);
+    try {
+      await api.runAttorneyReview(matterId);
+      await refreshAttorneyReview(matterId);
+    } catch {
+      setReviewError('The pre-review could not be run — please try again.');
+    }
+  }, [matterId, refreshAttorneyReview]);
 
   return (
     <div className="space-y-6">
@@ -333,6 +355,8 @@ export default function FamilyReviewPage(): React.JSX.Element {
             <AttorneyReviewPanel
               data={attorneyReview}
               onAcknowledge={handleAcknowledgeFinding}
+              onRun={handleRunReview}
+              actionError={reviewError}
             />
           )}
 

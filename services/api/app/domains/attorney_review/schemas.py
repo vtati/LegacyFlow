@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class FindingLocationOut(BaseModel):
@@ -27,6 +27,7 @@ class FindingOut(BaseModel):
     disposition: str
     acknowledgment_note: str | None = None
     acknowledged_by_user_id: UUID | None = None
+    acknowledged_by_actor: str | None = None
     acknowledged_at: datetime | None = None
 
 
@@ -68,4 +69,18 @@ class RunIn(BaseModel):
 
 
 class AcknowledgeIn(BaseModel):
+    """An acknowledgment is an accountability record: the note is the
+    override's justification, so it must be real text (review L1) —
+    non-empty after trimming and bounded."""
+
     note: str
+
+    @field_validator("note")
+    @classmethod
+    def _note_must_be_substantive(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("An acknowledgment note is required.")
+        if len(trimmed) > 2000:
+            raise ValueError("The acknowledgment note is too long (2000 characters max).")
+        return trimmed

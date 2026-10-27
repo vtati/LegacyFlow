@@ -35,13 +35,33 @@ def _auto_run_attorney_review(
 ) -> None:
     """Best-effort advisory pre-review after a generate/submit commits.
 
-    Generate passes deterministic_only=True (instant, no model spend —
-    review M2); submit runs the full review, upgrading a
-    deterministic-only run for the same fingerprint. The service entry
-    never raises and manages its own transactions; this wrapper only
-    resolves the matter row and swallows everything else — a
-    pre-review failure must never fail the family's generate or submit.
+    Runs on a daemon thread (review M2): the family's response must not
+    wait on the review — a slow model call on the submit path could
+    otherwise hold the request open until the client times out and
+    retries an action that already committed. The core action is
+    durable before this is called; the reviewer only advises on it.
+
+    Generate passes deterministic_only=True (instant, no model spend);
+    submit runs the full review, upgrading a deterministic-only run
+    for the same fingerprint. The service entry never raises and
+    manages its own transactions; the worker below only resolves the
+    matter row and swallows everything else.
     """
+    import threading
+
+    thread = threading.Thread(
+        target=_auto_run_attorney_review_worker,
+        args=(matter_id, actor_sub),
+        kwargs={"deterministic_only": deterministic_only},
+        daemon=True,
+        name=f"attorney-review-{matter_id}",
+    )
+    thread.start()
+
+
+def _auto_run_attorney_review_worker(
+    matter_id: UUID, actor_sub: str, *, deterministic_only: bool = False
+) -> None:
     import logging
     from uuid import UUID as _UUID
 
@@ -58,7 +78,7 @@ def _auto_run_attorney_review(
             actor_id=_UUID(actor_sub),
             deterministic_only=deterministic_only,
         )
-    except Exception:  # advisory hook; see docstring
+    except Exception:  # advisory hook; see _auto_run_attorney_review
         logging.getLogger(__name__).exception(
             "attorney_review auto-run hook failed for matter %s", matter_id
         )

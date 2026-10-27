@@ -1641,11 +1641,17 @@ def _repo_root() -> Path | None:
     return packs_dir.parent if packs_dir is not None else None
 
 
-def _content_pack_files(pack_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+def _content_pack_files(
+    pack_id: str, version: str | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
     """Load (execution profile doc, funding playbooks) from the pack on disk.
 
     Returns ``None`` when the pack is not on disk so callers can fall back
-    to the built-in starter data.
+    to the built-in starter data. With ``version`` (a semantic version
+    like "2.0.0"), the matching ``v<version>`` directory is preferred so
+    a caller judging a frozen artifact can pin the yardstick to the
+    version the matter was planned under; without it, the newest
+    version directory wins (the long-standing behavior).
     """
     pack_root = _repo_root()
     if pack_root is None:
@@ -1656,8 +1662,13 @@ def _content_pack_files(pack_id: str) -> tuple[dict[str, Any], list[dict[str, An
     version_dirs = sorted(d for d in pack_root.iterdir() if d.is_dir() and d.name.startswith("v"))
     if not version_dirs:
         return None
-    profiles_file = version_dirs[-1] / "execution-profiles.yaml"
-    playbooks_file = version_dirs[-1] / "funding-playbooks.yaml"
+    chosen = version_dirs[-1]
+    if version:
+        pinned = pack_root / f"v{version}"
+        if pinned.is_dir():
+            chosen = pinned
+    profiles_file = chosen / "execution-profiles.yaml"
+    playbooks_file = chosen / "funding-playbooks.yaml"
     if not profiles_file.is_file() or not playbooks_file.is_file():
         return None
     try:

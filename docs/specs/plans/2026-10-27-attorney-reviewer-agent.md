@@ -292,3 +292,74 @@ from the production shape):
   "I am married to ___." (+ blank children line), and the advance
   directive pairs a no-donation wish with an anatomical-gift agent
   appointment. Venugopal decision owed on the templates.
+
+## Addendum 2 — independent review verdict + second fix pass (2026-10-27)
+
+The independent diff review of the shipped range returned NO Criticals;
+authz, SQL safety, RLS, and gate-isolation verified clean. It raised
+4 Highs and 7 Mediums. Disposition (fix pass 2):
+
+- H1 (recorder could fail generation for every firm) — FIXED in the
+  first fix pass (best-effort recorder, plan R3 restored).
+- H2 (runs analysed ALL snapshot versions of a fingerprint, oldest
+  first — stale findings regeneration could never clear; layers could
+  read different artifacts) — FIXED: snapshots_for returns the latest
+  package_version per package (DISTINCT ON). The source payload stays
+  frozen at a fingerprint's first render BY DESIGN: the fingerprint
+  hashes exactly the payload's user-editable inputs (answers, persons,
+  nominations, titles), so a same-fingerprint payload cannot go stale
+  from family/staff edits.
+- H3 (any package on an old fingerprint silenced the reviewer for the
+  matter forever) — FIXED: the current fingerprint is resolved over
+  the answer-defined draft set (resolve_draft_set) using the latest
+  package of each included type; packages outside the set are ignored.
+- H4 (run lifecycle not atomic; failed runs unreachable) — FIXED:
+  persist is a single write transaction (first fix pass) and failures
+  in compute/persist now record a 'failed' run in its own transaction
+  before the error propagates.
+- M1 (no idempotency — model paid per generate+submit+manual run) —
+  FIXED (first fix pass): per-fingerprint idempotency, deterministic-
+  only generate runs, force gated to firm actors.
+- M2 (auto-run synchronous in the family's request, inside a pooled
+  transaction) — FIXED: model call holds no transaction (first fix
+  pass); auto-runs now execute on a daemon thread after the core
+  action commits, and the family page re-fetches findings on a short
+  delay.
+- M3 (placeholder check blind to identity slots + "___"-valued slots)
+  — FIXED: slot sources extended for relationship-derived slots
+  (spouse/testator/children) from the gated identity questions, and
+  placeholder-only context values count as unfilled.
+- M4 (firm section shows matter-current findings under a packet
+  version selector) — SCOPED: findings bind to the draft-packet
+  fingerprint; the panel now captions "Findings are for the matter's
+  current packet · {run time}". Packet-version-scoped findings are
+  deferred — review packets are a separate snapshot artifact, and
+  post-submit the current packet IS the submitted packet until a
+  resubmission creates a new one.
+- M5 ("No issues found" even when the model layer never ran) — FIXED:
+  a deterministic_only run renders a distinct neutral message naming
+  the judgment pass as not yet run.
+- M6 (finding_hash collapsed distinct people sharing evidence) —
+  FIXED: person-scoped findings carry a subject, included in the hash.
+- M7 (reference_integrity should_fix on legitimate outside
+  beneficiaries) — FIXED: near-miss of a household person stays
+  should_fix (probable typo); an unknown name is now a
+  question_for_attorney (confirm intentional — friend/charity).
+- L1 (ack note unbounded/empty; ack race) — FIXED: note validated
+  (trimmed, 1..2000), ack requires the flag, and the UPDATE is
+  disposition-guarded (a lost race conflicts, never flips a
+  transitioned finding back).
+- L2 (web handlers silent on failure; family had no re-run) — FIXED:
+  try/catch + visible error line on both surfaces; family panel gets
+  the Run button.
+- L3 (acknowledging actor never shown) — FIXED: FindingOut carries
+  acknowledged_by_actor ("firm" | "family"); the panel renders it.
+- L4 (legal-conclusion fence gaps) — HARDENED: "not valid" and
+  "no legal effect" added; a model finding's suggested_fix must be
+  phrased as a question or it is dropped (§9.5).
+- L5 (yardstick drift: profiles from newest pack on disk; ages as of
+  run date) — FIXED: execution profiles load the matter's snapshotted
+  pack version; age checks run as of the frozen source's recorded date.
+- L6 (migration FKs without ON DELETE) — DEFERRED: friction for hard
+  deletes only (ops cleanup deletes reviewer rows first, as the
+  verification cleanup did); no runtime impact.

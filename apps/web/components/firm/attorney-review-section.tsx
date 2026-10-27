@@ -17,6 +17,7 @@ export function AttorneyReviewSection({
   matterId: string;
 }): React.JSX.Element | null {
   const [data, setData] = useState<AttorneyReviewFindings | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -32,15 +33,25 @@ export function AttorneyReviewSection({
 
   const handleAcknowledge = useCallback(
     async (findingId: string, note: string) => {
-      await firmApi.acknowledgeAttorneyReviewFinding(matterId, findingId, note);
-      await refresh();
+      setActionError(null);
+      try {
+        await firmApi.acknowledgeAttorneyReviewFinding(matterId, findingId, note);
+        await refresh();
+      } catch {
+        setActionError('That acknowledgment could not be recorded — please try again.');
+      }
     },
     [matterId, refresh],
   );
 
   const handleRun = useCallback(async () => {
-    await firmApi.runAttorneyReview(matterId);
-    await refresh();
+    setActionError(null);
+    try {
+      await firmApi.runAttorneyReview(matterId);
+      await refresh();
+    } catch {
+      setActionError('The pre-review could not be run — please try again.');
+    }
   }, [matterId, refresh]);
 
   if (!data || !data.enabled) return null;
@@ -50,6 +61,7 @@ export function AttorneyReviewSection({
       variant="firm"
       onAcknowledge={handleAcknowledge}
       onRun={handleRun}
+      actionError={actionError}
     />
   );
 }

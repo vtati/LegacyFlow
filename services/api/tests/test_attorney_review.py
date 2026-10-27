@@ -646,3 +646,134 @@ def test_auto_run_deterministic_only_then_full_upgrade(api_client, db, monkeypat
                  (w.matter_id,))
     assert count["n"] == 2
     get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Review pass 2 — H2 / H3 / H4 / L1
+# ---------------------------------------------------------------------------
+
+
+def test_orphaned_package_does_not_silence_the_reviewer(api_client, db) -> None:
+    """A package outside the answer-defined draft set (here a trust
+    stamped with an old fingerprint) must not poison the reviewer."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    template_id = str(uuid4())
+    _exec(
+        db,
+        "INSERT INTO document_templates"
+        " (id, firm_id, name, template_type, pack_id, version, content, created_by_user_id)"
+        " VALUES (%s, %s, 'trust template', 'trust', 'us-va', '1.0.0', %s::jsonb, %s)",
+        (template_id, w.firm_id, json.dumps({"body": "trust body"}), ADMIN),
+    )
+    _exec(
+        db,
+        "INSERT INTO document_packages"
+        " (id, firm_id, matter_id, template_id, status, source_fingerprint, created_by_user_id)"
+        " VALUES (%s, %s, %s, %s, 'demo_released', 'fp-orphan', %s)",
+        (str(uuid4()), w.firm_id, w.matter_id, template_id, CLIENT),
+    )
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_run_analyses_latest_snapshot_version_only(api_client, db) -> None:
+    """A bad older snapshot superseded by a fixed re-render (same
+    fingerprint, higher package_version) must not produce findings."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    bad_body = "\n".join(
+        line for line in WILL_BODY.split("\n") if "witness" not in line.lower()
+    )
+    _exec(
+        db,
+        "UPDATE attorney_review_snapshots SET body_text = %s"
+        " WHERE package_id = %s",
+        (bad_body, w.package_ids["will"]),
+    )
+    insert_snapshot(db, w, "will", WILL_BODY, version=99)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+    checks = {f["check"] for f in resp.json()["findings"]}
+    assert "va_execution_requirements" not in checks
+
+
+def test_failed_run_is_recorded(api_client, db, monkeypatch) -> None:
+    from app.domains.attorney_review import service as review_service
+
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+
+    def boom(**kwargs):
+        raise RuntimeError("checks exploded")
+
+    monkeypatch.setattr(review_service, "run_deterministic_checks", boom)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 500
+    failed = _all(
+        db,
+        "SELECT * FROM attorney_review_runs WHERE matter_id = %s AND status = 'failed'",
+        (w.matter_id,),
+    )
+    assert len(failed) == 1
+
+
+def test_acknowledge_requires_substantive_note_and_cannot_double_ack(
+    api_client, db
+) -> None:
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+    finding_id = resp.json()["findings"][0]["id"]
+    url = f"/v1/matters/{w.matter_id}/attorney-review/findings/{finding_id}/acknowledge"
+    empty = api_client.post(url, headers=_headers(ADMIN), json={"note": "   "})
+    assert empty.status_code == 422
+    ok = api_client.post(url, headers=_headers(ADMIN), json={"note": "Verified with client."})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["acknowledged_by_actor"] == "firm"
+    again = api_client.post(url, headers=_headers(ADMIN), json={"note": "Twice."})
+    assert again.status_code == 409
+
+
+def test_source_payload_recorded_once_per_fingerprint(db) -> None:
+    """The payload freezes at a fingerprint's first render, by design:
+    the fingerprint hashes exactly the payload's user-editable inputs
+    (answers, persons, nominations, titles), so a same-fingerprint
+    re-render consumed the same inputs and shares the first view."""
+    from app.domains.attorney_review import service as review_service
+
+    w = build_world(db)
+    package_id = w.package_ids["will"]
+    matter = {
+        "id": w.matter_id, "firm_id": w.firm_id, "household_id": w.household_id,
+        "jurisdiction_snapshot": {
+            "pack_id": "us-va", "jurisdiction_code": "US-VA",
+            "semantic_version": "2.0.0",
+        },
+    }
+    review_service.record_render_snapshot(
+        db, matter=matter, package_id=package_id, package_version=4,
+        source_fingerprint=FINGERPRINT, template_type="will",
+        template_body="Body {{executor_name}}", body_text=WILL_BODY, context=CONTEXT,
+    )
+    db.commit()
+    _exec(db, "INSERT INTO intake_answers (matter_id, question_key, answer)"
+              " VALUES (%s, 'has_minor_children', 'true'::jsonb)", (w.matter_id,))
+    review_service.record_render_snapshot(
+        db, matter=matter, package_id=package_id, package_version=5,
+        source_fingerprint=FINGERPRINT, template_type="will",
+        template_body="Body {{executor_name}}", body_text=WILL_BODY, context=CONTEXT,
+    )
+    db.commit()
+    source = _one(db, "SELECT * FROM attorney_review_sources WHERE matter_id = %s",
+                  (w.matter_id,))
+    assert "has_minor_children" not in source["payload"]["answers"]

@@ -43,6 +43,8 @@ _FORBIDDEN_PHRASES = (
     "you must",
     "legal advice",
     "not legally",
+    "not valid",
+    "no legal effect",
 )
 _MAX_FINDINGS = 25
 _MAX_BODY_CHARS = 12000
@@ -146,6 +148,11 @@ def _validate(
         suggested_fix = str(item.get("suggested_fix") or "").strip()
         if not explanation or _has_forbidden_phrasing(explanation, suggested_fix):
             continue
+        # §9.5: a judgment finding's suggested fix must be phrased as a
+        # question for the attorney, never as an instruction. A
+        # directive fix is dropped (the finding itself still stands).
+        if suggested_fix and not suggested_fix.endswith("?"):
+            suggested_fix = ""
         severity = str(item.get("severity") or "")
         if check in _QUESTION_CHECKS or severity not in _ALLOWED_SEVERITIES:
             severity = "question_for_attorney" if check in _QUESTION_CHECKS else severity

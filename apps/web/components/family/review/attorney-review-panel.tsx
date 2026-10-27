@@ -29,6 +29,7 @@ interface AttorneyReviewPanelProps {
   variant?: 'family' | 'firm';
   onAcknowledge: (findingId: string, note: string) => void;
   onRun?: () => void;
+  actionError?: string | null;
 }
 
 function groupByDocument(
@@ -81,11 +82,20 @@ function FindingRow({
         <p className="mt-1 text-sm text-lf-text-muted">{finding.suggested_fix}</p>
       )}
       {acknowledged ? (
-        finding.acknowledgment_note && (
-          <p className="mt-2 rounded-lf-control bg-lf-canvas-subtle px-3 py-2 text-sm text-lf-text-muted">
-            Note: {finding.acknowledgment_note}
+        <div className="mt-2 rounded-lf-control bg-lf-canvas-subtle px-3 py-2 text-sm text-lf-text-muted">
+          <p>
+            Acknowledged
+            {finding.acknowledged_by_actor === 'firm'
+              ? ' by the firm’s team'
+              : finding.acknowledged_by_actor === 'family'
+                ? ' by the family'
+                : ''}
+            {finding.acknowledged_at
+              ? ` · ${new Date(finding.acknowledged_at).toLocaleDateString()}`
+              : ''}
           </p>
-        )
+          {finding.acknowledgment_note && <p>Note: {finding.acknowledgment_note}</p>}
+        </div>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
@@ -123,6 +133,7 @@ export function AttorneyReviewPanel({
   variant = 'family',
   onAcknowledge,
   onRun,
+  actionError,
 }: AttorneyReviewPanelProps): React.JSX.Element | null {
   if (!data || !data.enabled) return null;
 
@@ -138,6 +149,19 @@ export function AttorneyReviewPanel({
           : 'An automated check of your drafts for inconsistencies \u2014 a name spelled two ways, a missing piece, numbers that don\u2019t add up. It isn\u2019t a legal review and it never blocks your submission; your attorney makes the final decisions.'}
       </p>
 
+      {data.run && (
+        <p className="mt-1 text-xs text-lf-text-subtle">
+          Findings are for the matter’s current packet · pre-review ran{' '}
+          {new Date(data.run.created_at).toLocaleString()}
+        </p>
+      )}
+
+      {actionError && (
+        <p role="alert" className="mt-3 text-sm text-lf-danger-700">
+          {actionError}
+        </p>
+      )}
+
       {!data.run && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <p className="text-sm text-lf-text-muted">
@@ -145,7 +169,7 @@ export function AttorneyReviewPanel({
               ? 'No pre-review has run on the current drafts yet.'
               : 'The pre-review runs automatically when you create your drafts.'}
           </p>
-          {variant === 'firm' && onRun && (
+          {onRun && (
             <Button type="button" variant="outline" onClick={onRun}>
               Run pre-review
             </Button>
@@ -154,10 +178,19 @@ export function AttorneyReviewPanel({
       )}
 
       {data.run && data.findings.length === 0 && (
-        <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-success-700">
-          <CircleCheck className="size-4" aria-hidden="true" />
-          No issues found by the automated pre-review.
-        </p>
+        data.run.model_id === 'deterministic_only' ? (
+          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-text-muted">
+            <CircleCheck className="size-4" aria-hidden="true" />
+            {variant === 'firm'
+              ? 'No issues found by the automated checks. The judgment pass hasn’t run on this packet yet — it runs at submit, or you can run the full pre-review now.'
+              : 'No issues found by the automated checks. The fuller judgment pass runs when you submit your drafts for attorney review.'}
+          </p>
+        ) : (
+          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-success-700">
+            <CircleCheck className="size-4" aria-hidden="true" />
+            No issues found by the automated pre-review.
+          </p>
+        )
       )}
 
       {groupByDocument(data.findings).map((group) => (

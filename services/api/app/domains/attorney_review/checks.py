@@ -81,15 +81,21 @@ class Finding:
     explanation: str
     suggested_fix: str | None
     package_id: str | None = None
+    # The person a person-scoped finding is about (e.g. date/age
+    # findings). Part of the content hash: two people can share the
+    # same evidence value (twins with one date of birth) and must not
+    # collapse into a single finding (review M6).
+    subject: str | None = None
 
 
 def finding_hash(finding: Finding) -> str:
-    """Content hash (layer + check + location + normalised evidence)."""
+    """Content hash (layer + check + location + subject + evidence)."""
     payload = {
         "layer": finding.layer,
         "check": finding.check,
         "document": finding.document,
         "field": finding.field,
+        "subject": (finding.subject or "").strip().lower(),
         "excerpt": (finding.excerpt or "").strip().lower(),
     }
     return hashlib.sha256(
@@ -363,6 +369,7 @@ def _check_date_age(
                 severity=SHOULD_FIX,
                 document=None,
                 field="date_of_birth",
+                subject=name,
                 excerpt=str(person.get("date_of_birth")),
                 explanation=(
                     f"{name}'s date of birth ({person.get('date_of_birth')}) "
@@ -381,6 +388,7 @@ def _check_date_age(
                     severity=SHOULD_FIX,
                     document="guardianship",
                     field="date_of_birth",
+                subject=name,
                     excerpt=str(person.get("date_of_birth")),
                     explanation=(
                         f"{name} is recorded as a minor child, but their date "
@@ -399,6 +407,7 @@ def _check_date_age(
                 severity=SHOULD_FIX,
                 document=None,
                 field="date_of_birth",
+                subject=name,
                 excerpt=str(person.get("date_of_birth")),
                 explanation=(
                     f"{name} is recorded as an adult, but their date of "
@@ -493,6 +502,12 @@ def _check_pack_completeness(
 # ---------------------------------------------------------------------------
 
 
+def _is_placeholder_value(value: Any) -> bool:
+    """True when a render-context value is only a blank marker."""
+    text = str(value or "").strip()
+    return not text or all(ch in "_–—- " for ch in text)
+
+
 def _check_unfilled_placeholders(
     snapshots: list[dict[str, Any]], source: dict[str, Any]
 ) -> list[Finding]:
@@ -510,8 +525,12 @@ def _check_unfilled_placeholders(
         template_body = str(snap.get("template_body") or "")
         context = dict(snap.get("context") or {})
         for token in sorted(set(_TOKEN_RE.findall(template_body))):
-            if token in context:
-                continue
+            if token in context and not _is_placeholder_value(context[token]):
+                continue  # genuinely filled at render time
+            # A slot present in the context with a placeholder value
+            # (the renderer's "___" fallback, e.g. children_list) is
+            # NOT filled — fall through to the applicability test
+            # instead of treating presence as filled (review M3).
             if token not in _FAMILY_SLOTS and token not in slot_sources:
                 continue  # attorney-fill (witness/notary/date blanks)
             sources = [str(k) for k in slot_sources.get(token) or [token]]
@@ -643,15 +662,23 @@ def _check_reference_integrity(
     findings: list[Finding] = []
     residuary = str(context.get("residuary_beneficiaries") or "")
     for sequence in _name_sequences(residuary):
+        # Classify against the household records: an exact match is a
+        # known person; a near miss (edit distance <= 2, not exact) is
+        # a probable typo of a household person — worth fixing. A name
+        # with no near match is usually a legitimate outside
+        # beneficiary (a friend, a charity) — flagging it should_fix
+        # on every run would break the false-positive budget (review
+        # M7), so it is only a question for the attorney to confirm.
+        best: tuple[int, str] | None = None
         for name in canonical:
             size = len(name.split())
             for window in _windows(sequence, size):
-                if window == name or _levenshtein(window.lower(), name.lower()) <= 2:
-                    break
-            else:
-                continue
-            break
-        else:
+                distance = _levenshtein(window.lower(), name.lower())
+                if best is None or distance < best[0]:
+                    best = (distance, name)
+        if best is not None and best[0] == 0:
+            continue  # a household person, exactly as recorded
+        if best is not None and best[0] <= 2:
             findings.append(Finding(
                 layer=LAYER,
                 check="reference_integrity",
@@ -661,12 +688,28 @@ def _check_reference_integrity(
                 excerpt=sequence,
                 explanation=(
                     f"The will names {sequence} as a residuary beneficiary, "
-                    "but no person with that name is in the household records."
+                    f"which is very close to {best[1]} in the household "
+                    "records — this may be a misspelling."
                 ),
                 suggested_fix=(
-                    f"Add {sequence} to the household records, or correct "
-                    "the residuary beneficiary answer."
+                    f"Confirm the spelling: should this be {best[1]}?"
                 ),
+            ))
+        else:
+            findings.append(Finding(
+                layer=LAYER,
+                check="reference_integrity",
+                severity="question_for_attorney",
+                document="will",
+                field="residuary_beneficiaries",
+                excerpt=sequence,
+                explanation=(
+                    f"The will names {sequence} as a residuary beneficiary, "
+                    "who is not in the household records. That can be "
+                    "intentional (for example a friend or a charity) — "
+                    "confirm it is who the family means."
+                ),
+                suggested_fix=None,
             ))
     trust_snap = next(
         (s for s in snapshots if s.get("template_type") == "trust"), None

@@ -956,6 +956,7 @@ export interface AttorneyReviewFinding {
   disposition: 'open' | 'acknowledged' | 'fixed_by_regeneration' | 'stale';
   acknowledgment_note: string | null;
   acknowledged_by_user_id: string | null;
+  acknowledged_by_actor: 'firm' | 'family' | null;
   acknowledged_at: string | null;
 }
 
@@ -1214,6 +1215,7 @@ export interface FamilyApi {
   submitDraftSet: (matterId: string) => Promise<DraftSubmitResult>;
   /* automated pre-review (attorney reviewer, advisory) */
   getAttorneyReviewFindings: (matterId: string) => Promise<AttorneyReviewFindings>;
+  runAttorneyReview: (matterId: string) => Promise<AttorneyReviewRunResult>;
   acknowledgeAttorneyReviewFinding: (
     matterId: string,
     findingId: string,
@@ -1471,6 +1473,11 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       }),
     getAttorneyReviewFindings: (matterId) =>
       call<AttorneyReviewFindings>(`/matters/${matterId}/attorney-review/findings`),
+    runAttorneyReview: (matterId) =>
+      call<AttorneyReviewRunResult>(`/matters/${matterId}/attorney-review/run`, {
+        method: 'POST',
+        body: {},
+      }),
     acknowledgeAttorneyReviewFinding: (matterId, findingId, note) =>
       call<AttorneyReviewFinding>(
         `/matters/${matterId}/attorney-review/findings/${findingId}/acknowledge`,

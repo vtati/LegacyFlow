@@ -148,6 +148,22 @@ def _build_source_payload(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
     for answer_key, (slots, _is_person) in _ANSWER_SLOT_TABLE.items():
         for slot in slots:
             slot_answer_keys.setdefault(slot, []).append(answer_key)
+    # Identity slots the renderer fills from relationships/persons
+    # rather than from _ANSWER_SLOT_TABLE (build_template_context):
+    # their applicability evidence is the gated identity question, so
+    # the placeholder check can still catch an answered-but-dropped
+    # spouse/testator/children slot (review M3 — the defect class of
+    # the 2026-10-27 spouse-capture fix).
+    for slot, keys in {
+        "spouse_name": ["spouse_full_name"],
+        "testator_name": ["testator_full_name"],
+        "grantor_name": ["testator_full_name"],
+        "declarant_name": ["testator_full_name"],
+        "principal_name": ["testator_full_name"],
+        "parent_name": ["testator_full_name"],
+        "children_list": ["minor_children_details", "has_minor_children"],
+    }.items():
+        slot_answer_keys.setdefault(slot, []).extend(keys)
     return {
         "persons": persons,
         "nominations": nominations,
@@ -207,24 +223,57 @@ def record_render_snapshot(
 # ---------------------------------------------------------------------------
 
 
-def _current_fingerprint(conn: Any, matter_id: UUID) -> str | None:
-    """The uniform stamped fingerprint of the matter's packages, if any."""
+def _current_fingerprint(conn: Any, matter: dict[str, Any]) -> str | None:
+    """The stamped fingerprint of the matter's CURRENT draft set.
+
+    The current set is the document types the family's answers call
+    for (documents' resolve_draft_set — the same definition the draft
+    state uses), taking the latest package of each type. Packages
+    outside the set — e.g. a trust the family removed from their plan
+    and regenerated without — keep their old stamp and must not
+    poison the reviewer into permanent silence (review H3). Mixed
+    stamps WITHIN the set mean a regeneration is mid-flight: fail
+    closed (None) until the set is uniform again.
+    """
+    from ...domains.documents.draft_set import resolve_draft_set
+    from ...domains.intake import repository as intake_repo
+
+    matter_id = UUID(str(matter["id"]))
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, matter_id)
+    }
+    expected = resolve_draft_set(answers)
+    if not expected:
+        return None
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT source_fingerprint FROM document_packages"
-            " WHERE matter_id = %s AND source_fingerprint IS NOT NULL",
-            (str(matter_id),),
+            "SELECT source_fingerprint FROM ("
+            " SELECT DISTINCT ON (t.template_type) p.source_fingerprint"
+            " FROM document_packages p"
+            " JOIN document_templates t ON t.id = p.template_id"
+            " WHERE p.matter_id = %s AND p.source_fingerprint IS NOT NULL"
+            " AND t.template_type = ANY(%s)"
+            " ORDER BY t.template_type, p.created_at DESC, p.id"
+            ") AS current_set",
+            (str(matter_id), expected),
         )
         rows = [str(r["source_fingerprint"]) for r in cur.fetchall()]
-    return rows[0] if len(rows) == 1 else None
+    return rows[0] if rows and len(set(rows)) == 1 else None
 
 
 def _execution_profiles(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
-    """All execution profiles of the matter's pack, keyed by document_type."""
+    """All execution profiles of the matter's pack, keyed by document_type.
+
+    Pinned to the matter's snapshotted pack version: the reviewer
+    judges a frozen draft, so the yardstick must be the pack version
+    the matter was planned under, not whatever is newest on disk at
+    run time (review L5).
+    """
     from ..documents import service as documents_service
 
-    pack_id, _jurisdiction_code, _version = documents_service._matter_pack_ref(matter)
-    loaded = documents_service._content_pack_files(pack_id)
+    pack_id, _jurisdiction_code, version = documents_service._matter_pack_ref(matter)
+    loaded = documents_service._content_pack_files(pack_id, version)
     profiles: dict[str, Any] = {}
     if loaded is None:
         fallback = documents_service._FALLBACK_EXECUTION_PROFILE
@@ -238,7 +287,35 @@ def _execution_profiles(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
     return profiles
 
 
-def _finding_out(row: dict[str, Any]) -> sch.FindingOut:
+def _ack_actor(conn: Any, matter: dict[str, Any], user_id: Any) -> str | None:
+    """Who acknowledged a finding: "firm" or "family" (review L3).
+
+    The packet shows the acknowledgment note; it must also show WHICH
+    side recorded the override — the raw user id alone doesn't say.
+    """
+    if not user_id:
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM firm_memberships WHERE user_id = %s"
+            " AND firm_id = %s AND status = 'active'",
+            (str(user_id), str(matter["firm_id"])),
+        )
+        if cur.fetchone():
+            return "firm"
+        cur.execute(
+            "SELECT 1 FROM household_members WHERE user_id = %s"
+            " AND household_id = %s",
+            (str(user_id), str(matter["household_id"])),
+        )
+        if cur.fetchone():
+            return "family"
+    return None
+
+
+def _finding_out(
+    row: dict[str, Any], *, ack_actor: str | None = None
+) -> sch.FindingOut:
     location = row.get("location") or {}
     return sch.FindingOut(
         id=UUID(str(row["id"])),
@@ -258,8 +335,23 @@ def _finding_out(row: dict[str, Any]) -> sch.FindingOut:
             UUID(str(row["acknowledged_by_user_id"]))
             if row.get("acknowledged_by_user_id") else None
         ),
+        acknowledged_by_actor=ack_actor,
         acknowledged_at=row.get("acknowledged_at"),
     )
+
+
+def _findings_out(
+    conn: Any, matter: dict[str, Any], rows: list[dict[str, Any]]
+) -> list[sch.FindingOut]:
+    labels: dict[str, str | None] = {}
+    out: list[sch.FindingOut] = []
+    for row in rows:
+        actor = row.get("acknowledged_by_user_id")
+        key = str(actor) if actor else None
+        if key and key not in labels:
+            labels[key] = _ack_actor(conn, matter, actor)
+        out.append(_finding_out(row, ack_actor=labels.get(key) if key else None))
+    return out
 
 
 def _run_out(row: dict[str, Any]) -> sch.RunOut:
@@ -326,6 +418,7 @@ class _PreparedReview:
         snapshots: list[dict[str, Any]],
         source: dict[str, Any],
         profiles: dict[str, Any],
+        review_date: date,
     ) -> None:
         self.matter = matter
         self.actor_id = actor_id
@@ -333,6 +426,11 @@ class _PreparedReview:
         self.snapshots = snapshots
         self.source = source
         self.profiles = profiles
+        # The frozen artifact's own date (when its source payload was
+        # recorded at render): age arithmetic is judged as of the
+        # packet, not as of whenever the run happens to execute
+        # (review L5).
+        self.review_date = review_date
 
 
 def _prepare_review(
@@ -358,7 +456,7 @@ def _prepare_review(
         if quiet:
             return None, None
         raise AttorneyReviewDisabledError()
-    fingerprint = _current_fingerprint(conn, matter_id)
+    fingerprint = _current_fingerprint(conn, matter)
     snapshots = (
         repo.snapshots_for(conn, matter_id=matter_id, source_fingerprint=fingerprint)
         if fingerprint else []
@@ -382,8 +480,10 @@ def _prepare_review(
             rows = repo.findings_for_run(conn, UUID(str(existing["id"])))
             return None, sch.RunResponseOut(
                 run=_run_out(existing),
-                findings=[_finding_out(row) for row in rows],
+                findings=_findings_out(conn, matter, rows),
             )
+    recorded = source_row.get("created_at")
+    review_date = recorded.date() if hasattr(recorded, "date") else date.today()
     prepared = _PreparedReview(
         matter=matter,
         actor_id=actor_id,
@@ -391,6 +491,7 @@ def _prepare_review(
         snapshots=snapshots,
         source=dict(source_row["payload"]),
         profiles=_execution_profiles(conn, matter),
+        review_date=review_date,
     )
     return prepared, None
 
@@ -407,7 +508,7 @@ def _compute_findings(
         snapshots=prepared.snapshots,
         source=prepared.source,
         execution_profiles=prepared.profiles,
-        today=date.today(),
+        today=prepared.review_date,
     )
     model_id = "deterministic_only"
     usage: dict[str, int] | None = None
@@ -528,8 +629,33 @@ def _persist_review(
     rows = repo.findings_for_run(conn, run_id)
     return sch.RunResponseOut(
         run=_run_out(completed),
-        findings=[_finding_out(row) for row in rows],
+        findings=_findings_out(conn, prepared.matter, rows),
     )
+
+
+def _record_failed_run(prepared: _PreparedReview, error: BaseException) -> None:
+    """Persist a 'failed' run row in its own transaction (review H4).
+
+    The plan's lifecycle has a failed state; until now nothing could
+    reach it — a compute/persist failure rolled back silently and the
+    docstring's claim was fiction. Recording is itself best-effort:
+    a failure here must never mask the original error.
+    """
+    from ...core import db
+
+    try:
+        with db.transaction() as conn:
+            run = repo.insert_run(
+                conn,
+                matter_id=UUID(str(prepared.matter["id"])),
+                firm_id=UUID(str(prepared.matter["firm_id"])),
+                source_fingerprint=prepared.fingerprint,
+                prompt_version=PROMPT_VERSION,
+                created_by_user_id=prepared.actor_id,
+            )
+            repo.fail_run(conn, UUID(str(run["id"])), error=str(error)[:500])
+    except Exception:
+        logger.exception("attorney_review failed-run recording failed")
 
 
 def run_review(
@@ -561,15 +687,19 @@ def run_review(
     if early is not None:
         return early
     assert prepared is not None
-    findings, model_id, usage = _compute_findings(prepared, full=True)
-    with db.transaction() as conn:
-        return _persist_review(
-            conn,
-            prepared=prepared,
-            findings=findings,
-            model_id=model_id,
-            usage=usage,
-        )
+    try:
+        findings, model_id, usage = _compute_findings(prepared, full=True)
+        with db.transaction() as conn:
+            return _persist_review(
+                conn,
+                prepared=prepared,
+                findings=findings,
+                model_id=model_id,
+                usage=usage,
+            )
+    except Exception as exc:
+        _record_failed_run(prepared, exc)
+        raise
 
 
 def run_review_for_matter(
@@ -589,6 +719,7 @@ def run_review_for_matter(
     """
     from ...core import db
 
+    prepared: _PreparedReview | None = None
     try:
         with db.transaction() as conn:
             prepared, early = _prepare_review(
@@ -612,7 +743,9 @@ def run_review_for_matter(
                 model_id=model_id,
                 usage=usage,
             )
-    except Exception:
+    except Exception as exc:
+        if prepared is not None:
+            _record_failed_run(prepared, exc)
         logger.exception(
             "attorney_review auto-run failed for matter %s", matter.get("id")
         )
@@ -676,7 +809,7 @@ def get_findings(
     )
     if not enabled:
         return sch.FindingsResponseOut(enabled=False)
-    fingerprint = _current_fingerprint(conn, matter_id)
+    fingerprint = _current_fingerprint(conn, matter)
     if not fingerprint:
         return sch.FindingsResponseOut(enabled=True)
     run = repo.latest_completed_run(
@@ -688,7 +821,7 @@ def get_findings(
     return sch.FindingsResponseOut(
         enabled=True,
         run=_run_out(run),
-        findings=[_finding_out(row) for row in rows],
+        findings=_findings_out(conn, matter, rows),
     )
 
 
@@ -700,14 +833,21 @@ def acknowledge_finding(
     Available to the family (write scope) and to firm staff; the
     acknowledgment is stored on the finding and travels with the packet.
     """
+    from ...domains.feature_flags import service as feature_flags
     from ...domains.matters import service as matters_service
 
     actor_id = _actor_id(actor_sub)
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    pack_id, _jur, _ver = _pack_ref(scope.matter)
+    if not feature_flags.is_enabled(
+        conn, FLAG_KEY,
+        firm_id=UUID(str(scope.matter["firm_id"])), pack_id=pack_id,
+    ):
+        raise AttorneyReviewDisabledError()
     finding = repo.get_finding(conn, finding_id)
     if finding is None or UUID(str(finding["matter_id"])) != matter_id:
         raise NotFoundError("Finding not found.")
-    fingerprint = _current_fingerprint(conn, matter_id)
+    fingerprint = _current_fingerprint(conn, scope.matter)
     latest = (
         repo.latest_completed_run(
             conn, matter_id=matter_id, source_fingerprint=fingerprint
@@ -719,6 +859,12 @@ def acknowledge_finding(
     updated = repo.acknowledge_finding(
         conn, finding_id, actor_id=actor_id, note=note.strip()
     )
+    if updated is None:
+        # Lost a race with a re-run (or a duplicate ack): the finding
+        # is no longer open, so there is nothing to override (L1).
+        raise ConflictError(
+            "This finding was already resolved or superseded by a newer review."
+        )
     record_audit_event(
         conn,
         action="attorney_review.acknowledged",
@@ -730,7 +876,9 @@ def acknowledge_finding(
         resource_id=finding_id,
         after_summary={"check": str(finding["check_name"]), "note": note.strip()[:200]},
     )
-    return _finding_out(updated)
+    return _finding_out(
+        updated, ack_actor="firm" if scope.via == "firm" else "family"
+    )
 
 
 __all__ = [

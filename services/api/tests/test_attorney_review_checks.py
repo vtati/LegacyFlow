@@ -506,3 +506,90 @@ def test_trustee_priority1_nomination_is_not_cross_checked() -> None:
     ])
     findings = _by_check(_run(snaps, source), "role_consistency")
     assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Review pass 2 — M3 / M6 / M7
+# ---------------------------------------------------------------------------
+
+
+def test_twins_sharing_a_dob_produce_two_findings() -> None:
+    from app.domains.attorney_review.checks import finding_hash
+
+    persons = _persons() + [
+        {"id": "55555555-5555-5555-5555-555555555555", "full_name": "Asha Twin",
+         "kind": "minor", "date_of_birth": "2030-01-15"},
+        {"id": "66666666-6666-6666-6666-666666666666", "full_name": "Bina Twin",
+         "kind": "minor", "date_of_birth": "2030-01-15"},
+    ]
+    findings = _by_check(_run(source=_source(persons=persons)), "date_age_arithmetic")
+    twin = [f for f in findings if f.excerpt == "2030-01-15"]
+    assert len(twin) == 2
+    assert finding_hash(twin[0]) != finding_hash(twin[1])
+    assert {f.subject for f in twin} == {"Asha Twin", "Bina Twin"}
+
+
+def test_spouse_slot_blank_despite_answer_is_flagged() -> None:
+    context = _context()
+    del context["spouse_name"]
+    will = _snapshot(
+        "will", "LAST WILL\nSpouse: (blank)",
+        context=context, template_body="Spouse: {{spouse_name}}",
+    )
+    source = _source(slot_answer_keys={"spouse_name": ["spouse_full_name"]})
+    flagged = _by_check(_run(snapshots=[will], source=source), "unfilled_placeholders")
+    assert [f.field for f in flagged] == ["spouse_name"]
+
+
+def test_placeholder_valued_slot_counts_as_unfilled() -> None:
+    context = _context()
+    context["children_list"] = "___"
+    will = _snapshot(
+        "will", "LAST WILL\nChildren: ___",
+        context=context, template_body="Children: {{children_list}}",
+    )
+    source = _source(
+        slot_answer_keys={"children_list": ["minor_children_details", "has_minor_children"]},
+    )
+    flagged = _by_check(_run(snapshots=[will], source=source), "unfilled_placeholders")
+    assert [f.field for f in flagged] == ["children_list"]
+
+
+def test_optional_unanswered_identity_slot_stays_quiet() -> None:
+    context = _context()
+    del context["spouse_name"]
+    will = _snapshot(
+        "will", "LAST WILL\nSpouse: (blank)",
+        context=context, template_body="Spouse: {{spouse_name}}",
+    )
+    answers = {"has_minor_children": True, "testator_full_name": "Arjun Sharma"}
+    source = _source(
+        answers=answers, slot_answer_keys={"spouse_name": ["spouse_full_name"]},
+    )
+    flagged = _by_check(_run(snapshots=[will], source=source), "unfilled_placeholders")
+    assert flagged == []
+
+
+def test_reference_integrity_unknown_beneficiary_is_a_question() -> None:
+    context = _context()
+    context["residuary_beneficiaries"] = "my spouse, Neha Kapoor, and the American Red Cross"
+    will = _snapshot("will", "LAST WILL", context=context)
+    findings = _by_check(_run(snapshots=[will]), "reference_integrity")
+    charity = [f for f in findings if "American Red Cross" in (f.excerpt or "")]
+    assert len(charity) == 1
+    assert charity[0].severity == "question_for_attorney"
+
+
+def test_reference_integrity_near_miss_name_is_should_fix() -> None:
+    persons = _persons() + [
+        {"id": "77777777-7777-7777-7777-777777777777", "full_name": "Maya Lee",
+         "kind": "adult", "date_of_birth": "1990-06-15"},
+    ]
+    context = _context()
+    context["residuary_beneficiaries"] = "my sister, Maya Lea"
+    will = _snapshot("will", "LAST WILL", context=context)
+    findings = _by_check(
+        _run(snapshots=[will], source=_source(persons=persons)), "reference_integrity")
+    typo = [f for f in findings if "Maya Lea" in (f.excerpt or "")]
+    assert len(typo) == 1
+    assert typo[0].severity == "should_fix"

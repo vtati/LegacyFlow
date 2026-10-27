@@ -142,3 +142,31 @@ def test_unknown_document_is_discarded(monkeypatch) -> None:
         snapshots=_snapshots(), source=_source(), model="gpt-5.5"
     )
     assert findings == []
+
+
+def test_directive_suggested_fix_is_dropped_not_the_finding(monkeypatch) -> None:
+    _install(monkeypatch, {"findings": [_finding()]})
+    findings, _ = model_review.review_via_model(
+        snapshots=_snapshots(), source=_source(), model="gpt-5.5"
+    )
+    assert len(findings) == 1
+    assert findings[0].suggested_fix is None
+
+
+def test_question_form_suggested_fix_survives(monkeypatch) -> None:
+    fix = "Should the house be treated as a specific gift rather than part of the residue?"
+    _install(monkeypatch, {"findings": [_finding(suggested_fix=fix)]})
+    findings, _ = model_review.review_via_model(
+        snapshots=_snapshots(), source=_source(), model="gpt-5.5"
+    )
+    assert len(findings) == 1
+    assert findings[0].suggested_fix == fix
+
+
+def test_no_legal_effect_phrasing_is_discarded(monkeypatch) -> None:
+    bad = _finding(explanation="Read this way, the clause has no legal effect.")
+    _install(monkeypatch, {"findings": [bad]})
+    findings, _ = model_review.review_via_model(
+        snapshots=_snapshots(), source=_source(), model="gpt-5.5"
+    )
+    assert findings == []

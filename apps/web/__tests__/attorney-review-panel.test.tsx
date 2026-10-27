@@ -40,6 +40,7 @@ const baseData: AttorneyReviewFindings = {
       disposition: 'open',
       acknowledgment_note: null,
       acknowledged_by_user_id: null,
+      acknowledged_by_actor: null,
       acknowledged_at: null,
     },
     {
@@ -53,6 +54,7 @@ const baseData: AttorneyReviewFindings = {
       disposition: 'acknowledged',
       acknowledgment_note: 'Client confirmed the Florida house was sold in 2024.',
       acknowledged_by_user_id: 'user-1',
+      acknowledged_by_actor: 'firm',
       acknowledged_at: '2026-10-27T13:00:00Z',
     },
   ],
@@ -97,6 +99,49 @@ describe('AttorneyReviewPanel', () => {
       'finding-1',
       'The shorter spelling is intentional.',
     );
+  });
+
+  it('shows who acknowledged a finding', () => {
+    render(<AttorneyReviewPanel data={baseData} onAcknowledge={vi.fn()} />);
+    expect(screen.getByText(/by the firm’s team/)).toBeTruthy();
+  });
+
+  it('does not claim a full pass when only the deterministic checks ran', () => {
+    render(
+      <AttorneyReviewPanel
+        data={{
+          enabled: true,
+          run: { ...baseData.run!, model_id: 'deterministic_only' },
+          findings: [],
+        }}
+        onAcknowledge={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/judgment pass runs when you submit/i)).toBeTruthy();
+  });
+
+  it('surfaces action errors instead of failing silently', () => {
+    render(
+      <AttorneyReviewPanel
+        data={baseData}
+        onAcknowledge={vi.fn()}
+        actionError="That acknowledgment could not be recorded — please try again."
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be recorded/);
+  });
+
+  it('offers the family a manual re-run when no run exists', () => {
+    const onRun = vi.fn();
+    render(
+      <AttorneyReviewPanel
+        data={{ enabled: true, run: null, findings: [] }}
+        onAcknowledge={vi.fn()}
+        onRun={onRun}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /run pre-review/i }));
+    expect(onRun).toHaveBeenCalled();
   });
 
   it('shows a clean result when a completed run found nothing', () => {
