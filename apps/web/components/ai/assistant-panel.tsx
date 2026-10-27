@@ -129,9 +129,11 @@ export function AssistantPanel({ ask, panelId = 'ai-assistant' }: AssistantPanel
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI assistant</CardTitle>
+        <CardTitle>Guided answers</CardTitle>
         <CardDescription>
-          Ask about your plan in plain language. Answers cite the jurisdiction pack they come from.
+          Ask about your plan in plain language. Answers are assembled from your firm’s approved
+          educational materials in the jurisdiction pack and cite them — this is not a free-form
+          AI chat, and questions the materials can’t answer go to your attorney.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -143,8 +145,9 @@ export function AssistantPanel({ ask, panelId = 'ai-assistant' }: AssistantPanel
         >
           {messages.length === 0 && !asking && (
             <p className="rounded-lf-control bg-lf-canvas-subtle p-4 text-sm text-lf-text-muted">
-              Try “What does probate mean for my house?” — the assistant answers from your
-              jurisdiction’s pack, or points you to your attorney when it can’t.
+              Try “What does probate mean for my house?” — answers quote your jurisdiction’s
+              approved pack materials, or point you to your attorney when the materials don’t
+              cover the question.
             </p>
           )}
           {messages.map((message) =>
@@ -164,7 +167,7 @@ export function AssistantPanel({ ask, panelId = 'ai-assistant' }: AssistantPanel
                 <Bot className="size-4 animate-pulse" aria-hidden="true" />
               </span>
               <p className="rounded-lf-card border border-lf-border bg-lf-canvas-subtle px-4 py-2.5 text-sm text-lf-text-muted">
-                Thinking…
+                Checking the approved materials…
               </p>
             </div>
           )}

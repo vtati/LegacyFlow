@@ -4,10 +4,13 @@ The gateway never lets a provider answer from its own weights: every
 provider receives an :class:`AIContext` of already-retrieved, approved pack
 documents and must ground every claim in them.
 
-* :class:`DeterministicDevProvider` — template-based answers assembled
-  from retrieved excerpts (no LLM calls, no network). Used in dev/test.
-* :class:`ProductionAIProvider` — interface placeholder; raising a 501
-  :class:`ConfigurationError` until a production provider is wired in.
+* :class:`GroundedTemplateProvider` — template-based answers assembled
+  from retrieved excerpts (no LLM calls, no network). This IS the
+  production provider for the Ask gateway (F4, 2026-10-26): the
+  earlier production class was an unimplemented 501 stub, which left
+  Ask broken in production while this working provider sat beside it.
+  Wiring an LLM into Ask is a separate product decision, not a
+  config flip — there is deliberately no LLM provider for the gateway.
 """
 
 from __future__ import annotations
@@ -110,12 +113,13 @@ def _approved_excerpts_block(documents: list[RetrievedDocument]) -> str:
     return "\n".join(lines)
 
 
-class DeterministicDevProvider:
+class GroundedTemplateProvider:
     """Template-based answers from retrieved docs (no LLM, no network).
 
     The answer is an assembly of verbatim excerpts from approved pack
     content plus fixed educational framing. It never synthesizes new
-    legal claims, clauses, or advice.
+    legal claims, clauses, or advice. This is the Ask gateway's
+    production provider as well as its dev/test provider (F4).
     """
 
     def generate(self, question: str, context: AIContext) -> AIResponse:
@@ -138,25 +142,21 @@ class DeterministicDevProvider:
         return AIResponse(answer="\n".join(lines), citations=citations)
 
 
-class ProductionAIProvider:
-    """Production provider interface (not implemented in this deployment)."""
-
-    def generate(self, question: str, context: AIContext) -> AIResponse:
-        del question, context
-        raise ConfigurationError(
-            "The production AI provider is not configured for this deployment. "
-            "Set AI_PROVIDER=deterministic_dev to use the template-based "
-            "development provider."
-        )
+# Back-compat alias: the provider was named for its original dev/test
+# role; it is the production provider now (F4).
+DeterministicDevProvider = GroundedTemplateProvider
 
 
 def get_provider(name: str | None = None) -> AIProvider:
-    """Select the provider from ``AI_PROVIDER`` (default: deterministic_dev)."""
+    """Select the provider from ``AI_PROVIDER`` (default: deterministic_dev).
+
+    Both ``deterministic_dev`` and ``production`` select the grounded
+    template provider — it is the only Ask provider that exists, by
+    design (F4). Unknown names fail closed.
+    """
     selected = (name or os.environ.get("AI_PROVIDER", _DETERMINISTIC_DEV)).strip().lower()
-    if selected == _DETERMINISTIC_DEV:
-        return DeterministicDevProvider()
-    if selected == _PRODUCTION:
-        return ProductionAIProvider()
+    if selected in (_DETERMINISTIC_DEV, _PRODUCTION):
+        return GroundedTemplateProvider()
     raise ConfigurationError(
         f"Unknown AI provider {selected!r}. Expected 'deterministic_dev' or 'production'."
     )

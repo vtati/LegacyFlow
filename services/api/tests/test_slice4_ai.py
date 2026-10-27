@@ -397,13 +397,21 @@ def test_sample_content_excluded_when_disabled(
     assert "attorney" in body["answer"].lower()
 
 
-def test_production_provider_returns_501(
+def test_production_provider_serves_grounded_answers(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """F4: AI_PROVIDER=production wires the working grounded provider.
+
+    Before the fix this returned 501 (the production provider class was
+    an unimplemented stub); Ask now functions as designed in production
+    — deterministic answers assembled from approved pack excerpts.
+    """
     monkeypatch.setenv("AI_PROVIDER", "production")
     resp = _ask(client, VA_MATTER_ID, GROUNDED_QUESTION)
-    assert resp.status_code == 501, resp.text
-    assert resp.json()["code"] == "configuration_error"
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["refused"] is False
+    assert body["citations"], "grounded answers cite the retrieved pack docs"
 
 
 def test_question_length_validation(client: TestClient) -> None:

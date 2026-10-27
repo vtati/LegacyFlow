@@ -26,7 +26,7 @@ const TABS = [
   { id: 'documents', label: 'Documents' },
   { id: 'signing', label: 'Signing' },
   { id: 'funding', label: 'Funding' },
-  { id: 'assistant', label: 'AI assistant' },
+  { id: 'assistant', label: 'Guided answers' },
   { id: 'review', label: 'Review packet' },
   { id: 'comments', label: 'Comments' },
   { id: 'clarifications', label: 'Clarifications' },

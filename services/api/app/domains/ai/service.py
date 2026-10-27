@@ -8,9 +8,9 @@ Pipeline for ``POST /v1/matters/{matter_id}/ai/ask``:
    educational content only (never other jurisdictions, never other
    pack artifacts). Sample (attorney-pending) content is excluded when
    ``AI_ALLOW_SAMPLE_CONTENT=false``.
-3. **Generate** via the configured provider. ``DeterministicDevProvider``
-   assembles template answers from retrieved excerpts; no LLM, no
-   network, no synthesized legal claims.
+3. **Generate** via the configured provider. ``GroundedTemplateProvider``
+   (the production provider, F4) assembles template answers from
+   retrieved excerpts; no LLM, no network, no synthesized legal claims.
 4. **Trace + persist**: every interaction is recorded with
    ``sha256(question + pack_version + retrieved doc ids)`` and
    summaries only (first 200 chars) — raw prompts and answers are never

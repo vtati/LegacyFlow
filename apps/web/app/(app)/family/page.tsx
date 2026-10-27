@@ -108,7 +108,7 @@ export default function FamilyDashboardPage(): React.JSX.Element {
       )}
 
       {!loading && !error && matters.length > 0 && (
-        <section aria-label="AI assistant" className="space-y-4 pt-2">
+        <section aria-label="Guided answers" className="space-y-4 pt-2">
           <MatterSelect
             matters={matters}
             value={assistantMatterId ?? matters[0]?.id ?? null}
