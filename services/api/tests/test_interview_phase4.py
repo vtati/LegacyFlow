@@ -347,6 +347,23 @@ def test_v10_prompt_handles_dont_know_without_pressing():
     assert "sets the item aside" in text
 
 
+def test_v10_deferral_bullet_absent_when_turn_cannot_park():
+    # Review I-2: on offer/verdict turns a deferral is consumed as a
+    # verdict read and nothing is set aside — the prompt must not
+    # promise parking there. post_turn passes deferral_parks=False
+    # exactly when presented/verdict offers own the turn (the same
+    # condition that disables conversational parking).
+    gap = _cluster_gap([("primary_executor_person", "Who should be your executor?")])
+    text = prompts.build_system_prompt(
+        missing_required_keys=["primary_executor_person"],
+        cluster_gap=gap,
+        natural_questions=True,
+        deferral_parks=False,
+        **_BASE_KW,
+    )
+    assert "sets the item aside" not in text
+
+
 def test_prompt_version_v10_constant_exists():
     assert prompts.PROMPT_TEMPLATE_VERSION_V10 == "v10"
 

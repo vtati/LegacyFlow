@@ -126,6 +126,7 @@ def build_system_prompt(
     other_questions: list[dict] | None = None,
     natural_questions: bool = False,
     follow_up_keys: set[str] | frozenset[str] | None = None,
+    deferral_parks: bool = True,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -442,10 +443,13 @@ acknowledge and move on. Never repeat this offer."""
         # question, so the inventory belongs here too (set 8: the
         # details paragraph extracted zero on an offers turn).
         cluster_block += _other_fields_block(other_questions)
-    if natural_questions and cluster_block:
-        # Phase 4 (P1/P4): on v10 turns the focus/offers block closes
-        # with the deferral instruction — a "don't know" is met with
-        # acknowledgement, never a rephrased re-ask.
+    if natural_questions and cluster_block and deferral_parks:
+        # Phase 4 (P1/P4): on v10 turns the focus block closes with
+        # the deferral instruction — a "don't know" is met with
+        # acknowledgement, never a rephrased re-ask. Only rendered
+        # when this turn can actually park (review I-2): on offer /
+        # verdict turns a deferral is consumed as a verdict read and
+        # nothing is set aside, so the promise must not be made.
         cluster_block += _DONT_KNOW_BULLET
     text = f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \

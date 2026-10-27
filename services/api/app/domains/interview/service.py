@@ -6402,6 +6402,11 @@ def post_turn(
         other_questions=other_questions,
         natural_questions=natural_questions,
         follow_up_keys=follow_up_keys or None,
+        # Mirrors the conversational-park condition exactly: the
+        # prompt's deferral bullet promises the system sets the item
+        # aside, which is true only when no offer/verdict owns the
+        # turn (Phase 4 review I-2).
+        deferral_parks=not presented_offers and not verdict_offers,
     )
 
     # Stronger extractor on v2 turns only (config OPENAI_INTERVIEW_MODEL_V2,
