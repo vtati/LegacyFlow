@@ -848,6 +848,78 @@ export interface DraftDocument {
   created_at: string;
 }
 
+/* ------------------------------------------------- family draft set (self-serve) */
+
+export interface DraftApplicable {
+  required_total: number;
+  required_answered: number;
+  complete: boolean;
+  missing_labels: string[];
+}
+
+export interface DraftDocumentState {
+  template_type: string;
+  included: boolean;
+  /** Why the type is in (or out of) the generated set — the pack gate. */
+  signal: string;
+  template_id: string | null;
+  template_name: string | null;
+  package_id: string | null;
+  package_status: string | null;
+  generated: boolean;
+  stale: boolean;
+  latest_version_at: string | null;
+}
+
+export interface DraftAttorney {
+  user_id: string;
+  full_name: string;
+  email: string;
+}
+
+export interface DraftPacketRef {
+  id: string;
+  version: number;
+  created_at: string;
+}
+
+export interface DraftSetState {
+  enabled: boolean;
+  matter_status: string;
+  applicable: DraftApplicable;
+  documents: DraftDocumentState[];
+  can_generate: boolean;
+  can_submit: boolean;
+  submit_blockers: string[];
+  assigned_attorney: DraftAttorney | null;
+  latest_packet: DraftPacketRef | null;
+}
+
+export interface DraftPackage {
+  id: string;
+  firm_id: string;
+  matter_id: string;
+  template_id: string;
+  status: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftSetGenerateResult {
+  packages: DraftPackage[];
+  versions: DraftDocument[];
+  fingerprint: string;
+}
+
+export interface DraftSubmitResult {
+  matter_id: string;
+  matter_status: string;
+  packet_id: string;
+  packet_version: number;
+  assigned_attorney: DraftAttorney;
+}
+
 /* ---------------------------------------------------------------- signing */
 
 export interface SigningChecklistItem {
@@ -1051,6 +1123,10 @@ export interface FamilyApi {
   /* documents (drafts, family-visible) */
   listDraftDocuments: (matterId: string) => Promise<DraftDocument[]>;
   downloadDraftDocument: (downloadUrl: string) => Promise<{ blob: Blob; filename: string }>;
+  /* family self-serve draft generation (review -> generate -> submit) */
+  getDraftSetState: (matterId: string) => Promise<DraftSetState>;
+  generateDraftSet: (matterId: string) => Promise<DraftSetGenerateResult>;
+  submitDraftSet: (matterId: string) => Promise<DraftSubmitResult>;
   /* signing */
   getChecklist: (matterId: string) => Promise<SigningChecklist>;
   attest: (checklistId: string, input: AttestInput) => Promise<SigningAttestation>;
@@ -1278,6 +1354,17 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       }),
     /* documents (drafts, family-visible) */
     listDraftDocuments: (matterId) => call<DraftDocument[]>(`/matters/${matterId}/document-versions`),
+    /* family self-serve draft generation */
+    getDraftSetState: (matterId) =>
+      call<DraftSetState>(`/matters/${matterId}/draft-documents/state`),
+    generateDraftSet: (matterId) =>
+      call<DraftSetGenerateResult>(`/matters/${matterId}/draft-documents/generate`, {
+        method: 'POST',
+      }),
+    submitDraftSet: (matterId) =>
+      call<DraftSubmitResult>(`/matters/${matterId}/draft-documents/submit`, {
+        method: 'POST',
+      }),
     downloadDraftDocument: (downloadUrl: string) => {
       // Backend returns "/v1/document-versions/{id}/download"; strip the /v1 prefix
       // since apiFetchBlob adds it.

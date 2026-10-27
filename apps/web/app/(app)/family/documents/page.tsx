@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +26,28 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
   const [error, setError] = useState<unknown>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Self-serve draft generation probe: when the firm has it on, the
+  // header links to the review screen where drafts are created.
+  const [draftsEnabled, setDraftsEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!matterId) {
+      setDraftsEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getDraftSetState(matterId)
+      .then((state) => {
+        if (!cancelled) setDraftsEnabled(state.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setDraftsEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [matterId]);
 
   const loadDocuments = useCallback((id: string) => {
     setLoading(true);
@@ -97,6 +120,14 @@ export default function FamilyDocumentsPage(): React.JSX.Element {
       </div>
 
       <WatermarkNotice detail="These are watermarked drafts for review only — not legal documents. Nothing here is final until your attorney approves it." />
+
+      {draftsEnabled && matterId && (
+        <div>
+          <Button asChild variant="outline">
+            <Link href="/family/review">Review answers &amp; drafts</Link>
+          </Button>
+        </div>
+      )}
 
       {mattersLoading && <LoadingState lines={3} label="Loading your matters…" />}
       {mattersError != null && !mattersLoading ? (

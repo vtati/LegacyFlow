@@ -93,9 +93,20 @@ function buildNextSteps(
   matter: MatterSummary,
   nominations: Record<string, Nomination[]>,
   intakeComplete: boolean,
+  draftReviewEnabled = false,
 ): NextStep[] {
   const steps: NextStep[] = [];
   const status = matter.status.toLowerCase();
+  // Self-serve draft generation (draft-set state probe said enabled):
+  // a complete intake in a pre-submission status leads with the review
+  // screen, where the family creates drafts and submits to the attorney.
+  if (
+    draftReviewEnabled &&
+    intakeComplete &&
+    (matter.status === 'INTAKE_IN_PROGRESS' || matter.status === 'INTAKE_SUBMITTED')
+  ) {
+    steps.push({ label: 'Review & create your drafts', href: '/family/review' });
+  }
   if (!intakeComplete) {
     steps.push({ label: 'Finish your intake questions', href: `/family/intake/${matter.id}` });
   }
@@ -263,6 +274,7 @@ export default function FamilyMyPlanPage(): React.JSX.Element {
             api.getQuestionSets(matter.id),
             api.getHousehold(matter.id),
             ...NOMINATION_TYPES.map((type) => api.listNominations(matter.id, type)),
+            api.getDraftSetState(matter.id),
           ]);
           // A matter is only skipped when its household (needed for names) fails.
           const householdResult = settled[3];
@@ -287,12 +299,23 @@ export default function FamilyMyPlanPage(): React.JSX.Element {
             persons: householdResult.value.persons,
             nextSteps: [],
           };
+          const draftStateResult = settled[4 + NOMINATION_TYPES.length];
+          const draftReviewEnabled =
+            draftStateResult?.status === 'fulfilled' &&
+            typeof (draftStateResult.value as { enabled?: unknown }).enabled ===
+              'boolean' &&
+            (draftStateResult.value as { enabled: boolean }).enabled;
           const required = progress?.overall;
           const intakeComplete =
             required != null && required.required_total > 0
               ? required.required_answered >= required.required_total
               : matter.completeness_pct >= 100;
-          matterPlan.nextSteps = buildNextSteps(matter, nominations, intakeComplete);
+          matterPlan.nextSteps = buildNextSteps(
+            matter,
+            nominations,
+            intakeComplete,
+            draftReviewEnabled,
+          );
           return matterPlan;
         }),
       );

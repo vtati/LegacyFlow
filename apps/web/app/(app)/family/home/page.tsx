@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -25,7 +25,7 @@ import { useLiveCoverage, useMatters } from '@/components/family/matter-context'
 import { ProgressBar } from '@/components/family/progress-bar';
 import { StatusPill } from '@/components/family/status-pill';
 import { cn } from '@/lib/utils';
-import { type MatterSummary } from '@/lib/api-client';
+import { api, type MatterSummary } from '@/lib/api-client';
 
 type JewelTone = 'cyan' | 'sky' | 'violet' | 'mint' | 'amber' | 'navy';
 
@@ -111,7 +111,7 @@ interface NextStep {
  * proxy on every status transition, so completeness only decides inside
  * the intake states — `pct` here is the live intake-progress figure.
  */
-function nextStepFor(matter: MatterSummary, pct: number): NextStep {
+function nextStepFor(matter: MatterSummary, pct: number, reviewEnabled = false): NextStep {
   const status = matter.status.toLowerCase();
   const title = matter.title || 'Untitled matter';
   if (status.includes('clarification')) {
@@ -176,6 +176,17 @@ function nextStepFor(matter: MatterSummary, pct: number): NextStep {
       blurb: `${title} is ${pct}% complete — your answers shape every document in your plan.`,
       href: `/family/intake/${matter.id}`,
       cta: 'Continue intake',
+    };
+  }
+  if (reviewEnabled) {
+    // Self-serve draft generation is on for this firm (draft-set state
+    // probe): a complete intake routes to the review screen, where the
+    // family creates drafts and submits them to the attorney.
+    return {
+      label: 'Review & create your drafts',
+      blurb: 'Your answers are complete — review them, create your draft documents, and send them to your attorney.',
+      href: '/family/review',
+      cta: 'Review & create drafts',
     };
   }
   return {
@@ -256,7 +267,31 @@ export default function FamilyHomePage(): React.JSX.Element {
   const coverage = useLiveCoverage(matters);
   const ringPct = primaryMatter ? coverage(primaryMatter) : 0;
   const primaryTitle = primaryMatter?.title || 'Untitled matter';
-  const nextStep = primaryMatter ? nextStepFor(primaryMatter, ringPct) : null;
+  // Probe the draft-set state for the primary matter: when the firm has
+  // self-serve draft generation on, a complete intake routes to the
+  // review screen instead of the passive "your firm will take it" step.
+  const [reviewEnabled, setReviewEnabled] = useState(false);
+  useEffect(() => {
+    // Reset synchronously so a previous matter's probe result can never
+    // paint the review step onto a newly-primary matter.
+    setReviewEnabled(false);
+    if (!primaryMatter) {
+      return;
+    }
+    let cancelled = false;
+    api
+      .getDraftSetState(primaryMatter.id)
+      .then((state) => {
+        if (!cancelled) setReviewEnabled(state.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [primaryMatter]);
+  const nextStep = primaryMatter ? nextStepFor(primaryMatter, ringPct, reviewEnabled) : null;
   const averageCoverage =
     matters.length > 0
       ? Math.round(matters.reduce((sum, m) => sum + coverage(m), 0) / matters.length)

@@ -21,6 +21,12 @@ const matter = {
   household: { id: 'hh-1', name: 'Sharma household' },
 };
 
+const hoisted = vi.hoisted(() => ({
+  completenessPct: 2,
+  requiredAnswered: 1,
+  draftEnabled: false,
+}));
+
 vi.mock('@/lib/api-client', () => ({
   ApiError: class ApiError extends Error {
     status = 0;
@@ -31,13 +37,15 @@ vi.mock('@/lib/api-client', () => ({
       sets: {},
       overall: {
         total_questions: 48,
-        answered: 1,
+        answered: hoisted.requiredAnswered,
         required_total: 41,
-        required_answered: 1,
-        percent_complete: 2,
+        required_answered: hoisted.requiredAnswered,
+        percent_complete: hoisted.completenessPct,
       },
-      completeness_pct: 2,
+      completeness_pct: hoisted.completenessPct,
     })),
+    // Draft-set probe (review entry point): disabled unless a test opts in.
+    getDraftSetState: vi.fn(async () => ({ enabled: hoisted.draftEnabled })),
   },
 }));
 
@@ -61,6 +69,23 @@ describe('FamilyHomePage coverage', () => {
     expect(bars.length).toBeGreaterThanOrEqual(3);
     for (const bar of bars) {
       expect(bar.getAttribute('aria-valuenow')).toBe('2');
+    }
+  });
+
+  it('routes a complete intake to the review screen when draft generation is enabled', async () => {
+    hoisted.completenessPct = 100;
+    hoisted.requiredAnswered = 41;
+    hoisted.draftEnabled = true;
+    try {
+      render(<FamilyHomePage />);
+      const step = await screen.findByText('Review & create your drafts');
+      expect(step).toBeDefined();
+      const link = screen.getByRole('link', { name: /Review & create drafts/ });
+      expect(link.getAttribute('href')).toBe('/family/review');
+    } finally {
+      hoisted.completenessPct = 2;
+      hoisted.requiredAnswered = 1;
+      hoisted.draftEnabled = false;
     }
   });
 });
