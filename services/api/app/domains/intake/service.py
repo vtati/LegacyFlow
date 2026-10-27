@@ -65,6 +65,28 @@ def _parse_nomination_maps_to(maps_to: str | None) -> tuple[str, int] | None:
     return (parts[1], priority)
 
 
+def _person_for_id_value(
+    conn: Any, household_id: UUID, value: str
+) -> dict[str, Any] | None:
+    """Resolve an ID-shaped person answer to the existing household person.
+
+    Person answers exist in two storage shapes: the interview stores the
+    person's NAME, the wizard/Review person-select stores the person's
+    ID. Passing an ID through ensure-by-name created a person literally
+    named by the UUID (R1, production 2026-10-27). Returns None when the
+    value matches no household person id (i.e. it is a name shape).
+    """
+    from app.domains.household import repository as household_repo
+
+    text = value.strip()
+    if not text:
+        return None
+    for person in household_repo.list_persons_for_household(conn, household_id):
+        if str(person.get("id") or "").lower() == text.lower():
+            return person
+    return None
+
+
 def _ensure_person_for_name(
     conn: Any, household_id: UUID, full_name: str
 ) -> dict[str, Any] | None:
@@ -166,7 +188,11 @@ def _sync_nominations_from_answers(
                 # confirms in the 2026-10-24 proof re-run.
                 with conn.cursor() as cur:
                     cur.execute("SAVEPOINT lf_nom_sync")
-                person = _ensure_person_for_name(conn, household_id, value)
+                # ID-shaped values resolve to the existing person;
+                # only true name strings go through ensure-by-name (R1).
+                person = _person_for_id_value(conn, household_id, value)
+                if person is None:
+                    person = _ensure_person_for_name(conn, household_id, value)
                 if person is None:
                     with conn.cursor() as cur:
                         cur.execute("RELEASE SAVEPOINT lf_nom_sync")
