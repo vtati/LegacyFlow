@@ -68,6 +68,76 @@ def update_session_state(conn: Any, session_id: UUID, state: dict[str, Any]) -> 
         )
 
 
+# ---------------------------------------------------------------------------
+# Parked items (Phase 4, "don't know yet")
+# ---------------------------------------------------------------------------
+
+
+def list_parked_keys(conn: Any, matter_id: UUID) -> list[str]:
+    """Question keys with a park marker on this matter (marker order)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT question_key FROM interview_parked_items
+            WHERE matter_id = %s
+            ORDER BY created_at, question_key
+            """,
+            (str(matter_id),),
+        )
+        return [str(row["question_key"]) for row in cur.fetchall()]
+
+
+def list_parked_items(conn: Any, matter_id: UUID) -> list[dict[str, Any]]:
+    """Park markers with provenance, oldest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT question_key, parked_by_user_id, created_at
+            FROM interview_parked_items
+            WHERE matter_id = %s
+            ORDER BY created_at, question_key
+            """,
+            (str(matter_id),),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def park_item(
+    conn: Any,
+    *,
+    matter_id: UUID,
+    question_key: str,
+    parked_by_user_id: UUID | None,
+) -> None:
+    """Record a park marker (idempotent: re-parking changes nothing)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO interview_parked_items
+                (matter_id, question_key, parked_by_user_id)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (matter_id, question_key) DO NOTHING
+            """,
+            (
+                str(matter_id),
+                question_key,
+                str(parked_by_user_id) if parked_by_user_id is not None else None,
+            ),
+        )
+
+
+def unpark_item(conn: Any, *, matter_id: UUID, question_key: str) -> None:
+    """Drop a park marker (idempotent)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM interview_parked_items
+            WHERE matter_id = %s AND question_key = %s
+            """,
+            (str(matter_id), question_key),
+        )
+
+
 def insert_session(
     conn: Any,
     *,

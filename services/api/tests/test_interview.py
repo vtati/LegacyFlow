@@ -1968,3 +1968,191 @@ class TestContextAwareRefusal:
 
         assert _is_non_legal_advice("Should I put my house in a trust?") is False
         assert _is_non_legal_advice("Is it legal to disinherit my child?") is False
+
+
+# ---------------------------------------------------------------------------
+# API: parked items (Phase 4, P4 — "don't know yet")
+# ---------------------------------------------------------------------------
+
+
+def _park(api_client: TestClient, matter_id: str, session_id: str, key: str, sub: str = CLIENT_SUB):
+    return api_client.post(
+        f"/v1/matters/{matter_id}/interview/sessions/{session_id}/parked-items",
+        json={"question_key": key},
+        headers=_headers(sub),
+    )
+
+
+def _unpark(api_client: TestClient, matter_id: str, session_id: str, key: str, sub: str = CLIENT_SUB):
+    return api_client.request(
+        "DELETE",
+        f"/v1/matters/{matter_id}/interview/sessions/{session_id}/parked-items/{key}",
+        headers=_headers(sub),
+    )
+
+
+def _get_session(api_client: TestClient, matter_id: str, session_id: str, sub: str = CLIENT_SUB):
+    return api_client.get(
+        f"/v1/matters/{matter_id}/interview/sessions/{session_id}",
+        headers=_headers(sub),
+    )
+
+
+def _save_answers(api_client: TestClient, matter_id: str, answers: dict, sub: str = CLIENT_SUB):
+    return api_client.put(
+        f"/v1/matters/{matter_id}/intake/answers",
+        json={"answers": answers},
+        headers=_headers(sub),
+    )
+
+
+class TestPhase4ParkedItems:
+    def test_park_unpark_round_trip(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+
+        resp = _park(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["parked_required_keys"] == ["marital_status"]
+        assert "marital_status" not in body["missing_required_keys"]
+        item = next(
+            c for c in body["checklist"] if c["question_key"] == "marital_status"
+        )
+        assert item["parked"] is True
+        assert item["answered"] is False
+
+        listed = api_client.get(
+            f"/v1/matters/{matter_id}/interview/parked-items",
+            headers=_headers(CLIENT_SUB),
+        )
+        assert listed.status_code == 200, listed.text
+        items = listed.json()
+        assert [i["question_key"] for i in items] == ["marital_status"]
+        assert items[0]["required"] is True
+        assert items[0]["label"]
+
+        resp = _unpark(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["parked_required_keys"] == []
+        assert "marital_status" in body["missing_required_keys"]
+        item = next(
+            c for c in body["checklist"] if c["question_key"] == "marital_status"
+        )
+        assert item["parked"] is False
+
+    def test_park_unknown_key_is_422(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        resp = _park(api_client, matter_id, session_id, "not_a_pack_key")
+        assert resp.status_code == 422, resp.text
+
+    def test_park_answered_item_is_409(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        saved = _save_answers(api_client, matter_id, {"marital_status": "married"})
+        assert saved.status_code == 200, saved.text
+        resp = _park(api_client, matter_id, session_id, "marital_status")
+        assert resp.status_code == 409, resp.text
+
+    def test_answer_supersedes_park(
+        self, api_client: TestClient, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        assert _park(api_client, matter_id, session_id, "marital_status").status_code == 200
+        saved = _save_answers(api_client, matter_id, {"marital_status": "married"})
+        assert saved.status_code == 200, saved.text
+        body = _get_session(api_client, matter_id, session_id).json()
+        assert body["parked_required_keys"] == []
+        item = next(
+            c for c in body["checklist"] if c["question_key"] == "marital_status"
+        )
+        assert item["answered"] is True
+        assert item["parked"] is False
+        listed = api_client.get(
+            f"/v1/matters/{matter_id}/interview/parked-items",
+            headers=_headers(CLIENT_SUB),
+        )
+        assert listed.json() == []
+
+    def _make_v2_matter(self, db, interview_setup: dict[str, str]) -> str:
+        matter_id = interview_setup["matter_id"]
+        _exec(
+            db,
+            "UPDATE matters SET jurisdiction_snapshot = %s::jsonb WHERE id = %s",
+            (
+                json.dumps({**VA_SNAPSHOT, "semantic_version": "2.0.0"}),
+                matter_id,
+            ),
+        )
+        _exec(
+            db,
+            "INSERT INTO feature_flags (key, scope, scope_ref, is_enabled)"
+            " VALUES ('interview_v2', 'firm', %s, true)",
+            (interview_setup["firm_id"],),
+        )
+        return matter_id
+
+    def test_conversational_park_on_dont_know(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = self._make_v2_matter(db, interview_setup)
+        session_id = start_session(api_client, matter_id).json()["id"]
+        first = post_turn(api_client, matter_id, session_id, "hello")
+        assert first.status_code == 200, first.text
+
+        resp = post_turn(api_client, matter_id, session_id, "I don't know yet")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        expected = {
+            "testator_full_name",
+            "marital_status",
+            "primary_residence_state",
+            "has_child_with_special_needs",
+        }
+        assert set(body["parked_required_keys"]) == expected
+        for key in expected:
+            assert key not in body["missing_required_keys"]
+        rows = _fetchall(
+            db,
+            "SELECT question_key FROM interview_parked_items WHERE matter_id = %s",
+            (matter_id,),
+        )
+        assert {r["question_key"] for r in rows} == expected
+        session = _get_session(api_client, matter_id, session_id).json()
+        assert set(session["parked_required_keys"]) == expected
+        parked_flags = {
+            c["question_key"] for c in session["checklist"] if c["parked"]
+        }
+        assert parked_flags == expected
+
+    def test_completion_escalates_missing_but_not_parked(
+        self, api_client: TestClient, db, interview_setup: dict[str, str]
+    ) -> None:
+        matter_id = interview_setup["matter_id"]
+        session_id = start_session(api_client, matter_id).json()["id"]
+        assert post_turn(api_client, matter_id, session_id, "hello").status_code == 200
+        assert _park(api_client, matter_id, session_id, "marital_status").status_code == 200
+        before = _get_session(api_client, matter_id, session_id).json()
+        other_missing = next(
+            k for k in before["missing_required_keys"] if k != "marital_status"
+        )
+        done = set_session_status(api_client, matter_id, session_id, "completed")
+        assert done.status_code == 200, done.text
+        rows = _fetchall(
+            db,
+            "SELECT facts_snapshot->>'question_key' AS qk FROM escalations"
+            " WHERE matter_id = %s AND rule_id LIKE 'interview_incomplete_item%%'",
+            (matter_id,),
+        )
+        escalated = {r["qk"] for r in rows}
+        assert "marital_status" not in escalated
+        assert other_missing in escalated

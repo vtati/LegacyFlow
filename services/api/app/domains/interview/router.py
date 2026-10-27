@@ -22,6 +22,8 @@ from app.domains.interview.schemas import (
     ExtractionOut,
     ExtractionProposalOut,
     ExtractionSummaryOut,
+    ParkedItemOut,
+    ParkItemCreate,
     ProposalCorrect,
     ProposalOut,
     SessionCreate,
@@ -113,10 +115,16 @@ def _refresh_turn_progress(turn_out: TurnOut, matter_id: UUID) -> None:
             from app.domains.matters import service as matters_service
 
             pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
-            answers = service._answers_map(conn, matter_id)
-            completeness, missing, _total, _answered = service._progress(pack, answers)
+            (
+                completeness,
+                missing,
+                _total,
+                _answered,
+                parked_required,
+            ) = service._display_progress_for_matter(conn, pack, matter_id)
             turn_out.completeness_pct = completeness
             turn_out.missing_required_keys = missing
+            turn_out.parked_required_keys = parked_required
     except Exception:
         logging.getLogger(__name__).warning(
             "Progress refresh after auto-confirm failed", exc_info=True
@@ -180,6 +188,65 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
                 p.question_key,
             )
     return confirmed
+
+
+@router.post(
+    "/matters/{matter_id}/interview/sessions/{session_id}/parked-items",
+    response_model=SessionOut,
+)
+def park_item(
+    matter_id: UUID,
+    session_id: UUID,
+    payload: ParkItemCreate,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> SessionOut:
+    """Park a question ("don't know yet"): it leaves the interview's
+    focus and missing list, and still gates document generation."""
+    with db.transaction() as conn:
+        return service.park_item(
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            session_id=session_id,
+            payload=payload,
+        )
+
+
+@router.delete(
+    "/matters/{matter_id}/interview/sessions/{session_id}/parked-items/{question_key}",
+    response_model=SessionOut,
+)
+def unpark_item(
+    matter_id: UUID,
+    session_id: UUID,
+    question_key: str,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> SessionOut:
+    """Remove a park marker; the item rejoins the missing list."""
+    with db.transaction() as conn:
+        return service.unpark_item(
+            conn,
+            actor_sub=claims.sub,
+            matter_id=matter_id,
+            session_id=session_id,
+            question_key=question_key,
+        )
+
+
+@router.get(
+    "/matters/{matter_id}/interview/parked-items",
+    response_model=list[ParkedItemOut],
+)
+def list_parked_items(
+    matter_id: UUID,
+    claims: Annotated[Claims, Depends(get_current_user)],
+) -> list[ParkedItemOut]:
+    """Open items for the matter (parked, still unanswered) — the
+    family Review screen's open-items list."""
+    with db.transaction() as conn:
+        return service.list_parked_items(
+            conn, actor_sub=claims.sub, matter_id=matter_id
+        )
 
 
 @router.get(

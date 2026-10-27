@@ -1723,9 +1723,15 @@ def test_focus_matches_selector_when_first_cluster_is_large():
     assert focus is not None and gap is not None
     assert focus["cluster"] == "identity"
     assert focus["clusters"] == ["identity"]
+    # Phase 4 (P2, brief 2026-10-26): the focus is the HEAD of the
+    # first cluster, capped at FOCUS_MAX_QUESTIONS pieces — a large
+    # cluster splits across consecutive turns instead of asking every
+    # field at once (this test previously pinned the uncapped ask).
+    from app.domains.interview.service import FOCUS_MAX_QUESTIONS
+
     assert [q["key"] for q in focus["questions"]] == [
         q["key"] for q in gap["questions"]
-    ]
+    ][:FOCUS_MAX_QUESTIONS]
     assert not focus.get("sweep")
 
 

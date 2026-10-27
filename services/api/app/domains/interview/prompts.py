@@ -43,6 +43,27 @@ PROMPT_TEMPLATE_VERSION_V8 = "v8"
 # extracted ~zero and had to be re-sent). Turns without the inventory
 # render the v8/v7 text byte-for-byte.
 PROMPT_TEMPLATE_VERSION_V9 = "v9"
+# v10 = v9 + Phase 4 presentation discipline (brief locked
+# 2026-10-26): the SAME focus/offers/shadow/inventory content, but the
+# ask is composed as ONE natural question in flowing sentences — never
+# an enumerated list of sub-questions — fields already asked in an
+# earlier turn are woven in as brief follow-ups, and a "don't know"
+# is met with an acknowledge-and-move-on instruction. Only the ask
+# wording changes; every state list, scope rule and guard instruction
+# is byte-identical to the version it supersedes. Selected by
+# post_turn for v2 turns (natural_questions=True); every other turn
+# renders the earlier version byte-for-byte.
+PROMPT_TEMPLATE_VERSION_V10 = "v10"
+
+#: Appended to the focus/offers block on v10 turns: how a deferral is
+#: handled conversationally (the server parks the item deterministically;
+#: the model's job is only to not press).
+_DONT_KNOW_BULLET = """
+
+- If the user says they don't know an item, or asks to skip it: \
+acknowledge warmly in a few words, do NOT press, repeat, or rephrase \
+the same ask, and move on to the focus above — the system sets the \
+item aside and the user can finish it later."""
 
 
 def _other_fields_block(other_questions: list[dict]) -> str:
@@ -103,6 +124,8 @@ def build_system_prompt(
     shadow_questions: list[dict] | None = None,
     next_gap_shadow_questions: list[dict] | None = None,
     other_questions: list[dict] | None = None,
+    natural_questions: bool = False,
+    follow_up_keys: set[str] | frozenset[str] | None = None,
 ) -> str:
     """Assemble the interviewer system prompt for one turn."""
     # State lists are NEVER truncated: a first-12 window hid every
@@ -144,6 +167,7 @@ def build_system_prompt(
     # APPROACH 2: Explicitly list answered keys so the model NEVER re-asks.
     answered = answered_keys or []
     answered_str = ", ".join(answered) if answered else "none"
+    follow_ups = set(follow_up_keys or ())
     cluster_block = ""
     if cluster_gap is not None:
         def _field_line(q: dict) -> str:
@@ -165,6 +189,14 @@ def build_system_prompt(
                     " — do NOT ask this directly; the system collects "
                     "it through a yes/no shared-address offer"
                 )
+            if natural_questions and str(q["key"]) in follow_ups:
+                # Phase 4 (P3): already asked in an earlier turn —
+                # the model weaves it in as a brief follow-up instead
+                # of presenting it as a fresh question.
+                line += (
+                    " — STILL OPEN FROM EARLIER (asked before; weave "
+                    "in as a brief follow-up, not a fresh question)"
+                )
             return line
 
         field_lines = "\n".join(
@@ -173,20 +205,67 @@ def build_system_prompt(
         cluster_names = " + ".join(
             cluster_gap.get("clusters") or [cluster_gap["cluster"]]
         )
-        sweep_line = (
-            "\n- These are the only items still needed in the whole "
-            "interview — ask for ALL of them in this one message."
-            if cluster_gap.get("sweep")
-            else ""
-        )
-        cluster_block = f"""
-
-CLUSTER FOCUS: {cluster_names}
-- Ask about the fields below in ONE message this turn, as a short \
+        if cluster_gap.get("sweep"):
+            sweep_line = (
+                "\n- These are the last open items in the whole "
+                "interview — ask for them as one short wrap-up in "
+                "flowing sentences, the way a person would finish up. "
+                "Never present them as a numbered or bulleted list."
+                if natural_questions
+                else "\n- These are the only items still needed in the whole "
+                "interview — ask for ALL of them in this one message."
+            )
+        else:
+            sweep_line = ""
+        if natural_questions:
+            topic_questions = [
+                q
+                for q in cluster_gap["questions"]
+                if str(q["key"]) not in follow_ups
+            ]
+            follow_questions = [
+                q
+                for q in cluster_gap["questions"]
+                if str(q["key"]) in follow_ups
+            ]
+            if follow_questions and not topic_questions:
+                # Pure follow-up turn (Phase 4 P3): nothing new is
+                # introduced — the open items from earlier topics are
+                # gathered in one short, specific message.
+                ask_bullet = """- The fields below were already asked in an earlier \
+message and are still open. This turn is a short follow-up: ask for \
+them together, briefly and specifically, in flowing sentences (for \
+example: "A couple of quick things from earlier: ..."). Never \
+present them as a numbered or bulleted list, and do not ask about \
+anything not listed below."""
+            else:
+                ask_bullet = """- Ask about the fields below in ONE message this turn, as \
+ONE natural question in plain, conversational language — weave the \
+items into flowing sentences the way a person would ask (for \
+example: "Who would you like to handle your finances if you can't, \
+and who should step in as backup?"). Never present the items as a \
+numbered or bulleted list of separate questions. The user can \
+answer several at once in a single reply. Group two fields in one \
+breath only when they are naturally one question (for example a \
+name and that person's phone number)."""
+                if follow_questions:
+                    ask_bullet += """
+- A few fields below are marked STILL OPEN FROM EARLIER: they were \
+already asked in an earlier message and are still open. Do NOT \
+present them as new questions — weave each one in briefly at a \
+natural point in the same message, as a quick follow-up (for \
+example: "And from earlier — I still need your executor's phone \
+number."). One short clause each; never a list."""
+        else:
+            ask_bullet = """- Ask about the fields below in ONE message this turn, as a short \
 numbered list in plain language — one line per field — so the user \
 can answer several at once in a single reply. Group two fields on \
 one line only when they are naturally one question (for example a \
-name and that person's phone number).
+name and that person's phone number)."""
+        cluster_block = f"""
+
+CLUSTER FOCUS: {cluster_names}
+{ask_bullet}
 - Fields needed now:
 {field_lines}{sweep_line}
 - The user may answer several fields at once: record every value they \
@@ -239,10 +318,27 @@ as testator_full_name."""
         )
         next_block = ""
         if next_gap is not None:
+            def _next_line(q: dict) -> str:
+                line = f"  * {q['label']} ({q['key']})"
+                if natural_questions and str(q["key"]) in follow_ups:
+                    line += (
+                        " — STILL OPEN FROM EARLIER (asked before; "
+                        "weave in as a brief follow-up, not a fresh "
+                        "question)"
+                    )
+                return line
+
             next_lines = "\n".join(
-                f"  * {q['label']} ({q['key']})" for q in next_gap["questions"]
+                _next_line(q) for q in next_gap["questions"]
             )
-            next_block = f"""
+            if natural_questions:
+                next_block = f"""
+- After acknowledging their answer, ask about these next items in \
+the same reply, as ONE natural question in flowing sentences — \
+never a numbered or bulleted list:
+{next_lines}"""
+            else:
+                next_block = f"""
 - After acknowledging their answer, ask about these next items in \
 the same reply, as a short numbered list:
 {next_lines}"""
@@ -271,11 +367,34 @@ acknowledge briefly and move on.{next_block}"""
         # offer cost up to three extra turns. The question texts are
         # the server's own (the reply is judged against them), so the
         # model presents them verbatim.
-        numbered = "\n".join(
-            f"{i}. {o.get('question_text') or o['anchor_name']}"
-            for i, o in enumerate(offers, start=1)
-        )
-        cluster_block = f"""
+        if natural_questions:
+            # Phase 4 (P1): the same verbatim questions, composed as
+            # flowing sentences in one message — never a numbered or
+            # bulleted list.
+            quoted = "\n".join(
+                f"  * \"{o.get('question_text') or o['anchor_name']}\""
+                for o in offers
+            )
+            cluster_block = f"""
+
+BUNDLE OFFERS — ask ALL of these in ONE message this turn:
+- Present each question below as its own sentence in ONE flowing \
+message, worded exactly as written — join them naturally (for \
+example: "A couple of quick yes/no questions:" followed by the \
+sentences one after another). Never present them as a numbered or \
+bulleted list:
+{quoted}
+- The user may answer all of them with a single yes (for example \
+"yes, that works for all of those") or answer each one separately. \
+The system records their answers automatically — do NOT emit \
+proposals for these roles or addresses yourself; just present the \
+questions."""
+        else:
+            numbered = "\n".join(
+                f"{i}. {o.get('question_text') or o['anchor_name']}"
+                for i, o in enumerate(offers, start=1)
+            )
+            cluster_block = f"""
 
 BUNDLE OFFERS — ask ALL of these in ONE message this turn:
 - Present each question below as its own numbered line, worded \
@@ -323,6 +442,11 @@ acknowledge and move on. Never repeat this offer."""
         # question, so the inventory belongs here too (set 8: the
         # details paragraph extracted zero on an offers turn).
         cluster_block += _other_fields_block(other_questions)
+    if natural_questions and cluster_block:
+        # Phase 4 (P1/P4): on v10 turns the focus/offers block closes
+        # with the deferral instruction — a "don't know" is met with
+        # acknowledgement, never a rephrased re-ask.
+        cluster_block += _DONT_KNOW_BULLET
     text = f"""\
 You are LegacyFlow's AI intake assistant conducting an estate-planning \
 information interview. You behave like a meticulous intake paralegal: you \

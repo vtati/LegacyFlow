@@ -574,7 +574,10 @@ def test_fallback_reply_asks_all_focus_keys(monkeypatch):
     resp = _chat_with_context(monkeypatch, context)
     assert "Which assets do you have?" in resp.reply
     assert "Do you have any debts?" in resp.reply
-    assert "1)" in resp.reply and "2)" in resp.reply
+    # Phase 4 (P1, brief 2026-10-26): the whole focus is still asked in
+    # one message, but composed as flowing prose — never an enumerated
+    # list (this assertion pinned the pre-Phase-4 numbered rendering).
+    assert "1)" not in resp.reply and "2)" not in resp.reply
 
 
 def test_fallback_reply_multi_ask_skips_just_proposed(monkeypatch):
