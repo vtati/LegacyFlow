@@ -43,15 +43,21 @@ def test_chat_provider_factory_uses_interview_model(monkeypatch):
 
 
 def test_extraction_and_consistency_model_choices():
-    # Source-level: extraction follows the interview model; consistency
-    # keeps the cheap chat model. (Call sites are thin settings reads;
-    # the factory test above pins the runtime behavior for chat.)
+    # Source-level model choices after the 2026-10-26 fix pass (F1/F2):
+    # extraction follows the MATTER's interview path (v2 matters use
+    # OPENAI_INTERVIEW_MODEL_V2 via _extraction_model — previously it
+    # hardcoded the v1 model, the drift §10 flagged), and consistency
+    # uses its own OPENAI_CONSISTENCY_MODEL (benchmarked to gpt-5.5)
+    # instead of silently inheriting the cheap shared chat model.
     import inspect
 
     from app.domains.interview import consistency, extraction
 
     ext_src = inspect.getsource(extraction)
+    assert "_extraction_model" in ext_src
+    assert "OPENAI_INTERVIEW_MODEL_V2" in ext_src
     assert "OPENAI_INTERVIEW_MODEL" in ext_src
     con_src = inspect.getsource(consistency)
-    assert "OPENAI_CHAT_MODEL" in con_src
+    assert "OPENAI_CONSISTENCY_MODEL" in con_src
+    assert "OPENAI_CHAT_MODEL" not in con_src
     assert "OPENAI_INTERVIEW_MODEL" not in con_src
