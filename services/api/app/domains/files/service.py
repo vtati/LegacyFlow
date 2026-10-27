@@ -436,6 +436,7 @@ def analyze_upload(
         key_facts=result["key_facts"],
         suggested_tags=result["suggested_tags"],
         confidence=result["confidence"],
+        analysis_source=result["source"],
     )
     record_audit_event(
         conn,
@@ -451,6 +452,7 @@ def analyze_upload(
             "document_type": result["document_type"],
             "confidence": result["confidence"],
             "key_facts": len(result["key_facts"]),
+            "analysis_source": result["source"],
         },
     )
     return sch.FileAnalysisOut(
@@ -461,6 +463,7 @@ def analyze_upload(
         suggested_tags=result["suggested_tags"],
         confidence=result["confidence"],
         analyzed_at=updated["analyzed_at"],
+        analysis_source=result["source"],
     )
 
 

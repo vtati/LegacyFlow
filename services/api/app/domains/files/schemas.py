@@ -123,6 +123,12 @@ class FileUploadOut(BaseModel):
     tags: list[str] = Field(default_factory=list)
     analysis_confidence: float | None = None
     analyzed_at: datetime | None = None
+    # Analysis provenance (F3): 'model' | 'rules' — which path produced
+    # the analysis; ai_suggested_tags preserves the analysis-suggested
+    # tags separately from the merged `tags` list. Null/empty for rows
+    # analyzed before provenance was recorded.
+    analysis_source: str | None = None
+    ai_suggested_tags: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -137,6 +143,9 @@ class FileAnalysisOut(BaseModel):
     suggested_tags: list[str]
     confidence: float
     analyzed_at: datetime
+    # Provenance (F3): 'model' when the LLM produced this analysis,
+    # 'rules' when the deterministic fallback did.
+    analysis_source: str
 
 
 class FileTagsUpdate(BaseModel):

@@ -723,6 +723,10 @@ export interface MatterFile {
   tags: string[];
   analysis_confidence: number | null;
   analyzed_at: string | null;
+  /** Analysis provenance (F3): 'model' | 'rules' | null (pre-provenance rows). */
+  analysis_source?: string | null;
+  /** Tags the analysis suggested, kept separate from the merged `tags` list. */
+  ai_suggested_tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -748,6 +752,8 @@ export interface FileAnalysis {
   suggested_tags: string[];
   confidence: number;
   analyzed_at: string;
+  /** Provenance (F3): 'model' when the LLM produced it, 'rules' for the fallback. */
+  analysis_source: string;
 }
 
 export interface DownloadTokenResponse {

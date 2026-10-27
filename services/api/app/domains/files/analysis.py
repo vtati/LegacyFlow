@@ -42,7 +42,12 @@ Tags: 2-6 short lowercase tags like "deed", "real-estate", "insurance", "fairfax
 
 
 def analyze_with_llm(extracted_text: str, filename: str) -> dict[str, Any]:
-    """Run the LLM analysis; fall back to rules on any failure."""
+    """Run the LLM analysis; fall back to rules on any failure.
+
+    The result always carries ``source`` — ``"model"`` when the LLM
+    produced it, ``"rules"`` when the deterministic fallback did —
+    so provenance survives into storage and the API payload (F3).
+    """
     from app.core.config import get_settings
 
     settings = get_settings()
@@ -67,7 +72,11 @@ def _analyze_openai(model: str, text: str, filename: str) -> dict[str, Any]:
         temperature=0.1,
         timeout=90.0,
     )
-    return _normalize(json.loads(content), filename)
+    result = _normalize(json.loads(content), filename)
+    # Provenance (F3): model output must never be indistinguishable
+    # from the rule-based fallback again.
+    result["source"] = "model"
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +164,7 @@ def _analyze_rules(text: str, filename: str) -> dict[str, Any]:
         f"(rule-based classification, {len(key_facts)} key facts extracted). "
         "Review the extracted facts before relying on them."
     )
-    return _normalize(
+    result = _normalize(
         {
             "document_type": doc_type,
             "summary": summary,
@@ -165,6 +174,8 @@ def _analyze_rules(text: str, filename: str) -> dict[str, Any]:
         },
         filename,
     )
+    result["source"] = "rules"
+    return result
 
 
 _ALLOWED_TYPES = {

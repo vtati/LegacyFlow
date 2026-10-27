@@ -128,8 +128,15 @@ def update_analysis(
     key_facts: list[dict[str, str]],
     suggested_tags: list[str],
     confidence: float,
+    analysis_source: str,
 ) -> dict[str, Any]:
-    """Persist AI analysis; merge suggested tags into the tag list."""
+    """Persist AI analysis; merge suggested tags into the tag list.
+
+    Provenance (F3): ``analysis_source`` ('model' | 'rules') records
+    which path produced this analysis, and the suggested tags are also
+    stored verbatim in ``ai_suggested_tags`` so a merged tag's origin
+    (analysis vs user-added) stays recoverable.
+    """
     with conn.cursor() as cur:
         cur.execute("SELECT tags FROM file_uploads WHERE id = %s", (str(upload_id),))
         row = cur.fetchone()
@@ -143,6 +150,7 @@ def update_analysis(
             UPDATE file_uploads
             SET document_type = %s, ai_summary = %s, key_facts = %s,
                 tags = %s, analysis_confidence = %s, analyzed_at = now(),
+                analysis_source = %s, ai_suggested_tags = %s,
                 updated_at = now()
             WHERE id = %s
             RETURNING *
@@ -153,6 +161,8 @@ def update_analysis(
                 json.dumps(key_facts),
                 json.dumps(merged),
                 confidence,
+                analysis_source,
+                json.dumps(suggested_tags),
                 str(upload_id),
             ),
         )

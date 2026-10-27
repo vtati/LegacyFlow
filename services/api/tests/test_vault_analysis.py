@@ -164,3 +164,165 @@ def test_trust_template_renders():
     pdf_bytes = render_demo_pdf("Trust — Demo", merged, "DEMO ONLY")
     assert docx_bytes[:4] == b"PK\x03\x04"  # zip = docx
     assert pdf_bytes[:5] == b"%PDF-"
+
+
+# ---------------------------------------------------------------------------
+# F3 (2026-10-26): analysis provenance — model output is never again
+# indistinguishable from the rule-based fallback, in the result dict,
+# in storage, or in the API payloads.
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+import pytest as _pytest
+
+
+@_pytest.fixture()
+def _settings_env(monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_rules_fallback_reports_rules_source(_settings_env):
+    result = analysis.analyze_with_llm("GENERAL WARRANTY DEED Grantor: A B", "deed.pdf")
+    assert result["source"] == "rules"
+
+
+def test_model_path_reports_model_source(_settings_env, monkeypatch):
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class _FakeJsonProvider:
+        def complete_json(self, **kwargs):
+            return (
+                _json.dumps(
+                    {
+                        "document_type": "deed",
+                        "summary": "A deed.",
+                        "key_facts": [],
+                        "suggested_tags": ["deed"],
+                        "confidence": 0.9,
+                    }
+                ),
+                {},
+            )
+
+    monkeypatch.setattr(analysis, "get_json_provider", lambda model=None: _FakeJsonProvider())
+    result = analysis.analyze_with_llm("deed text", "deed.pdf")
+    assert result["document_type"] == "deed"
+    assert result["source"] == "model"
+
+
+def test_model_failure_falls_back_to_rules_and_says_so(_settings_env, monkeypatch):
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    def _boom(model=None):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(analysis, "get_json_provider", _boom)
+    result = analysis.analyze_with_llm("GENERAL WARRANTY DEED Grantor: A B", "deed.pdf")
+    assert result["source"] == "rules"
+
+
+class _FakeCursor:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.statements.append((sql, params))
+        self.conn.last_sql = sql
+
+    def fetchone(self):
+        if "SELECT tags" in (self.conn.last_sql or ""):
+            return {"tags": ["user-tag"]}
+        return {"tags": ["user-tag", "deed", "real-estate"]}
+
+
+class _FakeConn:
+    def __init__(self):
+        self.statements = []
+        self.last_sql = None
+
+    def cursor(self):
+        return _FakeCursor(self)
+
+
+def test_update_analysis_persists_provenance():
+    from app.domains.files import repository as files_repo
+
+    conn = _FakeConn()
+    files_repo.update_analysis(
+        conn,
+        "00000000-0000-0000-0000-000000000001",
+        document_type="deed",
+        ai_summary="A deed.",
+        key_facts=[],
+        suggested_tags=["deed", "real-estate"],
+        confidence=0.9,
+        analysis_source="model",
+    )
+    update_sql, params = conn.statements[-1]
+    assert "analysis_source" in update_sql
+    assert "ai_suggested_tags" in update_sql
+    assert "model" in params
+    # The analysis-time suggestions are recorded separately from the
+    # merged tag list: that separation IS the tag provenance.
+    assert _json.loads(params[3]) == ["user-tag", "deed", "real-estate"]  # tags merged
+    assert params[5] == "model"  # analysis_source
+    assert _json.loads(params[6]) == ["deed", "real-estate"]  # ai_suggested_tags
+
+
+def test_analysis_payloads_expose_provenance():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from app.domains.files.schemas import FileAnalysisOut, FileUploadOut
+
+    analysis_out = FileAnalysisOut(
+        upload_id=uuid4(),
+        document_type="deed",
+        summary="A deed.",
+        key_facts=[],
+        suggested_tags=["deed"],
+        confidence=0.9,
+        analyzed_at=datetime.now(UTC),
+        analysis_source="model",
+    )
+    assert analysis_out.analysis_source == "model"
+
+    upload_out = FileUploadOut(
+        id=uuid4(),
+        firm_id=uuid4(),
+        household_id=uuid4(),
+        matter_id=None,
+        uploader_user_id=uuid4(),
+        original_filename="deed.pdf",
+        stored_path="client-uploads/x.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+        scan_status="clean",
+        scan_detail=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        analysis_source="rules",
+        ai_suggested_tags=["deed"],
+    )
+    assert upload_out.analysis_source == "rules"
+    assert upload_out.ai_suggested_tags == ["deed"]
