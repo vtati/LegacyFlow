@@ -350,6 +350,16 @@ export interface InterviewChecklistItem {
   parked: boolean;
 }
 
+/** Phase 4 (P4): one open parked item, as the Review screen lists it.
+ * The server already intersected markers with the applicable-required
+ * partition — a listed item is unanswered and still gates generation. */
+export interface ParkedItem {
+  question_key: string;
+  label: string;
+  required: boolean;
+  parked_at: string;
+}
+
 export interface InterviewSession {
   id: string;
   matter_id: string;
@@ -1057,6 +1067,9 @@ export interface FamilyApi {
     sessionId: string,
     questionKey: string,
   ) => Promise<InterviewSession>;
+  /** Phase 4 (P4): the matter's open parked items — the Review
+   * screen's open-items list. */
+  listParkedItems: (matterId: string) => Promise<ParkedItem[]>;
   postInterviewTurn: (
     matterId: string,
     sessionId: string,
@@ -1228,6 +1241,8 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         `/matters/${matterId}/interview/sessions/${sessionId}/parked-items/${encodeURIComponent(questionKey)}`,
         { method: 'DELETE' },
       ),
+    listParkedItems: (matterId) =>
+      call<ParkedItem[]>(`/matters/${matterId}/interview/parked-items`),
     listInterviewTurns: (matterId, sessionId) =>
       call<InterviewTurnSummary[]>(
         `/matters/${matterId}/interview/sessions/${sessionId}/turns`,
