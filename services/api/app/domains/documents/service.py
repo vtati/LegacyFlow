@@ -1003,6 +1003,77 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
 #: Matches ``{{placeholder}}`` tokens left unfilled after a merge.
 _UNFILLED_TOKEN = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 
+#: Canonical UUID shape (8-4-4-4-12 hex). A person-reference value with
+#: this shape that matches no household person is a dangling ID, never
+#: a name — it must be dropped, not printed into a legal document.
+_UUID_SHAPED = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+#: Explicit, order-independent answer-key -> context-slot table for the
+#: person/role slots (R1). Person answers exist in two storage shapes —
+#: the interview stores the person's NAME, the wizard/Review person-select
+#: stores the person's ID — so values for the ``person`` entries are run
+#: through person-id resolution before they reach a slot. The old
+#: substring + setdefault mapping claimed slots by accident:
+#: ``primary_executor_address`` matched "executor" + "primary" and put the
+#: ADDRESS into ``executor_name`` (same for guardian), depending on the
+#: unordered answer iteration.
+#: key -> (slots, is_person)
+_ANSWER_SLOT_TABLE: dict[str, tuple[tuple[str, ...], bool]] = {
+    "primary_executor_person": (("executor_name",), True),
+    "primary_executor_address": (("executor_address",), False),
+    "backup_executor_person": (("alternate_executor_name",), True),
+    "primary_guardian_person": (("guardian_name",), True),
+    "primary_guardian_address": (("guardian_address",), False),
+    "backup_guardian_person": (("alternate_guardian_name",), True),
+    "healthcare_agent_person": (("healthcare_agent_name", "organ_donation_agent"), True),
+    "healthcare_agent_phone": (("healthcare_agent_phone",), False),
+    "successor_healthcare_agent_person": (("successor_healthcare_agent_name",), True),
+    "poa_agent_person": (("agent_name",), True),
+    "poa_agent_address": (("agent_address",), False),
+    "successor_poa_agent_person": (("successor_agent_name",), True),
+    "successor_trustee_person": (("successor_trustee_name",), True),
+    "guardian_relationship": (("guardian_relationship",), False),
+    # Non-person mappings, behavior-identical to the previous loop.
+    "residuary_beneficiaries": (("residuary_beneficiaries",), False),
+    "specific_bequests": (("specific_bequests",), False),
+    "living_will_directives": (("living_will_directives",), False),
+    "healthcare_agent_limitations": (("healthcare_agent_limitations",), False),
+    "organ_donation_wishes": (("anatomical_gift_directions",), False),
+    "poa_additional_powers": (("additional_powers",), False),
+    "trust_initial_property": (("initial_property",), False),
+    "trust_distribution_age": (("distribution_age",), False),
+    "trust_marital_share": (("marital_share",), False),
+    "testator_street_address": (
+        ("testator_address", "declarant_address", "principal_address",
+         "grantor_address", "parent_address"),
+        False,
+    ),
+    "testator_city": (
+        ("testator_city", "declarant_city", "principal_city",
+         "grantor_city", "parent_city"),
+        False,
+    ),
+    "children_upbringing_wishes": (("upbringing_wishes",), False),
+    "children_education_wishes": (("education_wishes",), False),
+    "children_religious_wishes": (("religious_wishes",), False),
+    "children_financial_provisions": (("financial_provisions",), False),
+    "children_extended_family": (("extended_family",), False),
+}
+
+#: Answer keys whose stored value is a person reference (name or id shape).
+_PERSON_ANSWER_KEYS = frozenset(
+    key for key, (_slots, is_person) in _ANSWER_SLOT_TABLE.items() if is_person
+)
+
+#: Keys scrubbed through person resolution in the base render context.
+#: ``testator_full_name`` is not a slot-table key, but an ID-shaped value
+#: under it must never survive into a firm template's
+#: ``{{testator_full_name}}`` placeholder either.
+_PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
+
 
 def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
     """Build the full placeholder context for document templates.
@@ -1034,19 +1105,56 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             for row in intake_repo.list_answers(conn, UUID(str(matter["id"])))
         }
         persons = household_repo.list_persons_for_household(conn, UUID(str(household_id)))
+        # Person-id resolution (R1): a person answer stored as the person's
+        # ID resolves to that person's full name; a name-shaped value
+        # passes through unchanged.
+        person_names_by_id = {
+            str(p["id"]): str(p.get("full_name") or "").strip()
+            for p in persons
+            if p.get("id") and str(p.get("full_name") or "").strip()
+        }
+
+        # Case-insensitive id lookup, mirroring intake's resolver:
+        # wizard payloads may carry the id in either case.
+        person_id_by_lower = {pid.lower(): pid for pid in person_names_by_id}
+
+        def resolve_person(value: Any) -> str:
+            text = value.strip() if isinstance(value, str) else ""
+            if not text:
+                return ""
+            canonical = person_id_by_lower.get(text.lower())
+            if canonical is not None:
+                return person_names_by_id[canonical]
+            if _UUID_SHAPED.fullmatch(text):
+                # UUID-shaped but no household person: a dangling ID.
+                # Drop it (treated as unset) — never print it.
+                return ""
+            return text
+
+        # The base context carries raw answers under their question keys;
+        # scrub person keys there too so an ID never survives in the
+        # context under any key. A dropped value removes the key.
+        for person_key in _PERSON_SCRUB_KEYS:
+            if person_key in context:
+                resolved = resolve_person(context[person_key])
+                if resolved:
+                    context[person_key] = resolved
+                else:
+                    del context[person_key]
+
         children = []
         adults = []
+        adult_ids: list[str] = []
         for p in persons:
             kind = str(p.get("kind") or "").lower()
             name = str(p.get("full_name") or "")
             if not name or name == "Unknown person":
                 continue
-            dob = p.get("date_of_birth")
-            dob_str = f" (DOB: {dob})" if dob else ""
             if kind in ("minor", "child", "minor_child", "son", "daughter"):
                 children.append(name)
             else:
                 adults.append(name)
+                adult_ids.append(str(p.get("id") or ""))
         if children:
             context["children_list"] = ", ".join(children)
         else:
@@ -1055,112 +1163,133 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             context["children_list"] = (
                 details.strip() if isinstance(details, str) and details.strip() else "___"
             )
-        if adults:
-            context["testator_name"] = adults[0]
-            context["grantor_name"] = adults[0]
-            context["trustee_name"] = adults[0]
+        # Household membership rows (best-effort: older fakes/mocks may not
+        # implement the read; absence just skips the member-based signals).
+        members: list[dict[str, Any]] = []
+        try:
+            members = household_repo.list_members_for_household(
+                conn, UUID(str(household_id))
+            )
+        except Exception:
+            members = []
+        # Testator identity: the confirmed testator_full_name answer wins;
+        # otherwise the household's primary_client member's person;
+        # otherwise the first adult (legacy fallback). The resolved
+        # person ID is carried through the chain — never re-derived by
+        # name afterwards — so duplicate-name households resolve the
+        # spouse/relationship signals against the actual testator.
+        testator_id = ""
+        testator_name = ""
+        primary_client_pid = ""
+        for member in members:
+            if str(member.get("relationship_role") or "").strip().lower() == "primary_client":
+                primary_client_pid = str(member.get("person_id") or "")
+                break
+        raw_testator = answers.get("testator_full_name")
+        if isinstance(raw_testator, str) and raw_testator.strip():
+            text = raw_testator.strip()
+            canonical = person_id_by_lower.get(text.lower())
+            if canonical is not None:
+                # ID-shaped answer: that person, directly.
+                testator_id = canonical
+                testator_name = person_names_by_id[canonical]
+            elif not _UUID_SHAPED.fullmatch(text):
+                # Name-shaped answer: the household person matched by
+                # that name; with duplicate names prefer the
+                # primary_client member's person.
+                testator_name = text
+                matches = [
+                    pid for pid, pname in person_names_by_id.items()
+                    if pname.strip().lower() == text.lower()
+                ]
+                if matches:
+                    preferred = person_id_by_lower.get(primary_client_pid.lower(), "")
+                    testator_id = preferred if preferred in matches else matches[0]
+            # UUID-shaped but unmatched: dropped by resolve_person's
+            # rule — fall through to the member chain below.
+        if not testator_name:
+            for member in members:
+                if str(member.get("relationship_role") or "").strip().lower() == "primary_client":
+                    pid = str(member.get("person_id") or "")
+                    if pid in person_names_by_id:
+                        testator_id = pid
+                        testator_name = person_names_by_id[pid]
+                        break
+        if not testator_name and adults:
+            testator_name = adults[0]
+            if adult_ids:
+                testator_id = adult_ids[0]
+        if testator_name:
+            context["testator_name"] = testator_name
+            context["grantor_name"] = testator_name
+            context["trustee_name"] = testator_name
             # Other documents refer to the same person by role.
-            context.setdefault("declarant_name", adults[0])
-            context.setdefault("principal_name", adults[0])
-            context.setdefault("parent_name", adults[0])
+            context.setdefault("declarant_name", testator_name)
+            context.setdefault("principal_name", testator_name)
+            context.setdefault("parent_name", testator_name)
             # Default trust name from the family name.
-            last = adults[0].strip().split()[-1] if adults[0].strip() else "Family"
+            last = testator_name.strip().split()[-1] if testator_name.strip() else "Family"
             context.setdefault("trust_name", f"The {last} Family Revocable Trust")
-            if len(adults) > 1:
-                context["spouse_name"] = adults[1]
-        # Guardian names from verified interview answers
+        # Spouse: ONLY from a real signal — a relationships row of type
+        # spouse/partner involving the testator, or a household_members
+        # row with relationship_role spouse/partner. Never positional:
+        # household creation order is not a marriage record (R1). With no
+        # signal the slot stays unset and blanks to ___ at merge time,
+        # which the unfilled-placeholder escalation records.
+        spouse_name = ""
+        if testator_id:
+            try:
+                relationships = household_repo.list_relationships_for_household(
+                    conn, UUID(str(household_id))
+                )
+            except Exception:
+                relationships = []
+            for rel in relationships:
+                if str(rel.get("relationship_type") or "").strip().lower() not in (
+                    "spouse",
+                    "partner",
+                ):
+                    continue
+                from_id = str(rel.get("from_person_id") or "")
+                to_id = str(rel.get("to_person_id") or "")
+                other_id = to_id if from_id == testator_id else from_id if to_id == testator_id else ""
+                if other_id and other_id in person_names_by_id:
+                    spouse_name = person_names_by_id[other_id]
+                    break
+        if not spouse_name:
+            for member in members:
+                if str(member.get("relationship_role") or "").strip().lower() in (
+                    "spouse",
+                    "partner",
+                ):
+                    pid = str(member.get("person_id") or "")
+                    if pid in person_names_by_id:
+                        spouse_name = person_names_by_id[pid]
+                        break
+        if spouse_name:
+            context["spouse_name"] = spouse_name
+        # Role slots from verified interview answers via the EXPLICIT
+        # key -> slot table (R1): exact key match only, so an address
+        # answer can never claim a name slot and iteration order over
+        # the (unordered) answer rows cannot change the outcome.
+        # Answers are keyed uniquely per matter, so assignment (not
+        # setdefault racing) is the correct write.
         for row in intake_repo.list_answers(conn, UUID(str(matter["id"]))):
             key = str(row["question_key"]).lower()
             ans = row["answer"]
             if not isinstance(ans, str) or not ans.strip():
                 continue
-            if "guardian" in key:
-                if "backup" in key or "alternate" in key or "successor" in key:
-                    context.setdefault("alternate_guardian_name", ans)
-                elif "primary" in key or "guardian_person" in key:
-                    context.setdefault("guardian_name", ans)
-                if "address" in key:
-                    context.setdefault("guardian_address", ans)
-            # Executor names from verified interview answers (v1 pack)
-            if "executor" in key:
-                if "backup" in key or "alternate" in key or "successor" in key:
-                    context.setdefault("alternate_executor_name", ans)
-                elif "primary" in key or "executor_person" in key:
-                    context.setdefault("executor_name", ans)
-                if "address" in key:
-                    context.setdefault("executor_address", ans)
-            # Bequest details from verified interview answers (v1 pack)
-            if key == "residuary_beneficiaries":
-                context.setdefault("residuary_beneficiaries", ans)
-            if key == "specific_bequests":
-                context.setdefault("specific_bequests", ans)
-            # Testator address details (v1 pack)
-            if key == "testator_street_address":
-                context.setdefault("testator_address", ans)
-            if key == "testator_city":
-                context.setdefault("testator_city", ans)
-            # Healthcare directive answers (v1 pack)
-            if key == "healthcare_agent_person":
-                context.setdefault("healthcare_agent_name", ans)
-            if key == "healthcare_agent_phone":
-                context.setdefault("healthcare_agent_phone", ans)
+            entry = _ANSWER_SLOT_TABLE.get(key)
+            if entry is None:
+                continue
+            slots, is_person = entry
+            value = resolve_person(ans) if is_person else ans
+            if value:
+                for slot in slots:
+                    context[slot] = value
             if key == "successor_healthcare_agent_person":
-                context.setdefault("successor_healthcare_agent_name", ans)
                 context.setdefault("successor_healthcare_agent_address", "___")
                 context.setdefault("successor_healthcare_agent_phone", "___")
-            if key == "living_will_directives":
-                context.setdefault("living_will_directives", ans)
-            if key == "healthcare_agent_limitations":
-                context.setdefault("healthcare_agent_limitations", ans)
-            if key == "organ_donation_wishes":
-                context.setdefault("anatomical_gift_directions", ans)
-            # Healthcare agent name doubles as organ donation agent
-            # (the template's {{organ_donation_agent}}).
-            if key == "healthcare_agent_person":
-                context.setdefault("organ_donation_agent", ans)
-            # Power of attorney answers (v1 pack)
-            if key == "poa_agent_person":
-                context.setdefault("agent_name", ans)
-            if key == "poa_agent_address":
-                context.setdefault("agent_address", ans)
-            if key == "successor_poa_agent_person":
-                context.setdefault("successor_agent_name", ans)
-            if key == "poa_additional_powers":
-                context.setdefault("additional_powers", ans)
-            # Trust answers (v1 pack)
-            if key == "successor_trustee_person":
-                context.setdefault("successor_trustee_name", ans)
-            if key == "trust_initial_property":
-                context.setdefault("initial_property", ans)
-            if key == "trust_distribution_age":
-                context.setdefault("distribution_age", ans)
-            if key == "trust_marital_share":
-                context.setdefault("marital_share", ans)
-            # Guardianship designation extras (v1 pack)
-            if key == "guardian_relationship":
-                context.setdefault("guardian_relationship", ans)
-            if key == "children_upbringing_wishes":
-                context.setdefault("upbringing_wishes", ans)
-            if key == "children_education_wishes":
-                context.setdefault("education_wishes", ans)
-            if key == "children_religious_wishes":
-                context.setdefault("religious_wishes", ans)
-            if key == "children_financial_provisions":
-                context.setdefault("financial_provisions", ans)
-            if key == "children_extended_family":
-                context.setdefault("extended_family", ans)
-            # Declarant/principal/grantor/parent default to the testator
-            # when the interview doesn't ask separately.
-            if key == "testator_street_address":
-                context.setdefault("declarant_address", ans)
-                context.setdefault("principal_address", ans)
-                context.setdefault("grantor_address", ans)
-                context.setdefault("parent_address", ans)
-            if key == "testator_city":
-                context.setdefault("declarant_city", ans)
-                context.setdefault("principal_city", ans)
-                context.setdefault("grantor_city", ans)
-                context.setdefault("parent_city", ans)
 
     # Replace any remaining unfilled placeholders with blank lines.
     # The _flag_unfilled_placeholders step still records them for attorney review.

@@ -499,6 +499,14 @@ class TestNominationSyncSavepoint:
             intake_service, "_ensure_person_for_name",
             lambda conn, household_id, name: {"id": "11111111-1111-1111-1111-111111111111"},
         )
+        # R1: the sync first tries ID-shape resolution against the
+        # household persons list; an empty list = name shape, so the
+        # (mocked) ensure-by-name path above is what runs.
+        import app.domains.household.repository as household_repo
+
+        monkeypatch.setattr(
+            household_repo, "list_persons_for_household", lambda conn, hid: []
+        )
         import app.domains.nominations.repository as nom_repo
 
         monkeypatch.setattr(nom_repo, "list_nominations", lambda conn, mid: [])
