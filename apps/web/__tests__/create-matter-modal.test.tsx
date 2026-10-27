@@ -31,6 +31,7 @@ vi.mock('../lib/api-client', () => {
 });
 
 const createMatter = vi.mocked(api.createMatter);
+const createHousehold = vi.mocked(api.createHousehold);
 
 function renderModal(): void {
   render(
@@ -39,6 +40,18 @@ function renderModal(): void {
       onClose={vi.fn()}
       householdId="household-1"
       householdName="The QA Family"
+      onCreated={vi.fn()}
+    />,
+  );
+}
+
+function renderModalNoHousehold(): void {
+  render(
+    <CreateMatterModal
+      open
+      onClose={vi.fn()}
+      householdId={null}
+      householdName={null}
       onCreated={vi.fn()}
     />,
   );
@@ -63,6 +76,20 @@ describe('CreateMatterModal error presentation (F3)', () => {
     // One truthful message: the server detail is not repeated as a second error.
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(alert.textContent).not.toContain('Forbidden');
+  });
+
+  it('with no household, creates the matter directly with household_name (no createHousehold call)', async () => {
+    const user = userEvent.setup();
+    createMatter.mockResolvedValue({ id: 'matter-1' } as never);
+    renderModalNoHousehold();
+    await user.type(screen.getByLabelText('Household name'), 'The Sharma Family');
+    await user.click(screen.getByRole('button', { name: 'Start estate plan' }));
+    expect(createHousehold).not.toHaveBeenCalled();
+    expect(createMatter).toHaveBeenCalledTimes(1);
+    const input = createMatter.mock.calls[0][0] as Record<string, unknown>;
+    expect(input.household_name).toBe('The Sharma Family');
+    expect(input).not.toHaveProperty('household_id');
+    expect(input.jurisdiction_code).toBe('US-VA');
   });
 
   it('shows the server message in-form for a non-403 ApiError', async () => {

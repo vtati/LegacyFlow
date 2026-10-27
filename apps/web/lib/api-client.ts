@@ -485,7 +485,8 @@ export interface HouseholdOut {
 }
 
 export interface MatterCreateInput {
-  household_id: string;
+  household_id?: string;
+  household_name?: string;
   jurisdiction_code: string;
   title?: string;
   plan_type: string;

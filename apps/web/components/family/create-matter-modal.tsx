@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
-import { api, ApiError, type HouseholdCreateInput, type MatterCreateInput } from '@/lib/api-client';
+import { api, ApiError, type MatterCreateInput } from '@/lib/api-client';
 
 const JURISDICTIONS = [
   { code: 'US-VA', label: 'Virginia' },
@@ -32,7 +32,7 @@ interface CreateMatterModalProps {
 
 /**
  * Modal for starting a new estate plan (matter).
- * If the user has no household, one is created first.
+ * If the user has no household, the API provisions one (self-serve).
  */
 export function CreateMatterModal({
   open,
@@ -56,20 +56,23 @@ export function CreateMatterModal({
     setError(null);
     setSubmitting(true);
     try {
-      let hid = householdId;
-      // Create household if the user doesn't have one
-      if (hid == null) {
-        const name = householdNameInput.trim() || 'My Household';
-        const householdInput: HouseholdCreateInput = { name };
-        const household = await api.createHousehold(householdInput);
-        hid = household.id;
-      }
-      const matterInput: MatterCreateInput = {
-        household_id: hid,
-        jurisdiction_code: jurisdiction,
-        title: title.trim() || undefined,
-        plan_type: planType,
-      };
+      // No household yet: the API self-serve path provisions one under
+      // the jurisdiction's default firm — no separate createHousehold
+      // call (firmless users have no firm to create one in).
+      const matterInput: MatterCreateInput =
+        householdId == null
+          ? {
+              household_name: householdNameInput.trim() || 'My Household',
+              jurisdiction_code: jurisdiction,
+              title: title.trim() || undefined,
+              plan_type: planType,
+            }
+          : {
+              household_id: householdId,
+              jurisdiction_code: jurisdiction,
+              title: title.trim() || undefined,
+              plan_type: planType,
+            };
       const matter = await api.createMatter(matterInput);
       onCreated();
       onClose();
