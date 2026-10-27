@@ -87,6 +87,13 @@ CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT current_setting('app.test_uid', true)::uuid $$;
+-- The storage-buckets migration inserts into storage.buckets; stub the
+-- schema/table so the migration sweep can run on a bare pgserver
+-- (same stub as test_slice4_documents.py / test_family_draft_documents.py).
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE TABLE IF NOT EXISTS storage.buckets (
+    id text PRIMARY KEY, name text, public boolean
+);
 """
 
 RLS_ROLE = "interview_rls_test"
