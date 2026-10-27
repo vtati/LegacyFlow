@@ -206,17 +206,20 @@ def _build_snapshot(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate_packet(
+def _create_packet(
     conn: Any,
     *,
-    actor_sub: str,
-    matter_id: UUID,
+    matter: dict[str, Any],
+    actor_id: UUID,
     notes: str | None = None,
 ) -> ReviewPacketDetailOut:
-    """Generate a new review packet snapshot (firm staff only)."""
-    actor_id = matters_service.caller_id(actor_sub)
-    scope = authz.require_matter_firm_role(conn, matter_id, actor_id, authz.STAFF_ROLES)
-    matter = scope.matter
+    """Freeze a review packet snapshot for ``matter`` (no authz here).
+
+    Shared core: the staff endpoint (``generate_packet``) authorizes
+    before calling; the family self-serve submit (documents domain)
+    authorizes with family write scope and assigns the attorney BEFORE
+    calling, so the frozen snapshot carries the routed attorney.
+    """
     firm_id = UUID(str(matter["firm_id"]))
     matter_id = UUID(str(matter["id"]))
 
@@ -244,6 +247,19 @@ def generate_packet(
         after_summary={"version": version},
     )
     return _out(row, ReviewPacketDetailOut)
+
+
+def generate_packet(
+    conn: Any,
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    notes: str | None = None,
+) -> ReviewPacketDetailOut:
+    """Generate a new review packet snapshot (firm staff only)."""
+    actor_id = matters_service.caller_id(actor_sub)
+    scope = authz.require_matter_firm_role(conn, matter_id, actor_id, authz.STAFF_ROLES)
+    return _create_packet(conn, matter=scope.matter, actor_id=actor_id, notes=notes)
 
 
 def list_packets(conn: Any, *, actor_sub: str, matter_id: UUID) -> list[ReviewPacketOut]:

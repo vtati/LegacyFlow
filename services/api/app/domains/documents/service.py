@@ -71,8 +71,10 @@ from ...core.errors import (
 from ...core.paths import find_content_packs_dir
 from ...domains.escalation import repository as escalation_repo
 from ...domains.feature_flags import service as feature_flags_service
+from ...domains.household import repository as household_repo
 from ...domains.intake import repository as intake_repo
 from ...domains.legal_content import pack_loader
+from ...domains.nominations import repository as nominations_repo
 from . import repository as repo
 from . import schemas as sch
 
@@ -133,6 +135,71 @@ class DocumentAssemblyDisabledError(ConflictError):
         "effective for the firm/pack and the pack manifest to declare the "
         "'document_assembly' capability."
     )
+
+
+class DraftsMissingError(ConflictError):
+    """Submit attempted before the current draft set was generated (HTTP 409).
+
+    The machine-readable ``code`` is ``drafts_missing``.
+    """
+
+    type = "urn:legacyflow:error:drafts_missing"
+    title = "Drafts not generated"
+    detail = (
+        "Draft documents have not been generated for the current answers yet. "
+        "Create the draft documents before submitting for attorney review."
+    )
+
+
+class DraftsStaleError(ConflictError):
+    """Submit attempted with drafts older than the current answers (HTTP 409).
+
+    The machine-readable ``code`` is ``drafts_stale``.
+    """
+
+    type = "urn:legacyflow:error:drafts_stale"
+    title = "Drafts are out of date"
+    detail = (
+        "Answers changed after the drafts were generated. Regenerate the "
+        "draft documents so the attorney reviews exactly what you confirmed."
+    )
+
+
+class NoAttorneyAvailableError(ConflictError):
+    """No routable attorney exists for the matter's firm/jurisdiction (HTTP 409).
+
+    The machine-readable ``code`` is ``no_attorney_available``; the whole
+    submit rolls back, so the matter is never left half-submitted.
+    """
+
+    type = "urn:legacyflow:error:no_attorney_available"
+    title = "No attorney available"
+    detail = (
+        "No approved attorney for this jurisdiction is enrolled with your "
+        "firm yet, so the plan cannot be routed for review."
+    )
+
+
+class AlreadySubmittedError(ConflictError):
+    """The matter was already submitted for attorney review (HTTP 409).
+
+    The machine-readable ``code`` is ``already_submitted``.
+    """
+
+    type = "urn:legacyflow:error:already_submitted"
+    title = "Already submitted"
+    detail = "This plan has already been submitted for attorney review."
+
+
+class DraftInvalidStatusError(ConflictError):
+    """Family draft action attempted from an incompatible status (HTTP 409).
+
+    The machine-readable ``code`` is ``invalid_status``.
+    """
+
+    type = "urn:legacyflow:error:invalid_status"
+    title = "Invalid matter status"
+    detail = "This action is not available for the matter's current status."
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +809,71 @@ def _require_intake_complete(conn: Any, matter: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Source fingerprint (staleness, plan D4)
+# ---------------------------------------------------------------------------
+
+
+def compute_source_fingerprint(conn: Any, matter: dict[str, Any]) -> str:
+    """sha256 over the exact user-editable inputs the renderer consumes.
+
+    Covers the matter title, household name, intake answers, household
+    persons, and nominations — the data a family (or staff) edit can
+    change and that can change the rendered output. Deliberately NOT the
+    render context: ``_render_context`` injects a volatile ``today``
+    string, so a context hash would flip daily with no edit. A package
+    whose stored fingerprint differs from the current one is stale.
+    """
+    matter_id = UUID(str(matter["id"]))
+    household_id = UUID(str(matter["household_id"]))
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT display_name FROM households WHERE id = %s", (str(household_id),)
+        )
+        household = cur.fetchone()
+    payload = {
+        "matter_title": str(matter.get("title") or ""),
+        "household_name": str(household["display_name"]) if household else "",
+        "answers": {
+            str(row["question_key"]): row["answer"]
+            for row in intake_repo.list_answers(conn, matter_id)
+        },
+        "persons": sorted(
+            (
+                {
+                    "id": str(row["id"]),
+                    "full_name": str(row.get("full_name") or ""),
+                    "kind": row.get("kind"),
+                    "date_of_birth": (
+                        str(row["date_of_birth"]) if row.get("date_of_birth") else None
+                    ),
+                }
+                for row in household_repo.list_persons_for_household(conn, household_id)
+            ),
+            key=lambda person: person["id"],
+        ),
+        "nominations": sorted(
+            (
+                {
+                    "nomination_type": str(row["nomination_type"]),
+                    "person_id": str(row["person_id"]) if row.get("person_id") else None,
+                    "priority": row.get("priority"),
+                    "status": str(row["status"]),
+                }
+                for row in nominations_repo.list_nominations(conn, matter_id)
+            ),
+            key=lambda nomination: (
+                nomination["nomination_type"],
+                nomination["person_id"] or "",
+                nomination["priority"] if nomination["priority"] is not None else -1,
+                nomination["status"],
+            ),
+        ),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Packages
 # ---------------------------------------------------------------------------
 
@@ -1151,6 +1283,54 @@ def _render_package_versions(
     return created
 
 
+def _render_demo_package(
+    conn: Any,
+    *,
+    package_row: dict[str, Any],
+    matter: dict[str, Any],
+    actor_id: UUID,
+) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
+    """Shared demo-render core (staff endpoint + family draft-set generate).
+
+    Assumes authorization and the document-assembly gate already passed.
+    Enforces intake completeness, renders watermarked DOCX+PDF, marks the
+    package ``demo_released``, and stamps the source fingerprint (D4) so
+    the family draft-set state can detect later edits as staleness.
+    """
+    package_id = UUID(str(package_row["id"]))
+    _require_intake_complete(conn, matter)
+    template = repo.get_template(conn, UUID(str(package_row["template_id"])))
+    if template is None:
+        raise ConflictError("The package's template is missing.")
+
+    body = _merge_placeholders(_template_content_body(template), build_template_context(conn, UUID(str(matter["id"]))))
+    title = f"{template['name']} — Draft"
+    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
+    created = _render_package_versions(
+        conn,
+        package_id=package_id,
+        matter=matter,
+        actor_id=actor_id,
+        template_name=str(template["name"]),
+        body=body,
+        title=title,
+    )
+    fingerprint = compute_source_fingerprint(conn, matter)
+    package = repo.update_package_render(conn, package_id, "demo_released", fingerprint)
+    record_audit_event(
+        conn,
+        action="document_demo.generated",
+        resource_type="document_packages",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=UUID(str(matter["firm_id"])),
+        matter_id=UUID(str(matter["id"])),
+        resource_id=package_id,
+        after_summary={"formats": ["docx", "pdf"], "demo": True},
+    )
+    return _package_out(package), [_version_out(row) for row in created]
+
+
 def generate_demo(
     conn: Any, *, actor_sub: str, package_id: UUID
 ) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
@@ -1169,36 +1349,9 @@ def generate_demo(
         jurisdiction_code=jurisdiction_code,
         semantic_version=semantic_version,
     )
-    _require_intake_complete(conn, matter)
-    template = repo.get_template(conn, UUID(str(package["template_id"])))
-    if template is None:
-        raise ConflictError("The package's template is missing.")
-
-    body = _merge_placeholders(_template_content_body(template), build_template_context(conn, UUID(str(matter["id"]))))
-    title = f"{template['name']} — Draft"
-    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
-    created = _render_package_versions(
-        conn,
-        package_id=package_id,
-        matter=matter,
-        actor_id=actor_id,
-        template_name=str(template["name"]),
-        body=body,
-        title=title,
+    return _render_demo_package(
+        conn, package_row=package, matter=matter, actor_id=actor_id
     )
-    package = repo.update_package_status(conn, package_id, "demo_released")
-    record_audit_event(
-        conn,
-        action="document_demo.generated",
-        resource_type="document_packages",
-        actor_user_id=actor_id,
-        actor_type="user",
-        firm_id=UUID(str(matter["firm_id"])),
-        matter_id=UUID(str(matter["id"])),
-        resource_id=package_id,
-        after_summary={"formats": ["docx", "pdf"], "demo": True},
-    )
-    return _package_out(package), [_version_out(row) for row in created]
 
 
 def get_version_download(conn: Any, *, actor_sub: str, version_id: UUID) -> tuple[bytes, str, str]:
@@ -1282,7 +1435,8 @@ def release_production(
         title=title,
         watermark_text=None,
     )
-    package = repo.update_package_status(conn, package_id, "released")
+    fingerprint = compute_source_fingerprint(conn, matter)
+    package = repo.update_package_render(conn, package_id, "released", fingerprint)
     record_audit_event(
         conn,
         action="document_production.released",
@@ -2559,4 +2713,521 @@ def decide_amendment_request(
         affected_template_types=updated["affected_template_types"],
         status=updated["status"],
         created_at=updated["created_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Family draft set (self-serve generation, plan D3/D4/D6)
+# ---------------------------------------------------------------------------
+
+#: Statuses in which the family may still generate/regenerate drafts.
+_GENERATABLE_STATUSES = frozenset({"INTAKE_IN_PROGRESS", "INTAKE_SUBMITTED"})
+
+#: Statuses that mean the matter already went to the attorney. ESCALATED
+#: is deliberately NOT here: a blocking escalation can route a matter
+#: out of INTAKE_IN_PROGRESS before any submission, so ESCALATED reads
+#: as invalid_status, not already_submitted.
+_POST_SUBMIT_STATUSES = frozenset(
+    {
+        "ATTORNEY_REVIEW",
+        "CLARIFICATION_REQUESTED",
+        "APPROVED_FOR_ASSEMBLY",
+        "DOCUMENTS_RELEASED",
+        "SIGNING_IN_PROGRESS",
+        "FUNDING_IN_PROGRESS",
+        "PLAN_IMPLEMENTED",
+    }
+)
+
+
+def _document_assembly_enabled(
+    conn: Any,
+    *,
+    firm_id: UUID,
+    pack_id: str,
+    jurisdiction_code: str,
+    semantic_version: str,
+) -> bool:
+    """Non-raising twin of ``_require_document_assembly`` (state reporting)."""
+    if not feature_flags_service.is_enabled(
+        conn, "document_assembly", firm_id=firm_id, pack_id=pack_id
+    ):
+        return False
+    capabilities = _pack_manifest_capabilities(jurisdiction_code, semantic_version)
+    return isinstance(capabilities, dict) and capabilities.get("document_assembly") is True
+
+
+def _applicable_progress(
+    conn: Any, matter: dict[str, Any]
+) -> tuple[int, int, list[str], bool]:
+    """(required_total, required_answered, missing_labels, pack_found).
+
+    Applicability-aware (D8): denominators and missing lists come from
+    ``compute_progress`` over the snapshotted pack — pruned questions
+    never count, pending ones fail closed. Completeness is defined by
+    the missing list (the same definition ``_require_intake_complete``
+    and ``submit_matter`` gate on): a matter whose required questions
+    all pruned is complete at 0/0. A missing pack reads as zero progress
+    rather than raising (state must never 409).
+    """
+    from ...domains.intake import question_sets as intake_qs
+
+    _pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    try:
+        pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
+    except FileNotFoundError:
+        return 0, 0, [], False
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, UUID(str(matter["id"])))
+    }
+    per_set, _pct, missing, _pruned = intake_qs.compute_progress(
+        pack.question_sets, answers
+    )
+    required_total = sum(int(p.required_total) for p in per_set.values())
+    required_answered = sum(int(p.required_answered) for p in per_set.values())
+    labels = {
+        str(q["key"]): str(q.get("label") or q["key"])
+        for _, _, q in intake_qs.iter_questions(pack.question_sets)
+    }
+    return (
+        required_total,
+        required_answered,
+        [labels.get(key, key) for key in missing],
+        True,
+    )
+
+
+def _packages_by_type(
+    conn: Any, matter_id: UUID
+) -> dict[str, dict[str, Any]]:
+    """Map template_type -> newest package row for the matter's packages."""
+    by_type: dict[str, dict[str, Any]] = {}
+    for package in repo.list_packages_for_matter(conn, matter_id):
+        template = repo.get_template(conn, UUID(str(package["template_id"])))
+        if template is None:
+            continue
+        template_type = str(template["template_type"])
+        # list_packages_for_matter is newest-first: first hit per type wins.
+        by_type.setdefault(template_type, package)
+    return by_type
+
+
+def _draft_document_states(
+    conn: Any,
+    *,
+    matter: dict[str, Any],
+    firm_id: UUID,
+    pack_id: str,
+    signals: list[dict[str, Any]],
+    current_fingerprint: str,
+) -> list[sch.DraftDocumentStateOut]:
+    """Build the per-type state rows shared by state + submit gating.
+
+    Pairing rule: the package shown for a type is the one bound to the
+    CURRENTLY resolved template (what generate would use); only when
+    that package does not exist do we fall back to the newest package of
+    the type (a superseded draft — still downloadable from the family
+    Documents page). The displayed template is the package's OWN
+    template when a package exists, never a different row that happens
+    to be latest. A generated package is stale when its fingerprint
+    differs from the current source data OR when it is bound to a
+    superseded template (the template body is deliberately outside the
+    D4 fingerprint, so the binding is checked explicitly). Excluded
+    types always report generated/stale False (the D3 shape); their
+    package fields describe the superseded draft only.
+    """
+    matter_id = UUID(str(matter["id"]))
+    packages_by_type = _packages_by_type(conn, matter_id)
+    states: list[sch.DraftDocumentStateOut] = []
+    for entry in signals:
+        template_type = str(entry["template_type"])
+        included = bool(entry["included"])
+        resolved = repo.latest_template_by_type(
+            conn, firm_id, template_type, pack_id=pack_id
+        )
+        package = None
+        if resolved is not None:
+            package = repo.find_package_for_template(
+                conn, matter_id, UUID(str(resolved["id"]))
+            )
+        if package is None:
+            package = packages_by_type.get(template_type)
+        display_template = None
+        if package is not None:
+            display_template = repo.get_template(conn, UUID(str(package["template_id"])))
+        if display_template is None:
+            display_template = resolved
+        generated = False
+        stale = False
+        latest_version_at = None
+        if package is not None and included:
+            versions = repo.list_versions_for_package(conn, UUID(str(package["id"])))
+            demo_versions = [v for v in versions if v.get("watermark_text") is not None]
+            if demo_versions:
+                generated = True
+                latest_version_at = max(v["created_at"] for v in demo_versions)
+                template_current = (
+                    resolved is not None
+                    and str(package["template_id"]) == str(resolved["id"])
+                )
+                stale = (
+                    package.get("source_fingerprint") != current_fingerprint
+                    or not template_current
+                )
+        states.append(
+            sch.DraftDocumentStateOut(
+                template_type=template_type,
+                included=included,
+                signal=str(entry["signal"]),
+                template_id=UUID(str(display_template["id"])) if display_template else None,
+                template_name=str(display_template["name"]) if display_template else None,
+                package_id=UUID(str(package["id"])) if package else None,
+                package_status=str(package["status"]) if package else None,
+                generated=generated,
+                stale=stale,
+                latest_version_at=latest_version_at,
+            )
+        )
+    return states
+
+
+def _submit_blockers(
+    *,
+    status: str,
+    complete: bool,
+    document_states: list[sch.DraftDocumentStateOut],
+) -> list[str]:
+    """Ordered submit blockers (plan D3 vocabulary)."""
+    if status in _POST_SUBMIT_STATUSES:
+        return ["already_submitted"]
+    if status not in _GENERATABLE_STATUSES:
+        return ["invalid_status"]
+    blockers: list[str] = []
+    if not complete:
+        blockers.append("not_complete")
+    included = [state for state in document_states if state.included]
+    if any(not state.generated for state in included):
+        blockers.append("drafts_missing")
+    elif any(state.stale for state in included):
+        blockers.append("drafts_stale")
+    return blockers
+
+
+def get_draft_set_state(
+    conn: Any, *, actor_sub: str, matter_id: UUID
+) -> sch.DraftSetStateOut:
+    """The family review page's single read (never raises the assembly 409).
+
+    Authorized with matter WRITE scope (firm staff+ or household
+    primary_client/collaborator — the dual-path precedent of
+    ``matters/submit.py``, plan D3). When assembly is disabled for the
+    firm/pack, reports ``enabled: false`` so other firms' UX is untouched.
+    """
+    from ...domains.attorneys import service as attorneys_service
+    from ...domains.matters import service as matters_service
+    from ...domains.review import repository as review_repo
+
+    actor_id = _actor_id(actor_sub)
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    matter = scope.matter
+    firm_id = UUID(str(matter["firm_id"]))
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    enabled = _document_assembly_enabled(
+        conn,
+        firm_id=firm_id,
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
+    required_total, required_answered, missing_labels, pack_found = _applicable_progress(
+        conn, matter
+    )
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, matter_id)
+    }
+    from .draft_set import resolve_draft_signals
+
+    signals = resolve_draft_signals(answers)
+    current_fingerprint = compute_source_fingerprint(conn, matter)
+    document_states = _draft_document_states(
+        conn,
+        matter=matter,
+        firm_id=firm_id,
+        pack_id=pack_id,
+        signals=signals,
+        current_fingerprint=current_fingerprint,
+    )
+    status = str(matter["status"])
+    # Completeness = nothing applicable is missing (compute_progress's
+    # own definition — an all-pruned required set is complete at 0/0).
+    complete = pack_found and not missing_labels
+    blockers = _submit_blockers(
+        status=status, complete=complete, document_states=document_states
+    )
+    can_generate = (
+        enabled and complete and status in _GENERATABLE_STATUSES
+    )
+    can_submit = enabled and not blockers
+
+    assigned_attorney = None
+    if matter.get("assigned_attorney_id"):
+        identity = attorneys_service.attorney_identity_for_user(
+            conn, firm_id=firm_id, user_id=UUID(str(matter["assigned_attorney_id"]))
+        )
+        if identity is not None:
+            assigned_attorney = sch.DraftAttorneyOut(
+                user_id=identity["user_id"],
+                full_name=identity["full_name"],
+                email=identity["email"],
+            )
+    latest_packet = None
+    packets = review_repo.list_packets(conn, matter_id)
+    if packets:
+        first = packets[0]
+        latest_packet = sch.DraftPacketOut(
+            id=UUID(str(first["id"])),
+            version=int(first["version"]),
+            created_at=first["created_at"],
+        )
+    return sch.DraftSetStateOut(
+        enabled=enabled,
+        matter_status=status,
+        applicable=sch.DraftApplicableOut(
+            required_total=required_total,
+            required_answered=required_answered,
+            complete=complete,
+            missing_labels=missing_labels,
+        ),
+        documents=document_states,
+        can_generate=can_generate,
+        can_submit=can_submit,
+        submit_blockers=blockers,
+        assigned_attorney=assigned_attorney,
+        latest_packet=latest_packet,
+    )
+
+
+def generate_draft_set(
+    conn: Any, *, actor_sub: str, matter_id: UUID
+) -> sch.DraftSetGenerateOut:
+    """Generate (or regenerate) the matter's whole draft set (family path).
+
+    Resolves the deterministic D2 set from the stored answers, verifies
+    every template exists BEFORE rendering anything (a missing template
+    fails the whole generate closed — never a silently skipped legal
+    document), then find-or-creates one package per type and renders
+    watermarked drafts through the shared render core.
+    """
+    from ...domains.matters import service as matters_service
+    from .draft_set import resolve_draft_set, resolve_set_templates
+
+    actor_id = _actor_id(actor_sub)
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    matter = scope.matter
+    firm_id = UUID(str(matter["firm_id"]))
+    status = str(matter["status"])
+    if status in _POST_SUBMIT_STATUSES:
+        raise AlreadySubmittedError()
+    if status not in _GENERATABLE_STATUSES:
+        raise DraftInvalidStatusError(
+            f"Drafts cannot be generated while the matter is {status}."
+        )
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    _require_document_assembly(
+        conn,
+        firm_id=firm_id,
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, matter_id)
+    }
+    types = resolve_draft_set(answers)
+    templates = resolve_set_templates(conn, firm_id, pack_id, types)
+
+    packages: list[sch.DocumentPackageOut] = []
+    versions: list[sch.DocumentVersionOut] = []
+    for template_type in types:
+        template = templates[template_type]
+        package = repo.find_package_for_template(
+            conn, matter_id, UUID(str(template["id"]))
+        )
+        if package is None:
+            package = repo.insert_package(
+                conn,
+                firm_id=firm_id,
+                matter_id=matter_id,
+                template_id=UUID(str(template["id"])),
+                created_by_user_id=actor_id,
+            )
+        package_out, version_outs = _render_demo_package(
+            conn, package_row=package, matter=matter, actor_id=actor_id
+        )
+        packages.append(package_out)
+        versions.extend(version_outs)
+    fingerprint = compute_source_fingerprint(conn, matter)
+    return sch.DraftSetGenerateOut(
+        packages=packages, versions=versions, fingerprint=fingerprint
+    )
+
+
+def submit_for_attorney_review(
+    conn: Any, *, actor_sub: str, matter_id: UUID
+) -> sch.DraftSubmitOut:
+    """Submit the family's drafts to the firm's routable VA attorney (D6).
+
+    One transaction (the router's): staleness gate -> existing intake
+    submit (when not already submitted) -> direct attorney assignment ->
+    packet frozen AFTER assignment -> transition to ATTORNEY_REVIEW. Any
+    failure rolls the whole submit back.
+    """
+    from ...domains.attorneys import service as attorneys_service
+    from ...domains.matters import repository as matters_repo
+    from ...domains.matters import service as matters_service
+    from ...domains.matters import submit as matters_submit
+    from ...domains.matters.state_machine import MatterStatus, validate_transition
+    from ...domains.review import service as review_service
+    from .draft_set import resolve_draft_set
+
+    actor_id = _actor_id(actor_sub)
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+    matter = scope.matter
+    firm_id = UUID(str(matter["firm_id"]))
+    status = str(matter["status"])
+    if status in _POST_SUBMIT_STATUSES:
+        raise AlreadySubmittedError()
+    if status not in _GENERATABLE_STATUSES:
+        raise DraftInvalidStatusError(
+            f"Submission is not available while the matter is {status}."
+        )
+
+    # The submit endpoint enforces the same enablement as generate and
+    # as the state contract it publishes (can_submit = enabled and no
+    # blockers): a flag revoked after generation must not leave a live
+    # submit path behind.
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+    _require_document_assembly(
+        conn,
+        firm_id=firm_id,
+        pack_id=pack_id,
+        jurisdiction_code=jurisdiction_code,
+        semantic_version=semantic_version,
+    )
+
+    # Freshness gate (D4 + template binding), two passes so the error
+    # precedence matches the state endpoint's blockers (missing before
+    # stale). A type counts as generated only through the package bound
+    # to the CURRENTLY resolved template — drafts rendered from a
+    # superseded template are missing, never silently accepted (the
+    # template body is deliberately outside the fingerprint).
+    answers = {
+        str(row["question_key"]): row["answer"]
+        for row in intake_repo.list_answers(conn, matter_id)
+    }
+    types = resolve_draft_set(answers)
+    current_fingerprint = compute_source_fingerprint(conn, matter)
+    bound: dict[str, dict[str, Any]] = {}
+    for template_type in types:
+        template = repo.latest_template_by_type(
+            conn, firm_id, template_type, pack_id=pack_id
+        )
+        package = (
+            repo.find_package_for_template(conn, matter_id, UUID(str(template["id"])))
+            if template is not None
+            else None
+        )
+        if package is None:
+            raise DraftsMissingError()
+        versions = repo.list_versions_for_package(conn, UUID(str(package["id"])))
+        if not any(v.get("watermark_text") is not None for v in versions):
+            raise DraftsMissingError()
+        bound[template_type] = package
+    for template_type in types:
+        if bound[template_type].get("source_fingerprint") != current_fingerprint:
+            raise DraftsStaleError()
+
+    # Existing intake submit (skipped when the family already used it).
+    if status == MatterStatus.INTAKE_IN_PROGRESS.value:
+        matters_submit.submit_matter(conn, actor_sub=actor_sub, matter_id=matter_id)
+        refreshed = matters_repo.get_matter(conn, matter_id)
+        assert refreshed is not None
+        matter = refreshed
+
+    # Direct assignment to the firm's routable attorney for the matter's
+    # jurisdiction (no match -> 409, whole submit rolls back).
+    _pack_id, jurisdiction_code, _version = _matter_pack_ref(matter)
+    attorney = attorneys_service.find_routable_attorney(
+        conn, firm_id=firm_id, jurisdiction_code=jurisdiction_code
+    )
+    if attorney is None:
+        raise NoAttorneyAvailableError()
+    matters_repo.set_assigned_attorney(
+        conn, matter_id=matter_id, attorney_user_id=attorney["user_id"]
+    )
+    record_audit_event(
+        conn,
+        action="matters.attorney_assigned",
+        resource_type="matter",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        matter_id=matter_id,
+        resource_id=matter_id,
+    )
+    refreshed = matters_repo.get_matter(conn, matter_id)
+    assert refreshed is not None
+    matter = refreshed
+
+    # Freeze the packet AFTER assignment so the snapshot shows the
+    # routed attorney (notes mark the self-serve origin).
+    packet = review_service._create_packet(
+        conn, matter=matter, actor_id=actor_id, notes="Family self-serve submission"
+    )
+
+    # INTAKE_SUBMITTED -> ATTORNEY_REVIEW (no gate on this hop).
+    validate_transition(
+        MatterStatus.INTAKE_SUBMITTED.value, MatterStatus.ATTORNEY_REVIEW.value
+    )
+    completeness = matter.get("completeness_pct")
+    updated = matters_repo.update_matter_status(
+        conn,
+        matter_id,
+        to_status=MatterStatus.ATTORNEY_REVIEW.value,
+        completeness_pct=int(completeness) if completeness is not None else 100,
+        submitted_at=None,
+    )
+    matters_repo.insert_status_history(
+        conn,
+        matter_id=matter_id,
+        from_status=MatterStatus.INTAKE_SUBMITTED.value,
+        to_status=MatterStatus.ATTORNEY_REVIEW.value,
+        reason_code="family_submit_for_review",
+        actor_user_id=actor_id,
+    )
+    record_audit_event(
+        conn,
+        action="matters.transitioned",
+        resource_type="matter",
+        actor_user_id=actor_id,
+        actor_type="user",
+        firm_id=firm_id,
+        matter_id=matter_id,
+        resource_id=matter_id,
+        before_summary={"status": MatterStatus.INTAKE_SUBMITTED.value},
+        after_summary={"status": MatterStatus.ATTORNEY_REVIEW.value},
+    )
+    return sch.DraftSubmitOut(
+        matter_id=matter_id,
+        matter_status=str(updated["status"]),
+        packet_id=packet.id,
+        packet_version=packet.version,
+        assigned_attorney=sch.DraftAttorneyOut(
+            user_id=attorney["user_id"],
+            full_name=attorney["full_name"],
+            email=attorney["email"],
+        ),
     )

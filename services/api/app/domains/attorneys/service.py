@@ -30,6 +30,63 @@ def _actor_id(actor_sub: str) -> UUID:
         raise AuthorizationError("Invalid caller identity.") from exc
 
 
+def find_routable_attorney(
+    conn: Any, *, firm_id: UUID, jurisdiction_code: str
+) -> dict[str, Any] | None:
+    """Thin service wrapper over the repository routing lookup.
+
+    Returns ``{user_id, full_name, email}`` for the attorney a matter in
+    this firm + jurisdiction routes to (family self-serve submit), or
+    ``None`` when the firm has no routable attorney.
+    """
+    row = repo.find_routable_attorney(
+        conn, firm_id=firm_id, jurisdiction_code=jurisdiction_code
+    )
+    if row is None:
+        return None
+    return {
+        "user_id": UUID(str(row["user_id"])),
+        "full_name": str(row["full_name"]),
+        "email": str(row["email"]),
+    }
+
+
+def approved_application_for_user(
+    conn: Any, *, firm_id: UUID, user_id: UUID
+) -> dict[str, Any] | None:
+    """Return the user's approved application identity in a firm, or ``None``."""
+    row = repo.find_approved_application_for_user(conn, firm_id=firm_id, user_id=user_id)
+    if row is None:
+        return None
+    return {
+        "user_id": UUID(str(row["user_id"])),
+        "full_name": str(row["full_name"]),
+        "email": str(row["email"]),
+    }
+
+
+def attorney_identity_for_user(
+    conn: Any, *, firm_id: UUID, user_id: UUID
+) -> dict[str, Any] | None:
+    """Display identity for an assigned attorney.
+
+    Prefers the enrolled identity (approved application); falls back to
+    the profile so a staff-assigned attorney without an application row
+    on file still renders by name instead of disappearing.
+    """
+    identity = approved_application_for_user(conn, firm_id=firm_id, user_id=user_id)
+    if identity is not None:
+        return identity
+    profile = repo.get_profile_identity(conn, user_id=user_id)
+    if profile is None:
+        return None
+    return {
+        "user_id": UUID(str(profile["id"])),
+        "full_name": str(profile.get("display_name") or profile.get("email") or ""),
+        "email": str(profile.get("email") or ""),
+    }
+
+
 def submit_application(
     conn: Any, *, actor_sub: str, payload: AttorneyApplicationCreate
 ) -> AttorneyApplicationOut:

@@ -180,15 +180,31 @@ def delete_template(conn: Any, template_id: UUID) -> None:
         cur.execute("DELETE FROM document_templates WHERE id = %s", (str(template_id),))
 
 
-def latest_template_by_type(conn: Any, firm_id: UUID, template_type: str) -> dict[str, Any] | None:
-    """Return the firm's most recently created template of a type."""
+def latest_template_by_type(
+    conn: Any, firm_id: UUID, template_type: str, pack_id: str | None = None
+) -> dict[str, Any] | None:
+    """Return the firm's most recently created template of a type.
+
+    When ``pack_id`` is given, templates belonging to that pack sort
+    first (a pack match beats a newer pack-less/other-pack row); ties and
+    the no-pack case fall back to ``created_at DESC`` as before.
+    """
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT * FROM document_templates"
-            " WHERE firm_id = %s AND template_type = %s"
-            " ORDER BY created_at DESC LIMIT 1",
-            (str(firm_id), template_type),
-        )
+        if pack_id is not None:
+            cur.execute(
+                "SELECT * FROM document_templates"
+                " WHERE firm_id = %s AND template_type = %s"
+                " ORDER BY (pack_id IS NOT NULL AND pack_id = %s) DESC, created_at DESC"
+                " LIMIT 1",
+                (str(firm_id), template_type, pack_id),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM document_templates"
+                " WHERE firm_id = %s AND template_type = %s"
+                " ORDER BY created_at DESC LIMIT 1",
+                (str(firm_id), template_type),
+            )
         row = cur.fetchone()
     return dict(row) if row else None
 
@@ -260,6 +276,26 @@ def update_package_status(conn: Any, package_id: UUID, status: str) -> dict[str,
             "UPDATE document_packages SET status = %s, updated_at = now()"
             " WHERE id = %s RETURNING *",
             (status, str(package_id)),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    return dict(row)
+
+
+def update_package_render(
+    conn: Any, package_id: UUID, status: str, source_fingerprint: str
+) -> dict[str, Any]:
+    """Set a package's status AND stamp the render source fingerprint.
+
+    Used by the fingerprinted render core (demo + production release):
+    the stamp records exactly which source data the render consumed, so
+    the family draft-set state can tell fresh drafts from stale ones.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE document_packages SET status = %s, source_fingerprint = %s,"
+            " updated_at = now() WHERE id = %s RETURNING *",
+            (status, source_fingerprint, str(package_id)),
         )
         row = cur.fetchone()
     assert row is not None

@@ -16,7 +16,20 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-DocumentTemplateType = Literal["will", "trust", "poa", "instruction_letter"]
+# Exactly the document_templates_template_type_check set (migration
+# 20261006040000). The Literal lagged the DB at 4 values, which would have
+# made _template_out fail validation on advance_directive / guardianship
+# rows once they were retyped correctly (2026-10-26 plan, Task 1.1).
+DocumentTemplateType = Literal[
+    "will",
+    "trust",
+    "poa",
+    "advance_directive",
+    "guardianship",
+    "codicil",
+    "trust_amendment",
+    "instruction_letter",
+]
 PackageStatus = Literal["draft", "demo_released", "released"]
 FundingTaskStatus = Literal["pending", "in_progress", "completed"]
 
@@ -242,6 +255,75 @@ class VaultAccessOut(BaseModel):
     matter_title: str
     plan_type: str
     jurisdiction_code: str
+
+
+# ---------------------------------------------------------------------------
+# Family draft set (self-serve generation, 2026-10-26 plan D3)
+# ---------------------------------------------------------------------------
+
+
+class DraftApplicableOut(BaseModel):
+    """Applicable-required completeness (declared/pruned never gate, D8)."""
+
+    required_total: int
+    required_answered: int
+    complete: bool
+    missing_labels: list[str] = Field(default_factory=list)
+
+
+class DraftDocumentStateOut(BaseModel):
+    """One draft-set type's state for the family review page."""
+
+    template_type: str
+    included: bool
+    signal: str
+    template_id: UUID | None = None
+    template_name: str | None = None
+    package_id: UUID | None = None
+    package_status: str | None = None
+    generated: bool = False
+    stale: bool = False
+    latest_version_at: datetime | None = None
+
+
+class DraftAttorneyOut(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str
+
+
+class DraftPacketOut(BaseModel):
+    id: UUID
+    version: int
+    created_at: datetime
+
+
+class DraftSetStateOut(BaseModel):
+    """The review page's single read: enablement, completeness, drafts, submit."""
+
+    enabled: bool
+    matter_status: str
+    applicable: DraftApplicableOut
+    documents: list[DraftDocumentStateOut]
+    can_generate: bool
+    can_submit: bool
+    submit_blockers: list[str] = Field(default_factory=list)
+    assigned_attorney: DraftAttorneyOut | None = None
+    latest_packet: DraftPacketOut | None = None
+
+
+class DraftSetGenerateOut(BaseModel):
+    packages: list[DocumentPackageOut]
+    versions: list[DocumentVersionOut]
+    fingerprint: str
+
+
+class DraftSubmitOut(BaseModel):
+    matter_id: UUID
+    matter_status: str
+    packet_id: UUID
+    packet_version: int
+    assigned_attorney: DraftAttorneyOut
 
 
 # ---------------------------------------------------------------------------

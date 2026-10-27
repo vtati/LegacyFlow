@@ -157,6 +157,44 @@ def release_production(user: User, package_id: UUID) -> sch.DemoReleaseOut:
 
 
 # ---------------------------------------------------------------------------
+# Family draft set (self-serve generation)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/matters/{matter_id}/draft-documents/state",
+    response_model=sch.DraftSetStateOut,
+)
+def get_draft_documents_state(user: User, matter_id: UUID) -> sch.DraftSetStateOut:
+    """Draft-set state for the family review page (never 409s on the flag)."""
+    with db.transaction() as conn:
+        return service.get_draft_set_state(conn, actor_sub=user.sub, matter_id=matter_id)
+
+
+@router.post(
+    "/matters/{matter_id}/draft-documents/generate",
+    response_model=sch.DraftSetGenerateOut,
+    status_code=201,
+)
+def generate_draft_documents(user: User, matter_id: UUID) -> sch.DraftSetGenerateOut:
+    """Generate/regenerate the matter's watermarked draft set (family path)."""
+    with db.transaction() as conn:
+        return service.generate_draft_set(conn, actor_sub=user.sub, matter_id=matter_id)
+
+
+@router.post(
+    "/matters/{matter_id}/draft-documents/submit",
+    response_model=sch.DraftSubmitOut,
+)
+def submit_draft_documents(user: User, matter_id: UUID) -> sch.DraftSubmitOut:
+    """Submit fresh drafts to the firm's routable attorney (frozen packet)."""
+    with db.transaction() as conn:
+        return service.submit_for_attorney_review(
+            conn, actor_sub=user.sub, matter_id=matter_id
+        )
+
+
+# ---------------------------------------------------------------------------
 # Versions
 # ---------------------------------------------------------------------------
 

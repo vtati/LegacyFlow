@@ -110,6 +110,65 @@ def set_application_status(
         return dict(cur.fetchone())
 
 
+def find_routable_attorney(
+    conn: Any, *, firm_id: UUID, jurisdiction_code: str
+) -> dict[str, Any] | None:
+    """Return the firm's routable attorney for a jurisdiction, or ``None``.
+
+    Routable = an APPROVED application whose jurisdictions contain the
+    code AND an active ``attorney`` firm membership (the same pair
+    ``approve_application`` writes). Earliest approval wins, so routing
+    is deterministic. ``full_name``/``email`` come from the application
+    row — the enrolled identity.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.user_id, a.full_name, a.email
+            FROM attorney_applications a
+            JOIN firm_memberships m
+              ON m.firm_id = a.firm_id AND m.user_id = a.user_id
+             AND m.role = 'attorney' AND m.status = 'active'
+            WHERE a.firm_id = %s AND a.status = 'approved'
+              AND %s = ANY(a.jurisdictions)
+            ORDER BY a.created_at ASC
+            LIMIT 1
+            """,
+            (str(firm_id), jurisdiction_code),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def find_approved_application_for_user(
+    conn: Any, *, firm_id: UUID, user_id: UUID
+) -> dict[str, Any] | None:
+    """Return the user's earliest approved application in a firm, or ``None``."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM attorney_applications
+            WHERE firm_id = %s AND user_id = %s AND status = 'approved'
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (str(firm_id), str(user_id)),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def get_profile_identity(conn: Any, *, user_id: UUID) -> dict[str, Any] | None:
+    """Return a user's profile identity (display name + email), or ``None``."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, display_name, email FROM profiles WHERE id = %s",
+            (str(user_id),),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
 def upsert_attorney_membership(
     conn: Any, *, firm_id: UUID, user_id: UUID
 ) -> None:
