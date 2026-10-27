@@ -1457,10 +1457,16 @@ def _render_demo_package(
     # produced — the pre-review analyses exactly these bytes and this
     # context, never live answers. Best-effort BY DESIGN (plan R3): the
     # reviewer is advisory, so a recording failure is logged loudly but
-    # must never fail the family's render.
+    # must never fail the family's render. SAVEPOINT armor (the intake
+    # nomination-sync pattern): a DB-level failure — e.g. a snapshot
+    # unique conflict — aborts the Postgres transaction, and a bare
+    # Python try/except cannot save the render from that; rolling back
+    # to the savepoint can.
     from ...domains.attorney_review import service as attorney_review_service
 
     try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT lf_review_snapshot")
         attorney_review_service.record_render_snapshot(
             conn,
             matter=matter,
@@ -1472,9 +1478,17 @@ def _render_demo_package(
             body_text=body,
             context=context,
         )
+        with conn.cursor() as cur:
+            cur.execute("RELEASE SAVEPOINT lf_review_snapshot")
     except Exception:
         import logging
 
+        try:
+            with conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT lf_review_snapshot")
+                cur.execute("RELEASE SAVEPOINT lf_review_snapshot")
+        except Exception:
+            pass
         logging.getLogger(__name__).exception(
             "attorney_review snapshot recording failed for package %s; "
             "the render itself is unaffected",

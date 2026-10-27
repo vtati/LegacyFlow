@@ -1000,3 +1000,31 @@ def test_generate_survives_attorney_review_recorder_failure(db, api_client, monk
     response = generate(api_client, CLIENT, matter_id)
     assert response.status_code == 201, response.text
     assert len(response.json()["packages"]) == 5
+
+
+def test_generate_survives_recorder_db_failure(db, api_client, monkeypatch):
+    """Review M-1: a DB-level recorder failure (snapshot unique
+    conflict) aborts the Postgres transaction — only the SAVEPOINT
+    armor at the render call site keeps the family's generate alive."""
+    from app.domains.attorney_review import service as review_service
+
+    _firm, _household, matter_id = ready_matter(db, api_client)
+
+    def poison(conn, **kwargs):
+        # A genuine unique violation on the render transaction itself.
+        for _ in range(2):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO attorney_review_snapshots"
+                    " (matter_id, firm_id, package_id, package_version,"
+                    "  source_fingerprint, template_type, template_body,"
+                    "  body_text, context)"
+                    " VALUES (%s, %s, %s, 4242, 'fp-poison', 'will', '', '', '{}'::jsonb)",
+                    (kwargs["matter"]["id"], kwargs["matter"]["firm_id"],
+                     str(kwargs["package_id"])),
+                )
+
+    monkeypatch.setattr(review_service, "record_render_snapshot", poison)
+    response = generate(api_client, CLIENT, matter_id)
+    assert response.status_code == 201, response.text
+    assert len(response.json()["packages"]) == 5
