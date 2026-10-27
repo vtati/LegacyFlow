@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     # (v1) turns keep OPENAI_INTERVIEW_MODEL untouched.
     OPENAI_INTERVIEW_MODEL_V2: str = "gpt-5.5"
     OPENAI_WHISPER_MODEL: str = "whisper-1"
+    # Sample (attorney-pending) pack knowledge may ground interview
+    # answers and Ask responses only when a deployment explicitly opts
+    # in. Default False (F6, 2026-10-26): the previous default-true
+    # posture let unreviewed sample content ground answers silently.
+    AI_ALLOW_SAMPLE_CONTENT: bool = False
     # Fernet key (base64, 32 bytes) for interview turn-body encryption (ADR-002).
     # Unset fails closed: the interviewer refuses to start a session rather
     # than store plaintext. Never expose to browser code.

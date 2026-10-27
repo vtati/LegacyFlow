@@ -230,7 +230,11 @@ def _env(pg_dsn: str) -> Iterator[None]:
     os.environ["DATABASE_URL"] = pg_dsn
     os.environ.pop("SUPABASE_URL", None)
     os.environ.pop("SUPABASE_JWKS_URL", None)
-    os.environ.pop("AI_ALLOW_SAMPLE_CONTENT", None)
+    # This module's grounded-question tests exercise the pack's SAMPLE
+    # guardian doc. F6 flipped AI_ALLOW_SAMPLE_CONTENT's default to
+    # false, so the module opts in explicitly; the exclusion test below
+    # turns it back off.
+    os.environ["AI_ALLOW_SAMPLE_CONTENT"] = "true"
     # Rate limiting is covered by its own dedicated tests; leave it off here
     # so these tests are not order-dependent (429s).
     os.environ["RATE_LIMIT_ENABLED"] = "false"
@@ -388,13 +392,19 @@ def test_sample_content_excluded_when_disabled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AI_ALLOW_SAMPLE_CONTENT=false removes the only VA knowledge doc."""
+    from app.core.config import get_settings
+
     monkeypatch.setenv("AI_ALLOW_SAMPLE_CONTENT", "false")
-    resp = _ask(client, VA_MATTER_ID, GROUNDED_QUESTION)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["refused"] is False
-    assert body["citations"] == []
-    assert "attorney" in body["answer"].lower()
+    get_settings.cache_clear()
+    try:
+        resp = _ask(client, VA_MATTER_ID, GROUNDED_QUESTION)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["refused"] is False
+        assert body["citations"] == []
+        assert "attorney" in body["answer"].lower()
+    finally:
+        get_settings.cache_clear()
 
 
 def test_production_provider_serves_grounded_answers(

@@ -23,12 +23,12 @@ attorney review via the escalation domain.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from typing import Any
 from uuid import UUID
 
 from app.core.audit import record_audit_event
+from app.core.config import get_settings
 from app.domains.ai import repository as repo
 from app.domains.ai.provider import (
     AIContext,
@@ -149,8 +149,12 @@ def _requests_advice(question: str) -> bool:
 
 
 def _allow_sample_content() -> bool:
-    """Whether sample (attorney-pending) knowledge may be used."""
-    return os.environ.get("AI_ALLOW_SAMPLE_CONTENT", "true").strip().lower() != "false"
+    """Whether sample (attorney-pending) knowledge may be used.
+
+    Reads the ``AI_ALLOW_SAMPLE_CONTENT`` setting (default False, F6):
+    sample content grounds answers only on an explicit opt-in.
+    """
+    return get_settings().AI_ALLOW_SAMPLE_CONTENT
 
 
 def _is_sample_doc(doc: dict[str, Any]) -> bool:
