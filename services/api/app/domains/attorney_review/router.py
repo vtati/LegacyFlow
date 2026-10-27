@@ -27,10 +27,20 @@ User = Annotated[Claims, Depends(get_current_user)]
     response_model=sch.RunResponseOut,
     status_code=201,
 )
-def run_attorney_review(user: User, matter_id: UUID) -> sch.RunResponseOut:
-    """Run the automated pre-review over the frozen draft package."""
-    with db.transaction() as conn:
-        return service.run_review(conn, actor_sub=user.sub, matter_id=matter_id)
+def run_attorney_review(
+    user: User, matter_id: UUID, payload: sch.RunIn | None = None
+) -> sch.RunResponseOut:
+    """Run the automated pre-review over the frozen draft package.
+
+    No transaction is opened here: the service manages short read and
+    write transactions around the model call, which must never hold a
+    database transaction open (review M1).
+    """
+    return service.run_review(
+        actor_sub=user.sub,
+        matter_id=matter_id,
+        force=bool(payload and payload.force),
+    )
 
 
 @router.get(

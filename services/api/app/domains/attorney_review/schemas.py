@@ -59,5 +59,13 @@ class FindingsResponseOut(BaseModel):
     findings: list[FindingOut] = []
 
 
+class RunIn(BaseModel):
+    """Explicit run request. ``force`` re-runs despite an existing
+    completed run for the current fingerprint; honored for firm-side
+    actors only (a family caller cannot burn repeated model calls)."""
+
+    force: bool = False
+
+
 class AcknowledgeIn(BaseModel):
     note: str

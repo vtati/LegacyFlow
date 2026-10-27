@@ -984,3 +984,19 @@ def test_fingerprint_ignores_the_volatile_today(db, monkeypatch):
 
     monkeypatch.setattr(documents_service, "datetime", _NextYearDateTime)
     assert documents_service.compute_source_fingerprint(db, matter) == first
+
+
+def test_generate_survives_attorney_review_recorder_failure(db, api_client, monkeypatch):
+    """Plan R3 / review H2: snapshot recording is best-effort — a
+    recorder failure must never fail the family's generate."""
+    from app.domains.attorney_review import service as review_service
+
+    _firm, _household, matter_id = ready_matter(db, api_client)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("recorder exploded")
+
+    monkeypatch.setattr(review_service, "record_render_snapshot", boom)
+    response = generate(api_client, CLIENT, matter_id)
+    assert response.status_code == 201, response.text
+    assert len(response.json()["packages"]) == 5

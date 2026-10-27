@@ -300,42 +300,55 @@ def _apply_disposition_transitions(
     return by_hash
 
 
-def run_review(
-    conn: Any, *, actor_sub: str, matter_id: UUID
-) -> sch.RunResponseOut:
-    """Run the pre-review over the matter's frozen package (write scope)."""
-    from ...domains.matters import service as matters_service
-
-    actor_id = _actor_id(actor_sub)
-    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
-    return _run_review_scoped(conn, matter=scope.matter, actor_id=actor_id)
+def _is_full_run(run: dict[str, Any] | None) -> bool:
+    """A completed run that included the model layer."""
+    return bool(run) and str(run.get("model_id") or "") not in (
+        "",
+        "deterministic_only",
+    )
 
 
-def run_review_for_matter(
-    conn: Any, *, matter: dict[str, Any], actor_id: UUID | None
-) -> None:
-    """Auto-run entry for the generate/submit hooks: never raises.
+class _PreparedReview:
+    """Frozen inputs for one run, assembled in a short read transaction.
 
-    Silent when the flag is off or no frozen package exists, and any
-    unexpected failure is logged and swallowed — the reviewer advises
-    on the core flow and must never break it. The hook runs in its own
-    transaction, so a swallowed failure here rolls back only the run.
+    The compute phase (deterministic checks + the model call) runs
+    WITHOUT a database transaction — an LLM call must never hold a
+    pooled connection or an open transaction (review M1). The write
+    phase then persists everything in a second short transaction.
     """
-    try:
-        _run_review_scoped(conn, matter=matter, actor_id=actor_id, quiet=True)
-    except Exception:
-        logger.exception(
-            "attorney_review auto-run failed for matter %s", matter.get("id")
-        )
+
+    def __init__(
+        self,
+        *,
+        matter: dict[str, Any],
+        actor_id: UUID | None,
+        fingerprint: str,
+        snapshots: list[dict[str, Any]],
+        source: dict[str, Any],
+        profiles: dict[str, Any],
+    ) -> None:
+        self.matter = matter
+        self.actor_id = actor_id
+        self.fingerprint = fingerprint
+        self.snapshots = snapshots
+        self.source = source
+        self.profiles = profiles
 
 
-def _run_review_scoped(
+def _prepare_review(
     conn: Any,
     *,
     matter: dict[str, Any],
     actor_id: UUID | None,
-    quiet: bool = False,
-) -> sch.RunResponseOut | None:
+    force: bool,
+    full: bool,
+    quiet: bool,
+) -> tuple[_PreparedReview | None, sch.RunResponseOut | None]:
+    """Read phase: flag, frozen inputs, idempotency.
+
+    Returns (prepared, None) when a run should execute, (None, response)
+    for an idempotent hit, and (None, None) for a quiet skip.
+    """
     from ...domains.feature_flags import service as feature_flags
 
     matter_id = UUID(str(matter["id"]))
@@ -343,7 +356,7 @@ def _run_review_scoped(
     pack_id, _jur, _ver = _pack_ref(matter)
     if not feature_flags.is_enabled(conn, FLAG_KEY, firm_id=firm_id, pack_id=pack_id):
         if quiet:
-            return None
+            return None, None
         raise AttorneyReviewDisabledError()
     fingerprint = _current_fingerprint(conn, matter_id)
     snapshots = (
@@ -356,59 +369,99 @@ def _run_review_scoped(
     )
     if not fingerprint or not snapshots or source_row is None:
         if quiet:
-            return None
+            return None, None
         raise AttorneyReviewNotReadyError()
-
-    run = repo.insert_run(
-        conn,
-        matter_id=matter_id,
-        firm_id=firm_id,
-        source_fingerprint=fingerprint,
-        prompt_version=PROMPT_VERSION,
-        created_by_user_id=actor_id,
-    )
-    run_id = UUID(str(run["id"]))
-    findings = run_deterministic_checks(
+    if not force:
+        existing = repo.latest_completed_run(
+            conn, matter_id=matter_id, source_fingerprint=fingerprint
+        )
+        # A deterministic-only run satisfies a deterministic request,
+        # and any completed run satisfies a repeat full request only if
+        # it was itself full — a full request upgrades a det-only run.
+        if existing is not None and (not full or _is_full_run(existing)):
+            rows = repo.findings_for_run(conn, UUID(str(existing["id"])))
+            return None, sch.RunResponseOut(
+                run=_run_out(existing),
+                findings=[_finding_out(row) for row in rows],
+            )
+    prepared = _PreparedReview(
+        matter=matter,
+        actor_id=actor_id,
+        fingerprint=fingerprint,
         snapshots=snapshots,
         source=dict(source_row["payload"]),
-        execution_profiles=_execution_profiles(conn, matter),
+        profiles=_execution_profiles(conn, matter),
+    )
+    return prepared, None
+
+
+def _compute_findings(
+    prepared: _PreparedReview, *, full: bool
+) -> tuple[list[Finding], str, dict[str, int] | None]:
+    """Compute phase: pure checks + (optionally) the model call.
+
+    No database access. A provider failure degrades to the
+    deterministic findings — the review itself must not fail.
+    """
+    findings = run_deterministic_checks(
+        snapshots=prepared.snapshots,
+        source=prepared.source,
+        execution_profiles=prepared.profiles,
         today=date.today(),
     )
     model_id = "deterministic_only"
+    usage: dict[str, int] | None = None
     settings = get_settings()
     if (
-        settings.AI_LLM_PROVIDER.strip().lower() == "openai"
+        full
+        and settings.AI_LLM_PROVIDER.strip().lower() == "openai"
         and settings.OPENAI_API_KEY
     ):
-        model_id = settings.OPENAI_INTERVIEW_MODEL_V2
+        candidate = settings.OPENAI_INTERVIEW_MODEL_V2
         try:
             model_findings, usage = model_review.review_via_model(
-                snapshots=snapshots,
-                source=dict(source_row["payload"]),
-                model=model_id,
+                snapshots=prepared.snapshots,
+                source=prepared.source,
+                model=candidate,
             )
             findings.extend(model_findings)
-            _record_trace(
-                conn,
-                matter=matter,
-                firm_id=firm_id,
-                model_id=model_id,
-                usage=usage,
-            )
+            model_id = candidate
         except Exception:  # provider failure must not fail the review
             logger.exception(
                 "attorney_review model layer failed for matter %s; "
                 "continuing with deterministic findings only",
-                matter_id,
+                prepared.matter.get("id"),
             )
-            model_id = "deterministic_only"
+            usage = None
     # Idempotent by content hash across both layers.
     unique: dict[str, Finding] = {}
     for finding in findings:
         unique.setdefault(finding_hash(finding), finding)
-    findings = list(unique.values())
-    new_hashes = set(unique.keys())
+    return list(unique.values()), model_id, usage
 
+
+def _persist_review(
+    conn: Any,
+    *,
+    prepared: _PreparedReview,
+    findings: list[Finding],
+    model_id: str,
+    usage: dict[str, int] | None,
+) -> sch.RunResponseOut:
+    """Write phase: run row, disposition transitions, findings, audit."""
+    matter = prepared.matter
+    matter_id = UUID(str(matter["id"]))
+    firm_id = UUID(str(matter["firm_id"]))
+    run = repo.insert_run(
+        conn,
+        matter_id=matter_id,
+        firm_id=firm_id,
+        source_fingerprint=prepared.fingerprint,
+        prompt_version=PROMPT_VERSION,
+        created_by_user_id=prepared.actor_id,
+    )
+    run_id = UUID(str(run["id"]))
+    new_hashes = {finding_hash(f) for f in findings}
     previous_run = repo.latest_completed_run(
         conn, matter_id=matter_id, exclude_run_id=run_id
     )
@@ -449,17 +502,25 @@ def _run_review_scoped(
             **ack_fields,
         )
     completed = repo.complete_run(conn, run_id, model_id=model_id)
+    if usage is not None:
+        _record_trace(
+            conn,
+            matter=matter,
+            firm_id=firm_id,
+            model_id=model_id,
+            usage=usage,
+        )
     record_audit_event(
         conn,
         action="attorney_review.completed",
         resource_type="attorney_review_run",
-        actor_user_id=actor_id,
-        actor_type="user" if actor_id else "system",
+        actor_user_id=prepared.actor_id,
+        actor_type="user" if prepared.actor_id else "system",
         firm_id=firm_id,
         matter_id=matter_id,
         resource_id=run_id,
         after_summary={
-            "source_fingerprint": fingerprint,
+            "source_fingerprint": prepared.fingerprint,
             "findings_count": len(findings),
             "model_id": model_id,
         },
@@ -469,6 +530,93 @@ def _run_review_scoped(
         run=_run_out(completed),
         findings=[_finding_out(row) for row in rows],
     )
+
+
+def run_review(
+    *, actor_sub: str, matter_id: UUID, force: bool = False
+) -> sch.RunResponseOut:
+    """Run the pre-review over the matter's frozen package (endpoint).
+
+    Idempotent per fingerprint: without ``force`` an existing completed
+    run for the current fingerprint is returned as-is. ``force`` is
+    honored only for firm-side actors — a family caller cannot burn
+    repeated model calls (review L6); for them force degrades to the
+    idempotent behavior. Manages its own transactions so the model
+    call never runs inside one (review M1).
+    """
+    from ...core import db
+    from ...domains.matters import service as matters_service
+
+    actor_id = _actor_id(actor_sub)
+    with db.transaction() as conn:
+        scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+        prepared, early = _prepare_review(
+            conn,
+            matter=scope.matter,
+            actor_id=actor_id,
+            force=force and scope.via == "firm",
+            full=True,
+            quiet=False,
+        )
+    if early is not None:
+        return early
+    assert prepared is not None
+    findings, model_id, usage = _compute_findings(prepared, full=True)
+    with db.transaction() as conn:
+        return _persist_review(
+            conn,
+            prepared=prepared,
+            findings=findings,
+            model_id=model_id,
+            usage=usage,
+        )
+
+
+def run_review_for_matter(
+    *,
+    matter: dict[str, Any],
+    actor_id: UUID | None,
+    deterministic_only: bool = False,
+) -> None:
+    """Auto-run entry for the generate/submit hooks: never raises.
+
+    Generate passes deterministic_only=True (instant, free — the model
+    layer would otherwise bill a call on every regeneration, review
+    M2); submit runs the full review, upgrading a deterministic-only
+    run for the same fingerprint. Silent when the flag is off or no
+    frozen package exists; failures are logged and swallowed — the
+    reviewer advises on the core flow and must never break it.
+    """
+    from ...core import db
+
+    try:
+        with db.transaction() as conn:
+            prepared, early = _prepare_review(
+                conn,
+                matter=matter,
+                actor_id=actor_id,
+                force=False,
+                full=not deterministic_only,
+                quiet=True,
+            )
+        if prepared is None:
+            return
+        findings, model_id, usage = _compute_findings(
+            prepared, full=not deterministic_only
+        )
+        with db.transaction() as conn:
+            _persist_review(
+                conn,
+                prepared=prepared,
+                findings=findings,
+                model_id=model_id,
+                usage=usage,
+            )
+    except Exception:
+        logger.exception(
+            "attorney_review auto-run failed for matter %s", matter.get("id")
+        )
+
 
 
 def _pack_ref(matter: dict[str, Any]) -> tuple[str, str, str]:

@@ -539,3 +539,110 @@ def test_recorder_persists_snapshot_and_source(db) -> None:
     assert {p["full_name"] for p in payload["persons"]} >= {"Arjun Sharma", "Kabir Sharma"}
     assert payload["answers"]["has_minor_children"] is True
     assert "testator_full_name" in payload["question_keys"]
+
+
+# ---------------------------------------------------------------------------
+# Run idempotency, force gating, auto-run split (review fixes H2/M1/M2/L6)
+# ---------------------------------------------------------------------------
+
+
+def test_run_is_idempotent_and_force_is_firm_only(api_client, db, monkeypatch) -> None:
+    from app.core.config import get_settings
+    from app.domains.attorney_review import model_review
+    from app.domains.attorney_review.checks import Finding
+
+    def fake_review(*, snapshots, source, model):
+        return [Finding(
+            layer="model", check="missing_context", severity="question_for_attorney",
+            document="will", field=None, excerpt=None,
+            explanation="A planted model finding.", suggested_fix=None,
+            package_id=None,
+        )], {"prompt_tokens": 1, "completion_tokens": 1}
+
+    monkeypatch.setattr(model_review, "review_via_model", fake_review)
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    url = f"/v1/matters/{w.matter_id}/attorney-review/run"
+    first = api_client.post(url, headers=_headers(CLIENT))
+    assert first.status_code == 201, first.text
+    run_id = first.json()["run"]["id"]
+    # Repeat without force -> the same completed run, no new model spend.
+    again = api_client.post(url, headers=_headers(CLIENT))
+    assert again.status_code == 201
+    assert again.json()["run"]["id"] == run_id
+    # A family caller cannot force a re-run (force degrades silently).
+    forced_family = api_client.post(url, headers=_headers(CLIENT), json={"force": True})
+    assert forced_family.json()["run"]["id"] == run_id
+    # A firm-side actor can.
+    forced_firm = api_client.post(url, headers=_headers(ADMIN), json={"force": True})
+    assert forced_firm.status_code == 201, forced_firm.text
+    assert forced_firm.json()["run"]["id"] != run_id
+
+
+def test_auto_run_deterministic_only_then_full_upgrade(api_client, db, monkeypatch) -> None:
+    from app.domains.attorney_review import model_review
+    from app.domains.attorney_review import service as review_service
+    from app.domains.attorney_review.checks import Finding
+
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    db.commit()
+    matter = {
+        "id": w.matter_id, "firm_id": w.firm_id, "household_id": w.household_id,
+        "jurisdiction_snapshot": {
+            "pack_id": "us-va", "jurisdiction_code": "US-VA",
+            "semantic_version": "2.0.0",
+        },
+    }
+
+    def fake_review(*, snapshots, source, model):
+        return [Finding(
+            layer="model", check="missing_context", severity="question_for_attorney",
+            document="will", field=None, excerpt=None,
+            explanation="A planted model finding.", suggested_fix=None,
+            package_id=None,
+        )], {"prompt_tokens": 1, "completion_tokens": 1}
+
+    monkeypatch.setattr(model_review, "review_via_model", fake_review)
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    # Generate-time auto-run: deterministic only, even with a model
+    # configured — no model findings, sentinel model_id.
+    review_service.run_review_for_matter(
+        matter=matter, actor_id=None, deterministic_only=True
+    )
+    run = _one(db, "SELECT * FROM attorney_review_runs WHERE matter_id = %s"
+                   " ORDER BY created_at DESC LIMIT 1", (w.matter_id,))
+    assert run["model_id"] == "deterministic_only"
+    layers = {r["layer"] for r in _all(
+        db, "SELECT layer FROM attorney_review_findings WHERE run_id = %s", (run["id"],))}
+    assert layers == {"deterministic"}
+
+    # Submit-time auto-run upgrades the same fingerprint to a full run.
+    review_service.run_review_for_matter(
+        matter=matter, actor_id=None, deterministic_only=False
+    )
+    run2 = _one(db, "SELECT * FROM attorney_review_runs WHERE matter_id = %s"
+                    " ORDER BY created_at DESC LIMIT 1", (w.matter_id,))
+    assert run2["id"] != run["id"]
+    assert run2["model_id"] != "deterministic_only"
+    layers2 = {r["layer"] for r in _all(
+        db, "SELECT layer FROM attorney_review_findings WHERE run_id = %s", (run2["id"],))}
+    assert "model" in layers2
+
+    # A third auto-run is idempotent — no new run is created.
+    review_service.run_review_for_matter(
+        matter=matter, actor_id=None, deterministic_only=False
+    )
+    count = _one(db, "SELECT count(*) AS n FROM attorney_review_runs WHERE matter_id = %s",
+                 (w.matter_id,))
+    assert count["n"] == 2
+    get_settings.cache_clear()

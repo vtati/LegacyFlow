@@ -30,13 +30,17 @@ router = APIRouter(tags=["documents"])
 User = Annotated[Claims, Depends(get_current_user)]
 
 
-def _auto_run_attorney_review(matter_id: UUID, actor_sub: str) -> None:
+def _auto_run_attorney_review(
+    matter_id: UUID, actor_sub: str, *, deterministic_only: bool = False
+) -> None:
     """Best-effort advisory pre-review after a generate/submit commits.
 
-    Runs in its own transaction, after the core action is durable. The
-    reviewer is advisory: its service entry never raises, and this
-    wrapper swallows everything else — a pre-review failure must never
-    fail the family's generate or submit.
+    Generate passes deterministic_only=True (instant, no model spend —
+    review M2); submit runs the full review, upgrading a
+    deterministic-only run for the same fingerprint. The service entry
+    never raises and manages its own transactions; this wrapper only
+    resolves the matter row and swallows everything else — a
+    pre-review failure must never fail the family's generate or submit.
     """
     import logging
     from uuid import UUID as _UUID
@@ -47,11 +51,13 @@ def _auto_run_attorney_review(matter_id: UUID, actor_sub: str) -> None:
     try:
         with db.transaction() as conn:
             matter = matters_repo.get_matter(conn, matter_id)
-            if matter is None:
-                return
-            attorney_review_service.run_review_for_matter(
-                conn, matter=matter, actor_id=_UUID(actor_sub)
-            )
+        if matter is None:
+            return
+        attorney_review_service.run_review_for_matter(
+            matter=matter,
+            actor_id=_UUID(actor_sub),
+            deterministic_only=deterministic_only,
+        )
     except Exception:  # advisory hook; see docstring
         logging.getLogger(__name__).exception(
             "attorney_review auto-run hook failed for matter %s", matter_id
@@ -208,7 +214,7 @@ def generate_draft_documents(user: User, matter_id: UUID) -> sch.DraftSetGenerat
     """Generate/regenerate the matter's watermarked draft set (family path)."""
     with db.transaction() as conn:
         result = service.generate_draft_set(conn, actor_sub=user.sub, matter_id=matter_id)
-    _auto_run_attorney_review(matter_id, user.sub)
+    _auto_run_attorney_review(matter_id, user.sub, deterministic_only=True)
     return result
 
 

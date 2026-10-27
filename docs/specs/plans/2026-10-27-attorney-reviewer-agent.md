@@ -270,3 +270,25 @@ FAILED sets. Cleanup: scratch matters deleted FK-safe; protected
 Flag `attorney_reviewer` enabled per-firm for Demo, E2E, and Virginia
 Default only (PUT as each firm's admin, verify `source: "firm"`). All
 other firms resolve off by default.
+
+## As-built addendum (2026-10-27, after the production gate)
+
+Shipped: commits 10e1458, 522f3e1, 77cc2ed + fixes 2c89276, 6a9cadb.
+Full evidence: hidden_files/attorney-reviewer-2026-10-27/VERIFICATION.md.
+
+Deviations/corrections the gate forced (each pinned by a test built
+from the production shape):
+- Slot names and payload derivations must come from the renderer's own
+  tables (_ANSWER_SLOT_TABLE, compute_progress), never from fixture
+  intuition: similar-name suppression for family members sharing a
+  surname; unfilled = answered-or-applicable-required only;
+  trustee_name is the grantor by renderer design (no priority-1
+  cross-check); execution detection must read the v2 signature layout
+  ("Witness N:" headers, rule-line + role-labeled name lines).
+- The snapshot tables carry matter_id/firm_id columns — any manual
+  snapshot restore must include them.
+- Two TRUE template defects the reviewer caught on a clean packet are
+  product findings, not reviewer bugs: a single testator's will prints
+  "I am married to ___." (+ blank children line), and the advance
+  directive pairs a no-donation wish with an anatomical-gift agent
+  appointment. Venugopal decision owed on the templates.

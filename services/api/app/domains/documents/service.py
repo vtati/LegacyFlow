@@ -1455,20 +1455,31 @@ def _render_demo_package(
     package = repo.update_package_render(conn, package_id, "demo_released", fingerprint)
     # Attorney Reviewer (§9): persist the frozen artifact this render
     # produced — the pre-review analyses exactly these bytes and this
-    # context, never live answers.
+    # context, never live answers. Best-effort BY DESIGN (plan R3): the
+    # reviewer is advisory, so a recording failure is logged loudly but
+    # must never fail the family's render.
     from ...domains.attorney_review import service as attorney_review_service
 
-    attorney_review_service.record_render_snapshot(
-        conn,
-        matter=matter,
-        package_id=package_id,
-        package_version=max(int(row["version"]) for row in created),
-        source_fingerprint=fingerprint,
-        template_type=str(template["template_type"]),
-        template_body=_template_content_body(template),
-        body_text=body,
-        context=context,
-    )
+    try:
+        attorney_review_service.record_render_snapshot(
+            conn,
+            matter=matter,
+            package_id=package_id,
+            package_version=max(int(row["version"]) for row in created),
+            source_fingerprint=fingerprint,
+            template_type=str(template["template_type"]),
+            template_body=_template_content_body(template),
+            body_text=body,
+            context=context,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "attorney_review snapshot recording failed for package %s; "
+            "the render itself is unaffected",
+            package_id,
+        )
     record_audit_event(
         conn,
         action="document_demo.generated",
