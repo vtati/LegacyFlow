@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.domains.intake import question_sets as qs
 from app.domains.intake.question_sets import _tokenize_applies, compute_progress
+from app.domains.interview.service import _ADDRESS_ROLE_KEYS
 from app.domains.legal_content.pack_loader import get_pack
 
 CLUSTERS = {"identity", "children", "money", "wishes", "people", "agents", "trust", "final"}
@@ -124,6 +125,32 @@ def test_pruned_profile_denominator_and_pruned_keys():
             "life_insurance_beneficiaries_current",
         ]
     )
+
+
+def test_poa_agent_address_question_agrees_with_address_guard():
+    """Pack/guard agreement (R3 nit): ``poa_agent_address`` is in the
+    interview's ``_ADDRESS_ROLE_KEYS``, whose guard requires a street-
+    shaped full address — so every shipped pack that asks the question
+    must actually request a street / full address, never only a
+    city/state. Pins the two sides together so they cannot drift."""
+    assert "poa_agent_address" in _ADDRESS_ROLE_KEYS
+    for version in ("2.0.0", "0.2.0"):
+        pack = get_pack("US-VA", version)
+        question = next(
+            q
+            for _, _, q in qs.iter_questions(pack.question_sets)
+            if q["key"] == "poa_agent_address"
+        )
+        label = str(question.get("label") or "").lower()
+        help_text = str(question.get("help") or "").lower()
+        # Separate assertions (not a loose ``or``): a revert of either
+        # the label or the help wording must fail on its own.
+        assert "street address" in label, (version, label)
+        assert "full address" in label, (version, label)
+        assert "identifies your agent by their full address" in help_text, (
+            version,
+            help_text,
+        )
 
 
 def test_declining_documents_prunes_their_sections():

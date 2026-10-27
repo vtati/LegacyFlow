@@ -15,8 +15,10 @@ All fixture data is synthetic.
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +28,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from pypdf import PdfReader
 
 from app.domains.documents import service as documents_service
 from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
@@ -626,6 +629,102 @@ def test_generate_prefers_the_matters_pack_template(db, api_client):
         db, "SELECT pack_id FROM document_templates WHERE id = %s", (will_package["template_id"],)
     )
     assert template_row["pack_id"] == "us-va"
+
+
+# ---------------------------------------------------------------------------
+# Production release: finals carry no draft marking in any carrier (R3)
+# ---------------------------------------------------------------------------
+
+
+def _docx_parts(content: bytes) -> dict[str, str]:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        return {
+            name: archive.read(name).decode("utf-8")
+            for name in archive.namelist()
+            if name.startswith("word/") and name.endswith(".xml")
+        }
+
+
+def _pdf_text(content: bytes) -> str:
+    return "\n".join(
+        page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages
+    )
+
+
+def _download(api_client: TestClient, sub: str, version: dict) -> bytes:
+    response = api_client.get(version["download_url"], headers=auth(sub))
+    assert response.status_code == 200, response.text
+    return response.content
+
+
+def _assert_marked(api_client: TestClient, version: dict) -> None:
+    content = _download(api_client, CLIENT, version)
+    if version["file_format"] == "docx":
+        parts = _docx_parts(content)
+        assert any(DEMO_TEXT in xml for xml in parts.values())
+        footers = [xml for name, xml in parts.items() if "footer" in name]
+        assert any(DEMO_TEXT in xml for xml in footers)
+        assert DEMO_TEXT in parts["word/document.xml"]
+    else:
+        assert DEMO_TEXT in _pdf_text(content)
+
+
+def _assert_clean(api_client: TestClient, version: dict) -> None:
+    content = _download(api_client, LAWYER, version)
+    if version["file_format"] == "docx":
+        parts = _docx_parts(content)
+        assert parts
+        for name, xml in parts.items():
+            assert "DRAFT" not in xml, name
+            assert "NOT LEGALLY VALID" not in xml, name
+    else:
+        text = _pdf_text(content)
+        assert "DRAFT" not in text
+        assert "NOT LEGALLY VALID" not in text
+
+
+def test_release_production_finals_clean_for_all_five_templates(db, api_client):
+    firm_id, _household, matter_id = ready_matter(db, api_client)
+    generated = generate(api_client, CLIENT, matter_id)
+    assert generated.status_code == 201, generated.text
+    body = generated.json()
+    assert len(body["packages"]) == 5
+    assert len(body["versions"]) == 10
+    # Drafts are marked in every carrier.
+    for version in body["versions"]:
+        _assert_marked(api_client, version)
+
+    # Attorney approves the document_release gate (direct gate row: the
+    # gate-approval API flow is covered by the review tests).
+    _exec(
+        db,
+        "INSERT INTO approval_gates"
+        " (firm_id, matter_id, gate_type, status, decided_by_user_id, decided_at)"
+        " VALUES (%s, %s, 'document_release', 'approved', %s, now())",
+        (firm_id, matter_id, LAWYER),
+    )
+
+    released_types = set()
+    for package in body["packages"]:
+        template_row = _one(
+            db,
+            "SELECT template_type FROM document_templates WHERE id = %s",
+            (package["template_id"],),
+        )
+        released_types.add(template_row["template_type"])
+        response = api_client.post(
+            f"/v1/packages/{package['id']}/release-production", headers=auth(LAWYER)
+        )
+        assert response.status_code == 200, response.text
+        released = response.json()
+        assert released["package"]["status"] == "released"
+        assert len(released["versions"]) == 2
+        assert {v["file_format"] for v in released["versions"]} == {"docx", "pdf"}
+        for version in released["versions"]:
+            assert version["is_demo"] is False
+            assert version["watermark_text"] is None
+            _assert_clean(api_client, version)
+    assert released_types == {"will", "poa", "advance_directive", "guardianship", "trust"}
 
 
 # ---------------------------------------------------------------------------
