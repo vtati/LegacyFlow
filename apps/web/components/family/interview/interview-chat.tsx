@@ -779,9 +779,11 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
             <CardContent className="space-y-2">
               <ProgressBar value={session.completeness_pct} label="Interview completeness" />
               <p className="text-xs text-lf-text-muted">
-                {requiredMissing.length === 0
-                  ? 'All required items are collected.'
-                  : `${requiredMissing.length} required item${requiredMissing.length === 1 ? '' : 's'} still needed.`}
+                {requiredMissing.length > 0
+                  ? `${requiredMissing.length} required item${requiredMissing.length === 1 ? '' : 's'} still needed.`
+                  : parkedRequired.length > 0
+                    ? 'Everything else is collected — just the saved-for-later items below still need your answers.'
+                    : 'All required items are collected.'}
               </p>
               {parkedRequired.length > 0 && (
                 <p className="text-xs text-lf-text-muted">
