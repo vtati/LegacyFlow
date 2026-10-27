@@ -126,6 +126,7 @@ function FileRow({
   const [expanded, setExpanded] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [addingTag, setAddingTag] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
   const analyzed = file.document_type != null;
   const canAnalyze =
     allowAnalyze && !analyzed && file.extraction_status === 'done' && analyzingId !== file.id;
@@ -136,9 +137,16 @@ function FileRow({
     const tag = tagInput.trim();
     if (!tag || addingTag) return;
     setAddingTag(true);
+    setTagError(null);
     try {
       await onAddTag(file, tag);
       setTagInput('');
+    } catch (err: unknown) {
+      // trackSave stays silent on 4xx (Stage F F3), so this inline error is
+      // the only surface a failed tag add gets — it must catch every failure.
+      setTagError(
+        err instanceof Error ? `Could not add tag: ${err.message}` : 'Could not add tag.',
+      );
     } finally {
       setAddingTag(false);
     }
@@ -248,6 +256,11 @@ function FileRow({
                 {addingTag ? 'Adding…' : 'Add'}
               </Button>
             </form>
+          )}
+          {tagError != null && (
+            <p role="alert" className="mt-2 text-xs text-lf-error-700">
+              {tagError}
+            </p>
           )}
         </div>
       )}
