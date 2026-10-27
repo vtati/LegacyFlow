@@ -145,12 +145,14 @@ def _all(db, sql: str, params: tuple = ()):
         return cur.fetchall()
 
 
-def build_world(db):
+def build_world(db, order=None):
     """Firm + household + matter + the CLIENT user as primary_client.
 
     Returns (household_id, matter_id, {full_name: person_id}) with the
     persons inserted in adversarial order at explicit, increasing
     created_at stamps so ORDER BY created_at is deterministic.
+    ``order`` overrides PERSON_ORDER (creation order only — the
+    primary_client member always points at the TESTATOR person).
     """
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)",
           (CLIENT, "client@example.test"))
@@ -165,7 +167,7 @@ def build_world(db):
               " VALUES (%s, %s, %s, %s)",
           (household_id, firm_id, "Sharma Household", CLIENT))
     person_ids: dict[str, str] = {}
-    for idx, name in enumerate(PERSON_ORDER):
+    for idx, name in enumerate(order or PERSON_ORDER):
         pid = str(uuid4())
         person_ids[name] = pid
         _exec(
@@ -508,6 +510,225 @@ def test_save_answers_id_shaped_person_value_reuses_existing_person(db):
     )
     assert nominations, "expected an auto-created nomination"
     assert any(str(n["person_id"]) == ids[SPOUSE] for n in nominations)
+
+
+def build_world_duplicate_names(db, *, spouse_link: str):
+    """Two adults sharing ONE name; the real testator is the second one.
+
+    The unrelated same-name adult is created FIRST; the real testator is
+    created second and is the household's primary_client member. The
+    spouse relationship row hangs off ``spouse_link`` ("testator" or
+    "impostor"). Returns (household_id, matter_id, ids) where ids has
+    keys "impostor", "testator", "spouse".
+    """
+    dup_name = "Sam Lee"
+    spouse_name = "Jordan Lee"
+    _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)",
+          (CLIENT, "client@example.test"))
+    _exec(db, "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+              " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
+          (CLIENT, "client@example.test", "Synthetic Client"))
+    firm_id = str(uuid4())
+    _exec(db, "INSERT INTO firms (id, legal_name, display_name, status)"
+              " VALUES (%s, %s, %s, 'active')", (firm_id, "Synthetic Firm", "Synthetic Firm"))
+    household_id = str(uuid4())
+    _exec(db, "INSERT INTO households (id, firm_id, display_name, created_by_user_id)"
+              " VALUES (%s, %s, %s, %s)",
+          (household_id, firm_id, "Lee Household", CLIENT))
+    ids = {"impostor": str(uuid4()), "testator": str(uuid4()), "spouse": str(uuid4())}
+    for idx, (key, name) in enumerate([
+        ("impostor", dup_name), ("testator", dup_name), ("spouse", spouse_name),
+    ]):
+        _exec(
+            db,
+            "INSERT INTO persons (id, household_id, full_name, kind, created_at)"
+            " VALUES (%s, %s, %s, 'adult', %s)",
+            (ids[key], household_id, name, f"2026-01-01T00:00:{idx:02d}Z"),
+        )
+    _exec(db, "INSERT INTO household_members"
+              " (household_id, user_id, person_id, relationship_role, access_status)"
+              " VALUES (%s, %s, %s, 'primary_client', 'active')",
+          (household_id, CLIENT, ids["testator"]))
+    linked = ids["testator"] if spouse_link == "testator" else ids["impostor"]
+    _exec(db, "INSERT INTO relationships"
+              " (household_id, from_person_id, to_person_id, relationship_type)"
+              " VALUES (%s, %s, %s, 'spouse')",
+          (household_id, linked, ids["spouse"]))
+    matter_id = str(uuid4())
+    snapshot = json.dumps(
+        {"pack_id": "us-va", "jurisdiction_code": "US-VA", "semantic_version": "2.0.0"}
+    )
+    _exec(
+        db,
+        "INSERT INTO matters (id, firm_id, household_id, primary_jurisdiction_id,"
+        " jurisdiction_pack_id, plan_type, status, title, jurisdiction_snapshot,"
+        " completeness_pct)"
+        " VALUES (%s, %s, %s, %s, %s, 'will', 'INTAKE_IN_PROGRESS', %s, %s::jsonb, 0)",
+        (matter_id, firm_id, household_id, US_VA_JURISDICTION_ID, US_VA_PACK_ID,
+         "Lee Estate Plan", snapshot),
+    )
+    return household_id, matter_id, ids
+
+
+# ---------------------------------------------------------------------------
+# I-1: unmatched UUID-shaped person values must never print
+# ---------------------------------------------------------------------------
+
+
+def test_context_foreign_uuid_person_value_is_dropped(db):
+    _household_id, matter_id, ids = build_world(db)
+    answers = answers_shape_a(ids)
+    foreign = str(uuid4())
+    answers["primary_executor_person"] = foreign
+    set_answers(db, matter_id, answers)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    # Dropped = unset: the slot is absent so the merge blanks it to ___
+    # and the unfilled-placeholder escalation records it.
+    assert "executor_name" not in ctx
+    assert ctx.get("primary_executor_person") != foreign
+    for key, value in ctx.items():
+        assert not UUID_SHAPE.search(str(value)), f"UUID leaked into context[{key!r}]"
+    will = render(db, matter_id, "last-will-and-testament.txt")
+    assert f"I appoint ___, of {EXECUTOR_ADDRESS}, as Executor" in will
+    assert not UUID_SHAPE.search(will)
+
+
+def test_context_uuid_of_person_outside_household_is_dropped(db):
+    _household_id, matter_id, ids = build_world(db)
+    # A real person UUID that belongs to a DIFFERENT household.
+    other_firm = str(uuid4())
+    _exec(db, "INSERT INTO firms (id, legal_name, display_name, status)"
+              " VALUES (%s, %s, %s, 'active')", (other_firm, "Other Firm", "Other Firm"))
+    other_household = str(uuid4())
+    _exec(db, "INSERT INTO households (id, firm_id, display_name, created_by_user_id)"
+              " VALUES (%s, %s, %s, %s)",
+          (other_household, other_firm, "Other Household", CLIENT))
+    outsider_id = str(uuid4())
+    _exec(db, "INSERT INTO persons (id, household_id, full_name, kind)"
+              " VALUES (%s, %s, %s, 'adult')",
+          (outsider_id, other_household, "Out Sider"))
+    answers = answers_shape_a(ids)
+    answers["primary_executor_person"] = outsider_id
+    set_answers(db, matter_id, answers)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert "executor_name" not in ctx
+    for key, value in ctx.items():
+        assert not UUID_SHAPE.search(str(value)), f"UUID leaked into context[{key!r}]"
+    will = render(db, matter_id, "last-will-and-testament.txt")
+    assert not UUID_SHAPE.search(will)
+
+
+def test_context_uppercase_uuid_of_existing_person_resolves(db):
+    _household_id, matter_id, ids = build_world(db)
+    answers = answers_shape_a(ids)
+    answers["primary_executor_person"] = ids[EXECUTOR].upper()
+    set_answers(db, matter_id, answers)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["executor_name"] == EXECUTOR
+    for key, value in ctx.items():
+        assert not UUID_SHAPE.search(str(value)), f"UUID leaked into context[{key!r}]"
+    will = render(db, matter_id, "last-will-and-testament.txt")
+    assert f"I appoint {EXECUTOR}, of {EXECUTOR_ADDRESS}, as Executor" in will
+    assert not UUID_SHAPE.search(will)
+
+
+def test_context_unmatched_uuid_testator_answer_is_dropped(db):
+    """M-1: testator_full_name is in the scrub set — an ID-shaped value
+    under that key must never survive; the member chain takes over."""
+    _household_id, matter_id, ids = build_world(db)
+    answers = answers_shape_a(ids)
+    foreign = str(uuid4())
+    answers["testator_full_name"] = foreign
+    set_answers(db, matter_id, answers)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx.get("testator_full_name") != foreign
+    for key, value in ctx.items():
+        assert not UUID_SHAPE.search(str(value)), f"UUID leaked into context[{key!r}]"
+    # Dropped testator answer falls through to the primary_client member.
+    assert ctx["testator_name"] == TESTATOR
+
+
+# ---------------------------------------------------------------------------
+# I-2: testator identity carried as a person id (duplicate-name households)
+# ---------------------------------------------------------------------------
+
+
+def test_context_duplicate_names_spouse_follows_real_testator(db):
+    _household_id, matter_id, _ids = build_world_duplicate_names(
+        db, spouse_link="testator"
+    )
+    set_answer(db, matter_id, "testator_full_name", "Sam Lee")
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["testator_name"] == "Sam Lee"
+    assert ctx["spouse_name"] == "Jordan Lee"
+
+
+def test_context_duplicate_names_spouse_of_namesake_not_picked(db):
+    _household_id, matter_id, _ids = build_world_duplicate_names(
+        db, spouse_link="impostor"
+    )
+    set_answer(db, matter_id, "testator_full_name", "Sam Lee")
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["testator_name"] == "Sam Lee"
+    # The spouse row belongs to the same-name non-testator: no signal
+    # exists for the actual testator, so the slot stays unset.
+    assert "spouse_name" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# I-3: testator member-chain proven, not coincidental with adults[0]
+# ---------------------------------------------------------------------------
+
+
+def test_context_testator_member_chain_with_guardian_created_first(db):
+    order = [GUARDIAN, TESTATOR, SPOUSE, EXECUTOR, BACKUP_EXECUTOR,
+             BACKUP_GUARDIAN, SUCCESSOR_HEALTHCARE, SUCCESSOR_POA,
+             SUCCESSOR_TRUSTEE]
+    _household_id, matter_id, ids = build_world(db, order=order)
+    answers = answers_shape_a(ids)
+    del answers["testator_full_name"]
+    set_answers(db, matter_id, answers)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    # The guardian was created first, so adults[0] is the guardian; the
+    # primary_client member (the testator) must still win everywhere.
+    assert ctx["testator_name"] == TESTATOR
+    assert ctx["principal_name"] == TESTATOR
+    assert ctx["declarant_name"] == TESTATOR
+    assert ctx["trust_name"] == "The Sharma Family Revocable Trust"
+
+
+# ---------------------------------------------------------------------------
+# Stretch: merged bodies — Trust + Advance Medical Directive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shape", ["a", "b"])
+def test_merged_trust_and_amd_bodies(db, shape):
+    household_id, matter_id, ids = build_world(db)
+    answers = answers_shape_a(ids) if shape == "a" else answers_shape_b(ids)
+    set_answers(db, matter_id, answers)
+    _exec(db, "INSERT INTO relationships"
+              " (household_id, from_person_id, to_person_id, relationship_type)"
+              " VALUES (%s, %s, %s, 'spouse')",
+          (household_id, ids[TESTATOR], ids[SPOUSE]))
+
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "The Sharma Family Revocable Trust" in trust
+    assert f"I, {TESTATOR}, of 9 Elm Street, Richmond, Virginia, as Grantor" in trust
+    assert f"{SUCCESSOR_TRUSTEE} shall serve as successor Trustee" in trust
+    assert "$10 and household effects" in trust
+    assert CHILD in trust
+
+    amd = render(db, matter_id, "advance-medical-directive.txt")
+    assert f"DECLARANT: I, {TESTATOR}, of 9 Elm Street, Richmond, Virginia" in amd
+    assert f"Agent: {SPOUSE}" in amd
+    assert f"Successor Agent: {SUCCESSOR_HEALTHCARE}" in amd
+    assert f"I appoint {SPOUSE} to make any anatomical gift" in amd
+    assert "No heroic measures" in amd
+
+    for body in (trust, amd):
+        assert not UUID_SHAPE.search(body)
+        assert "{{" not in body
 
 
 def test_save_answers_name_shaped_person_value_still_syncs(db):

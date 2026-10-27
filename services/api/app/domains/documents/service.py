@@ -1003,6 +1003,13 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
 #: Matches ``{{placeholder}}`` tokens left unfilled after a merge.
 _UNFILLED_TOKEN = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 
+#: Canonical UUID shape (8-4-4-4-12 hex). A person-reference value with
+#: this shape that matches no household person is a dangling ID, never
+#: a name — it must be dropped, not printed into a legal document.
+_UUID_SHAPED = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
 
 #: Explicit, order-independent answer-key -> context-slot table for the
 #: person/role slots (R1). Person answers exist in two storage shapes —
@@ -1061,6 +1068,12 @@ _PERSON_ANSWER_KEYS = frozenset(
     key for key, (_slots, is_person) in _ANSWER_SLOT_TABLE.items() if is_person
 )
 
+#: Keys scrubbed through person resolution in the base render context.
+#: ``testator_full_name`` is not a slot-table key, but an ID-shaped value
+#: under it must never survive into a firm template's
+#: ``{{testator_full_name}}`` placeholder either.
+_PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
+
 
 def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
     """Build the full placeholder context for document templates.
@@ -1101,16 +1114,33 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             if p.get("id") and str(p.get("full_name") or "").strip()
         }
 
+        # Case-insensitive id lookup, mirroring intake's resolver:
+        # wizard payloads may carry the id in either case.
+        person_id_by_lower = {pid.lower(): pid for pid in person_names_by_id}
+
         def resolve_person(value: Any) -> str:
             text = value.strip() if isinstance(value, str) else ""
-            return person_names_by_id.get(text, text)
+            if not text:
+                return ""
+            canonical = person_id_by_lower.get(text.lower())
+            if canonical is not None:
+                return person_names_by_id[canonical]
+            if _UUID_SHAPED.fullmatch(text):
+                # UUID-shaped but no household person: a dangling ID.
+                # Drop it (treated as unset) — never print it.
+                return ""
+            return text
 
         # The base context carries raw answers under their question keys;
         # scrub person keys there too so an ID never survives in the
-        # context under any key.
-        for person_key in _PERSON_ANSWER_KEYS:
+        # context under any key. A dropped value removes the key.
+        for person_key in _PERSON_SCRUB_KEYS:
             if person_key in context:
-                context[person_key] = resolve_person(context[person_key])
+                resolved = resolve_person(context[person_key])
+                if resolved:
+                    context[person_key] = resolved
+                else:
+                    del context[person_key]
 
         children = []
         adults = []
@@ -1144,18 +1174,51 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             members = []
         # Testator identity: the confirmed testator_full_name answer wins;
         # otherwise the household's primary_client member's person;
-        # otherwise the first adult (legacy fallback).
-        testator_name = resolve_person(answers.get("testator_full_name"))
+        # otherwise the first adult (legacy fallback). The resolved
+        # person ID is carried through the chain — never re-derived by
+        # name afterwards — so duplicate-name households resolve the
+        # spouse/relationship signals against the actual testator.
+        testator_id = ""
+        testator_name = ""
+        primary_client_pid = ""
+        for member in members:
+            if str(member.get("relationship_role") or "").strip().lower() == "primary_client":
+                primary_client_pid = str(member.get("person_id") or "")
+                break
+        raw_testator = answers.get("testator_full_name")
+        if isinstance(raw_testator, str) and raw_testator.strip():
+            text = raw_testator.strip()
+            canonical = person_id_by_lower.get(text.lower())
+            if canonical is not None:
+                # ID-shaped answer: that person, directly.
+                testator_id = canonical
+                testator_name = person_names_by_id[canonical]
+            elif not _UUID_SHAPED.fullmatch(text):
+                # Name-shaped answer: the household person matched by
+                # that name; with duplicate names prefer the
+                # primary_client member's person.
+                testator_name = text
+                matches = [
+                    pid for pid, pname in person_names_by_id.items()
+                    if pname.strip().lower() == text.lower()
+                ]
+                if matches:
+                    preferred = person_id_by_lower.get(primary_client_pid.lower(), "")
+                    testator_id = preferred if preferred in matches else matches[0]
+            # UUID-shaped but unmatched: dropped by resolve_person's
+            # rule — fall through to the member chain below.
         if not testator_name:
             for member in members:
                 if str(member.get("relationship_role") or "").strip().lower() == "primary_client":
                     pid = str(member.get("person_id") or "")
                     if pid in person_names_by_id:
+                        testator_id = pid
                         testator_name = person_names_by_id[pid]
                         break
         if not testator_name and adults:
             testator_name = adults[0]
-        testator_id = ""
+            if adult_ids:
+                testator_id = adult_ids[0]
         if testator_name:
             context["testator_name"] = testator_name
             context["grantor_name"] = testator_name
@@ -1167,12 +1230,6 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             # Default trust name from the family name.
             last = testator_name.strip().split()[-1] if testator_name.strip() else "Family"
             context.setdefault("trust_name", f"The {last} Family Revocable Trust")
-            for pid, pname in person_names_by_id.items():
-                if pname == testator_name:
-                    testator_id = pid
-                    break
-            if not testator_id and adults and testator_name == adults[0] and adult_ids:
-                testator_id = adult_ids[0]
         # Spouse: ONLY from a real signal — a relationships row of type
         # spouse/partner involving the testator, or a household_members
         # row with relationship_role spouse/partner. Never positional:
@@ -1227,8 +1284,9 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                 continue
             slots, is_person = entry
             value = resolve_person(ans) if is_person else ans
-            for slot in slots:
-                context[slot] = value
+            if value:
+                for slot in slots:
+                    context[slot] = value
             if key == "successor_healthcare_agent_person":
                 context.setdefault("successor_healthcare_agent_address", "___")
                 context.setdefault("successor_healthcare_agent_phone", "___")
