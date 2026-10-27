@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Circle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
-import { firmApi, type SigningChecklist } from '@/lib/api-client';
+import { ApiError, firmApi, type SigningChecklist } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 
 /** Shared status summary for a signing checklist (firm + family views). */
@@ -32,18 +33,46 @@ function isNotaryRequired(requirements: Record<string, unknown>): boolean {
   return notary?.['legally_required'] === true;
 }
 
-/** Firm signing tab — read-only checklist status for the matter. */
+/**
+ * Firm signing tab — checklist status for the matter, plus generation.
+ *
+ * Generation belongs on the firm side (R2): the API resolves the execution
+ * profile from the matter's pack server-side (e.g. VA-WILL-V0) and only an
+ * optional document_type assertion may be sent, so the action posts with
+ * no document_type. It is offered when every package is released and no
+ * checklist exists yet; once generated, the family Signing page renders
+ * the same checklist via its own (family) client.
+ */
 export function SigningTab({ matterId }: { matterId: string }): React.JSX.Element {
   const [checklist, setChecklist] = useState<SigningChecklist | null>(null);
+  const [documentsReleased, setDocumentsReleased] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   const loadChecklist = useCallback(() => {
     setLoading(true);
     setError(null);
-    firmApi
-      .getChecklist(matterId)
-      .then(setChecklist)
+    Promise.all([
+      firmApi.getChecklist(matterId).catch((err: unknown) => {
+        // A 404 means no checklist exists yet — an empty state, not an
+        // error (same convention as the family Signing page).
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }),
+      // Released state is read from the packages themselves (server truth),
+      // not the parent page's possibly-stale matter status.
+      firmApi.listPackages(matterId).catch(() => null),
+    ])
+      .then(([loadedChecklist, packages]) => {
+        setChecklist(loadedChecklist);
+        setDocumentsReleased(
+          packages != null &&
+            packages.length > 0 &&
+            packages.every((p) => p.status === 'released'),
+        );
+      })
       .catch((err: unknown) => setError(err))
       .finally(() => setLoading(false));
   }, [matterId]);
@@ -51,6 +80,20 @@ export function SigningTab({ matterId }: { matterId: string }): React.JSX.Elemen
   useEffect(() => {
     loadChecklist();
   }, [loadChecklist]);
+
+  const handleGenerate = () => {
+    setGenerating(true);
+    setGenerateError(null);
+    firmApi
+      .generateChecklist(matterId)
+      .then(setChecklist)
+      .catch((err: unknown) =>
+        setGenerateError(
+          err instanceof Error ? err.message : 'Could not generate the signing checklist.',
+        ),
+      )
+      .finally(() => setGenerating(false));
+  };
 
   const attestedAtByRequirement = useMemo(() => {
     const map = new Map<string, string>();
@@ -64,10 +107,28 @@ export function SigningTab({ matterId }: { matterId: string }): React.JSX.Elemen
   if (error != null) return <ErrorState error={error} onRetry={loadChecklist} />;
   if (!checklist) {
     return (
-      <EmptyState
-        title="No checklist"
-        description="No signing checklist has been generated for this matter yet."
-      />
+      <div className="space-y-4">
+        {generateError && (
+          <p role="alert" className="text-sm text-lf-error-700">
+            {generateError}
+          </p>
+        )}
+        <EmptyState
+          title="No checklist"
+          description={
+            documentsReleased
+              ? 'The documents are released. Generate the signing checklist from this matter’s execution profile so the family can follow it on their Signing page.'
+              : 'No signing checklist has been generated for this matter yet. Generation becomes available once the documents are released.'
+          }
+          action={
+            documentsReleased ? (
+              <Button type="button" disabled={generating} onClick={handleGenerate}>
+                {generating ? 'Generating…' : 'Generate signing checklist'}
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
     );
   }
 

@@ -26,9 +26,13 @@ interface PackageCardProps {
   matterId: string;
   pkg: DocumentPackage;
   templates: DocumentTemplate[];
+  /** Called with the server-returned package after a successful release so
+   * the tab can merge + refetch and render the true released state (R2). */
+  onReleased?: (pkg: DocumentPackage) => void;
 }
 
-function PackageCard({ pkg, templates }: PackageCardProps) {
+function PackageCard({ pkg, templates, onReleased }: PackageCardProps) {
+  const released = pkg.status === 'released';
   const [format, setFormat] = useState<DraftFormat>('pdf');
   const [generating, setGenerating] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -83,15 +87,31 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
     setNotice(null);
     firmApi
       .releaseProduction(pkg.id)
-      .then(async ({ versions }) => {
+      .then(async ({ package: releasedPackage, versions }) => {
+        // The release itself succeeded: hand the server state up FIRST so
+        // the tab refetches and re-renders the true released count/state,
+        // even if the convenience download below fails (R2 staleness bug:
+        // the tab used to keep showing this package as unreleased).
+        onReleased?.(releasedPackage);
         const version = versions.find((v) => v.file_format === format);
         if (!version) {
-          throw new Error(`No ${format} final version was released.`);
+          setNotice(
+            `Final documents released. No ${format} version was returned to download.`,
+          );
+          return;
         }
-        const path = version.download_url.replace(/^\/v1/, '');
-        const { blob, filename } = await apiFetchBlob(path, { method: 'GET' });
-        downloadBlob(blob, filename);
-        setNotice(`Final documents released and downloaded: ${filename}.`);
+        try {
+          const path = version.download_url.replace(/^\/v1/, '');
+          const { blob, filename } = await apiFetchBlob(path, { method: 'GET' });
+          downloadBlob(blob, filename);
+          setNotice(`Final documents released and downloaded: ${filename}.`);
+        } catch (err: unknown) {
+          setNotice(
+            err instanceof Error
+              ? `Final documents released, but the download failed: ${err.message}`
+              : 'Final documents released, but the download failed.',
+          );
+        }
       })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 409) {
@@ -156,15 +176,21 @@ function PackageCard({ pkg, templates }: PackageCardProps) {
             <Download className="size-4" aria-hidden="true" />
             {generating ? 'Generating…' : 'Generate draft'}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={releasing}
-            onClick={() => setConfirmRelease(true)}
-          >
-            {releasing ? 'Releasing…' : 'Release for production'}
-          </Button>
+          {released ? (
+            <p className="text-sm font-medium text-lf-success-700">
+              Final documents released.
+            </p>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={releasing}
+              onClick={() => setConfirmRelease(true)}
+            >
+              {releasing ? 'Releasing…' : 'Release for production'}
+            </Button>
+          )}
         </div>
         <Modal
           open={confirmRelease}
@@ -235,6 +261,31 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  // After a release, refetch the package list so the released count, the
+  // per-package badges and the release affordances reflect server truth —
+  // the tab previously kept its mount-time snapshot forever (R2).
+  const refreshPackages = useCallback(() => {
+    firmApi
+      .listPackages(matterId)
+      .then((packageList) =>
+        setPackages([...packageList].sort((a, b) => b.created_at.localeCompare(a.created_at))),
+      )
+      .catch(() => {
+        // Keep the merged server-returned package (handlePackageReleased);
+        // a failed refetch must not resurrect the stale snapshot.
+      });
+  }, [matterId]);
+
+  const handlePackageReleased = useCallback(
+    (releasedPackage: DocumentPackage) => {
+      setPackages((prev) =>
+        prev.map((p) => (p.id === releasedPackage.id ? releasedPackage : p)),
+      );
+      refreshPackages();
+    },
+    [refreshPackages],
+  );
 
   const toggleTemplate = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -458,7 +509,13 @@ export function DocumentsTab({ matterId }: { matterId: string }): React.JSX.Elem
           />
         ) : (
           packages.map((pkg) => (
-            <PackageCard key={pkg.id} matterId={matterId} pkg={pkg} templates={templates} />
+            <PackageCard
+              key={pkg.id}
+              matterId={matterId}
+              pkg={pkg}
+              templates={templates}
+              onReleased={handlePackageReleased}
+            />
           ))
         )}
       </div>

@@ -347,8 +347,10 @@ describe('Firm API (Slice 4)', () => {
   it('gets the signing checklist and funding tasks', async () => {
     respondWith({ requirements: [], attestations: [] });
     await firm.getChecklist('matter-1');
+    // R2: the API route is /signing-checklist (documents router); the old
+    // /signing/checklist expectation encoded a path that always 404'd.
     expect(requests[0]).toMatchObject({
-      url: '/v1/matters/matter-1/signing/checklist',
+      url: '/v1/matters/matter-1/signing-checklist',
       method: 'GET',
     });
 
@@ -364,6 +366,16 @@ describe('Firm API (Slice 4)', () => {
     expect(requests[2]).toMatchObject({
       url: '/v1/matters/matter-1/funding-tasks',
       method: 'GET',
+    });
+  });
+
+  it('generates a signing checklist (R2: profile resolved server-side)', async () => {
+    respondWith({ id: 'checklist-1', execution_profile_id: 'VA-WILL-V0' });
+    await firm.generateChecklist('matter-1');
+    expect(requests[0]).toMatchObject({
+      url: '/v1/matters/matter-1/signing-checklists',
+      method: 'POST',
+      body: {},
     });
   });
 

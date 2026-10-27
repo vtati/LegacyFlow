@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { AssistantPanel } from '@/components/ai/assistant-panel';
@@ -64,6 +64,17 @@ export default function FirmMatterDetailPage({
       })
       .catch((err: unknown) => setError(err))
       .finally(() => setLoading(false));
+  }, [matterId]);
+
+  // Gate decisions in the Gates tab can transition the matter server-side
+  // (e.g. approving document_release → DOCUMENTS_RELEASED). Refetch so the
+  // header badge, the decision panel, and the Gates tab's matterStatus prop
+  // all reflect the new status instead of going stale.
+  const handleMatterChanged = useCallback(() => {
+    firmApi
+      .getMatter(matterId)
+      .then(setMatter)
+      .catch(() => undefined);
   }, [matterId]);
 
   return (
@@ -187,7 +198,13 @@ export default function FirmMatterDetailPage({
             {tab === 'review' && <ReviewPacketTab matterId={matterId} />}
             {tab === 'comments' && <CommentsTab matterId={matterId} />}
             {tab === 'clarifications' && <ClarificationsTab matterId={matterId} />}
-            {tab === 'gates' && <GatesTab matterId={matterId} />}
+            {tab === 'gates' && (
+              <GatesTab
+                matterId={matterId}
+                matterStatus={matter.matter.status}
+                onMatterChanged={handleMatterChanged}
+              />
+            )}
           </div>
         </>
       )}

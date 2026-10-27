@@ -69,7 +69,7 @@ function GateCard({ gate, deciding, onDecide }: GateCardProps) {
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 rows={2}
-                maxLength={2000}
+                maxLength={1000}
                 placeholder="Required when rejecting — what needs to change?"
                 className="flex w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 py-2 text-sm text-lf-text shadow-lf-subtle placeholder:text-lf-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
               />
@@ -105,13 +105,34 @@ function GateCard({ gate, deciding, onDecide }: GateCardProps) {
   );
 }
 
-/** Gates tab: approval gates with approve/reject actions for pending gates. */
-export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element {
+/**
+ * Gates tab: approval gates with approve/reject actions for pending gates,
+ * plus creation of a document_release gate when none is pending/approved.
+ * Creation lives here as well as in the decision panel (R2): deciding alone
+ * was a dead end when no gate existed yet, and release-production 409'd.
+ * The API only allows creating/deciding a document_release gate while the
+ * matter is APPROVED_FOR_ASSEMBLY, so the creation affordance is fail-closed:
+ * it renders only when `matterStatus` is exactly APPROVED_FOR_ASSEMBLY.
+ * Deciding a gate can transition the matter server-side, so every successful
+ * decision invokes `onMatterChanged` — the parent refetches the matter and
+ * refreshes the header badge and the decision panel (mirrors how
+ * ReviewDecisionPanel reports status changes upward).
+ */
+export function GatesTab({
+  matterId,
+  matterStatus,
+  onMatterChanged,
+}: {
+  matterId: string;
+  matterStatus?: string;
+  onMatterChanged?: () => void;
+}): React.JSX.Element {
   const [gates, setGates] = useState<Gate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -138,17 +159,51 @@ export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element 
     setActionError(null);
     firmApi
       .decideGate(gateId, { decision, notes })
-      .then((updated) =>
-        setGates((prev) => prev.map((gate) => (gate.id === updated.id ? updated : gate))),
-      )
+      .then((updated) => {
+        setGates((prev) => prev.map((gate) => (gate.id === updated.id ? updated : gate)));
+        // A decision can move the matter (e.g. document_release approval →
+        // DOCUMENTS_RELEASED); tell the parent so its status state — header
+        // badge, decision panel, and this tab's matterStatus — refreshes.
+        onMatterChanged?.();
+      })
       .catch((err: unknown) =>
         setActionError(err instanceof Error ? err.message : 'Could not record the decision.'),
       )
       .finally(() => setDecidingId(null));
   };
 
+  const handleCreateDocumentRelease = () => {
+    setCreating(true);
+    setActionError(null);
+    firmApi
+      .createGate(matterId, { gate_type: 'document_release', notes: null })
+      .then((created) =>
+        setGates((prev) =>
+          [created, ...prev].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+        ),
+      )
+      .catch((err: unknown) =>
+        setActionError(
+          err instanceof Error ? err.message : 'Could not create the document release gate.',
+        ),
+      )
+      .finally(() => setCreating(false));
+  };
+
   if (loading) return <LoadingState lines={3} label="Loading approval gates…" />;
   if (error != null) return <ErrorState error={error} onRetry={load} />;
+
+  // A pending gate is decidable below and an approved one already satisfies
+  // release-production; only offer creation when neither exists (a rejected
+  // gate may be re-created — the API only conflicts on a pending duplicate).
+  const hasUsableReleaseGate = gates.some(
+    (g) =>
+      g.gate_type === 'document_release' && (g.status === 'pending' || g.status === 'approved'),
+  );
+  const canCreateReleaseGate =
+    !hasUsableReleaseGate && matterStatus === 'APPROVED_FOR_ASSEMBLY';
 
   return (
     <div className="space-y-4">
@@ -157,12 +212,33 @@ export function GatesTab({ matterId }: { matterId: string }): React.JSX.Element 
           {actionError}
         </p>
       )}
-      {gates.length === 0 ? (
+      {canCreateReleaseGate && (
+        <Card>
+          <CardContent className="space-y-3 p-5">
+            <div>
+              <p className="text-sm font-semibold text-lf-text">Document release gate</p>
+              <p className="mt-1 text-sm text-lf-text-muted">
+                Final documents cannot be released until the attorney approves a document
+                release gate for this matter. Create the gate here, then approve it below.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={creating}
+              onClick={handleCreateDocumentRelease}
+            >
+              {creating ? 'Creating…' : 'Create document release gate'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      {gates.length === 0 && !canCreateReleaseGate ? (
         <EmptyState
           title="No approval gates"
           description="Approval gates appear here when the plan reaches a step that needs attorney sign-off."
         />
-      ) : (
+      ) : gates.length === 0 ? null : (
         <ul className="space-y-3">
           {gates.map((gate) => (
             <li key={gate.id}>
