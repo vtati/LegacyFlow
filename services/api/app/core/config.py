@@ -68,9 +68,16 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
     # Interview v2 model split: the conductor + document extractor need
-    # the stronger model for extraction/tool discipline; cheap
-    # classification (consistency) stays on OPENAI_CHAT_MODEL.
+    # the stronger model for extraction/tool discipline.
     OPENAI_INTERVIEW_MODEL: str = "gpt-4o"
+    # Consistency review model. Benchmark 2026-10-26 (F2; 12 seeded
+    # contradiction/consistent cases, production prompt, one pass each):
+    # gpt-4o-mini caught 6/6 contradictions but false-flagged 1/6
+    # consistent cases; gpt-5.5 caught 6/6 with 0/6 false positives.
+    # Contradiction-spotting is a judgment task, so the reviewer gets
+    # its own setting at the stronger tier instead of silently
+    # inheriting the cheap shared chat model.
+    OPENAI_CONSISTENCY_MODEL: str = "gpt-5.5"
     # Stronger extractor for the interview_v2 path ONLY (benchmark
     # 2026-10-25: gpt-5.5 beat gpt-4o on the recorded A/B paragraphs —
     # recall .933 vs .908, wrong-source proposals 0 vs 6). Flag-off

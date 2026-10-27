@@ -210,10 +210,10 @@ def run_consistency_review(
             raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
         raw_findings, usage = _review_via_openai(
             api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_CHAT_MODEL,
+            model=settings.OPENAI_CONSISTENCY_MODEL,
             facts=facts,
         )
-        model_id = settings.OPENAI_CHAT_MODEL
+        model_id = settings.OPENAI_CONSISTENCY_MODEL
         for item in raw_findings:
             if not isinstance(item, dict):
                 continue
