@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import '@legacyflow/design-tokens/tokens.css';
 import './globals.css';
@@ -17,6 +17,16 @@ const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
   display: 'swap',
 });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  // Chat-style screens (the AI interview) anchor their composer to the
+  // dynamic viewport; when the on-screen keyboard opens, the layout
+  // viewport must resize with it instead of the keyboard overlaying the
+  // composer (Chrome/Android; iOS Safari tracks the visual viewport).
+  interactiveWidget: 'resizes-content',
+};
 
 export const metadata: Metadata = {
   title: {

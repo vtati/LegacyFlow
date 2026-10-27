@@ -265,6 +265,15 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const [review, setReview] = useState<ConsistencyReview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerShellRef = useRef<HTMLDivElement>(null);
+  // Whether the thread should stay glued to the latest message. True until
+  // the user scrolls away from the bottom to read history.
+  const stickToBottomRef = useRef(true);
+  // Set when a send starts with focus inside the composer: the composer is
+  // disabled while sending, which makes browsers drop focus to <body>
+  // (dismissing the mobile keyboard); restore focus when the send settles.
+  const restoreFocusRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -331,17 +340,52 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
     void bootstrap();
   }, [bootstrap]);
 
-  // useLayoutEffect (not useEffect): runs synchronously after DOM mutations
-  // but before the browser paints. This guarantees the scroll position is
-  // correct before the user sees anything — no flash of wrong position,
-  // no race with paint. 'auto' (instant) because browsers cancel smooth
-  // scrolls during page load.
+  // Pin the thread to the latest message before paint. Deps include
+  // `phase`: bootstrap hydrates `messages` while the phase is still
+  // 'loading' (thread not yet mounted, so this effect no-ops against a null
+  // ref) and only then flips to 'ready' — without `phase` here, the pin
+  // never lands and the thread opens at the oldest message.
   useLayoutEffect(() => {
     const el = threadRef.current;
-    if (el) {
+    if (el && stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, phase]);
+
+  // The card height tracks the dynamic viewport, so when the mobile
+  // keyboard opens/closes (or the URL bar shows/hides) the thread resizes —
+  // re-pin while the user is at the bottom so the latest message and the
+  // composer stay in view instead of the conversation sliding away.
+  useEffect(() => {
+    const el = threadRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [phase]);
+
+  // Track whether the user is parked at the bottom; scrolling up to read
+  // history suspends pinning until they return to the bottom.
+  const onThreadScroll = useCallback(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+  }, []);
+
+  // Return focus to the composer once a send settles (success or failure)
+  // if the user was typing when it started — keeps the mobile keyboard up
+  // and the conversation stable between turns.
+  useEffect(() => {
+    if (!sending && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      composerRef.current?.focus({ preventScroll: true });
+    }
+  }, [sending]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -351,6 +395,12 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       return;
     }
     if (session.status === 'completed' || session.status === 'abandoned') return;
+    // Own sends always jump to the latest message, and if the user was
+    // typing (focus anywhere inside the composer shell) focus must come
+    // back after the disabled-while-sending window blur.
+    stickToBottomRef.current = true;
+    restoreFocusRef.current =
+      composerShellRef.current?.contains(document.activeElement) ?? false;
     setSending(true);
     setError(null);
     const userMsg: ChatMessage = {
@@ -618,8 +668,8 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Chat thread */}
         <Card className="border-lf-border bg-lf-canvas shadow-none lg:col-span-2">
-          <CardContent className="flex h-[calc(100dvh-13rem)] flex-col p-0 lg:h-[60vh]">
-            <div ref={threadRef} className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6" aria-live="polite">
+          <CardContent className="flex h-[calc(100dvh-15.5rem)] flex-col p-0 lg:h-[60vh]">
+            <div ref={threadRef} onScroll={onThreadScroll} className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6" aria-live="polite">
               {messages.length === 0 && (
                 <p className="text-sm text-lf-text-muted">
                   Say hello to begin. The assistant will guide you through each item, one question
@@ -709,7 +759,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
               <Label htmlFor="interview-composer" className="sr-only">
                 Message the intake assistant
               </Label>
-              <div className="lf-composer flex items-end gap-1 rounded-2xl border border-lf-border bg-lf-canvas-elevated p-2 shadow-[0_8px_24px_rgb(15_23_42/0.08)]">
+              <div ref={composerShellRef} className="lf-composer flex items-end gap-1 rounded-2xl border border-lf-border bg-lf-canvas-elevated p-2 shadow-[0_8px_24px_rgb(15_23_42/0.08)]">
                 <Button
                   type="button"
                   variant="ghost"
@@ -739,6 +789,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                 </Button>
                 <textarea
                   id="interview-composer"
+                  ref={composerRef}
                   className="max-h-32 min-h-11 flex-1 resize-y border-0 bg-transparent px-2 py-2 text-sm text-lf-text placeholder:text-lf-text-muted focus-visible:outline-none"
                   placeholder={paused ? 'Resume the interview to continue…' : 'Type your answer…'}
                   value={input}
