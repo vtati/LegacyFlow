@@ -15,6 +15,12 @@ describe('LoginForm', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeDefined();
   });
 
+  it('shows the attorney-review footer in human copy only — no raw status enum (F6)', () => {
+    const { container } = render(<LoginForm />);
+    expect(container.textContent).toContain('Attorney review pending.');
+    expect(container.textContent).not.toContain('attorney-pending');
+  });
+
   it('labels mock mode when Supabase is not configured', () => {
     render(<LoginForm />);
     expect(screen.getByRole('note')).toHaveTextContent('Local dev mock auth');

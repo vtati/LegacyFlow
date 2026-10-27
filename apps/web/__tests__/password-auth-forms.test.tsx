@@ -40,6 +40,12 @@ describe('SignUpForm', () => {
     render(<SignUpForm />);
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
   });
+
+  it('shows the attorney-review footer in human copy only — no raw status enum (F6)', () => {
+    const { container } = render(<SignUpForm />);
+    expect(container.textContent).toContain('Attorney review pending.');
+    expect(container.textContent).not.toContain('attorney-pending');
+  });
 });
 
 describe('ResetPasswordForm', () => {
