@@ -861,8 +861,8 @@ def test_review_date_uses_frozen_packet_date(api_client, db) -> None:
             person["date_of_birth"] = "2002-06-01"
     _exec(
         db,
-        "        "UPDATE attorney_review_sources SET payload = %s::jsonb,"
-        " created_at = '2020-01-01T00:00:00Z'""
+        "UPDATE attorney_review_sources SET payload = %s::jsonb,"
+        " created_at = '2020-01-01T00:00:00Z'"
         " WHERE matter_id = %s",
         (json.dumps(payload), w.matter_id),
     )
