@@ -194,6 +194,15 @@ def _build_source_payload(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
         "principal_name": ["testator_full_name"],
         "parent_name": ["testator_full_name"],
         "children_list": ["minor_children_details", "has_minor_children"],
+        # Composed prose slots: their blanks are the spouse/children
+        # blanks (recital) and the gift-agent blank (appointment), so
+        # the answered-but-dropped net follows them (review M-1).
+        "family_identification": [
+            "spouse_full_name", "minor_children_details", "has_minor_children",
+        ],
+        "anatomical_gift_appointment": [
+            "healthcare_agent_person", "organ_donation_wishes",
+        ],
     }.items():
         slot_answer_keys.setdefault(slot, []).extend(keys)
     return {

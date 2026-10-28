@@ -457,6 +457,137 @@ def test_unfilled_answered_but_blank_slot_is_flagged() -> None:
     assert findings[0].field == "upbringing_wishes"
 
 
+# ---------------------------------------------------------------------------
+# Composed prose slots — the answered-but-dropped net follows the
+# composed values (review M-1 on the template-truthfulness fix)
+# ---------------------------------------------------------------------------
+
+_FAMILY_ID_SOURCES = {
+    "family_identification": [
+        "spouse_full_name", "minor_children_details", "has_minor_children",
+    ],
+}
+_GIFT_APPT_SOURCES = {
+    "anatomical_gift_appointment": [
+        "healthcare_agent_person", "organ_donation_wishes",
+    ],
+}
+
+
+def _will_with_recital(recital: str):
+    ctx = {**_context(), "family_identification": recital}
+    return _snapshot(
+        "will",
+        "LAST WILL AND TESTAMENT OF Arjun Sharma\n" + WILL_EXECUTION_BLOCK,
+        context=ctx,
+        template_body="ARTICLE I — IDENTIFICATION AND FAMILY\n\n{{family_identification}}",
+    )
+
+
+def _amd_with_appointment(appointment: str, directions: str = ""):
+    ctx = {**_context(), "anatomical_gift_appointment": appointment}
+    if directions:
+        ctx["anatomical_gift_directions"] = directions
+    return _snapshot(
+        "advance_directive", "ADVANCE MEDICAL DIRECTIVE\nArjun Sharma",
+        context=ctx,
+        template_body="PART 3\n\n{{anatomical_gift_appointment}}",
+    )
+
+
+def _swap(snaps, replacement):
+    return [s if s["template_type"] != replacement["template_type"] else replacement
+            for s in snaps]
+
+
+def test_recital_with_embedded_spouse_blank_is_flagged() -> None:
+    snaps = _swap(_snapshots(), _will_with_recital("I am married to ___."))
+    source = _source(
+        answers={**_source()["answers"],
+                 "marital_status": "married", "spouse_full_name": "Neha Kapoor"},
+        required_question_keys=["spouse_full_name"],
+        slot_answer_keys=_FAMILY_ID_SOURCES,
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
+    assert len(findings) == 1
+    assert findings[0].field == "family_identification"
+
+
+def test_recital_with_embedded_children_blank_is_flagged() -> None:
+    recital = "I am not married.\n\nI have the following children:\n___"
+    snaps = _swap(_snapshots(), _will_with_recital(recital))
+    source = _source(
+        answers={**_source()["answers"],
+                 "marital_status": "single", "has_minor_children": True},
+        required_question_keys=["has_minor_children"],
+        slot_answer_keys=_FAMILY_ID_SOURCES,
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
+    assert len(findings) == 1
+    assert findings[0].field == "family_identification"
+
+
+def test_recital_filled_or_status_only_is_not_flagged() -> None:
+    for recital in (
+        "I am married to Neha Kapoor.\n\nI have the following children:\nKabir Sharma",
+        "I am not married.",
+        "I am widowed.",
+    ):
+        snaps = _swap(_snapshots(), _will_with_recital(recital))
+        source = _source(
+            answers={**_source()["answers"], "spouse_full_name": "Neha Kapoor"},
+            required_question_keys=["spouse_full_name"],
+            slot_answer_keys=_FAMILY_ID_SOURCES,
+        )
+        assert _by_check(_run(snaps, source), "unfilled_placeholders") == []
+
+
+def test_gift_appointment_absent_when_declined_is_not_flagged() -> None:
+    amd = _amd_with_appointment("", "I do not wish to donate organs.")
+    snaps = _swap(_snapshots(), amd)
+    source = _source(
+        answers={**_source()["answers"],
+                 "organ_donation_wishes": "I do not wish to donate organs."},
+        required_question_keys=["healthcare_agent_person", "organ_donation_wishes"],
+        slot_answer_keys=_GIFT_APPT_SOURCES,
+    )
+    assert _by_check(_run(snaps, source), "unfilled_placeholders") == []
+
+
+def test_gift_appointment_embedded_blank_when_wished_is_flagged() -> None:
+    amd = _amd_with_appointment(
+        "I appoint ___ to make any anatomical gift or organ, tissue, "
+        "or eye donation following my death.",
+        "Donate any needed organs",
+    )
+    snaps = _swap(_snapshots(), amd)
+    source = _source(
+        answers={**_source()["answers"],
+                 "organ_donation_wishes": "Donate any needed organs"},
+        required_question_keys=["healthcare_agent_person"],
+        slot_answer_keys=_GIFT_APPT_SOURCES,
+    )
+    findings = _by_check(_run(snaps, source), "unfilled_placeholders")
+    assert len(findings) == 1
+    assert findings[0].field == "anatomical_gift_appointment"
+
+
+def test_gift_appointment_filled_is_not_flagged() -> None:
+    amd = _amd_with_appointment(
+        "I appoint Neha Kapoor to make any anatomical gift or organ, "
+        "tissue, or eye donation following my death.",
+        "Donate any needed organs",
+    )
+    snaps = _swap(_snapshots(), amd)
+    source = _source(
+        answers={**_source()["answers"],
+                 "organ_donation_wishes": "Donate any needed organs"},
+        required_question_keys=["healthcare_agent_person"],
+        slot_answer_keys=_GIFT_APPT_SOURCES,
+    )
+    assert _by_check(_run(snaps, source), "unfilled_placeholders") == []
+
+
 REAL_V2_WILL_TAIL = (
     "IN WITNESS WHEREOF, I have signed this Will on October 27, 2026.\n\n"
     "________________________________________\n"

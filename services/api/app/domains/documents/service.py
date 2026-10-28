@@ -1084,16 +1084,34 @@ _PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
 #: The anatomical-gift appointment in the advance directive is lawful
 #: prose only when the declarant actually wishes to donate. The donation
 #: answer (``organ_donation_wishes``) is free text, so the render layer
-#: interprets it conservatively: an affirmative decline requires a
-#: negation scoping over a donation keyword within one clause, and any
-#: unnegated donation clause (a partial wish — "donate my organs, but
-#: not my eyes") keeps the appointment, with the directions text
-#: carrying the specifics. No donation mention at all is NOT a decline
-#: (legacy behavior preserved; the attorney reviewer reads the body).
-_DONATION_KEYWORD = re.compile(r"donat|anatomical", re.I)
+#: interprets it conservatively, clause by clause (split on [.;,] and
+#: "but"):
+#: * a clause is a DECLINE when a negation scopes over a donation
+#:   keyword inside it ("do not wish to donate", "not a donor",
+#:   "opposed to donation", "do not harvest my organs");
+#: * a clause is AFFIRMATIVE when it carries a donation keyword with
+#:   no scoping negation — including the consent idioms that phrase a
+#:   wish AS a negation of objection ("no objection to donating",
+#:   "not opposed", "don't mind donating", "do not hesitate"), which
+#:   the idiom pattern rescues BEFORE the negation test;
+#: * declined = at least one decline clause and no affirmative clause
+#:   (a partial wish — "donate my organs, but not my eyes" — keeps the
+#:   appointment; the directions text carries the specifics).
+#: No donation mention at all is NOT a decline (legacy behavior
+#: preserved). Residual misses are oblique phrasings with no donation
+#: keyword ("keep my body intact") — the attorney reviewer's model
+#: layer reads the rendered body and remains the backstop for those.
+_DONATION_KEYWORD = re.compile(r"donat|anatomical|donor|harvest\w*|organs", re.I)
 _DONATION_NEGATED = re.compile(
     r"\b(?:do not|don't|does not|doesn't|did not|not|no|never|declin\w*"
-    r"|against|refus\w*|unwilling)\b[^.;,]*?(?:donat|anatomical)",
+    r"|against|refus\w*|unwilling|object\w*|oppos\w*|forbid\w*)\b[^.;,]*?"
+    r"(?:donat|anatomical|donor|harvest\w*|organs)",
+    re.I,
+)
+_DONATION_CONSENT_IDIOM = re.compile(
+    r"\b(?:no (?:objection|problem|hesitation|restrictions?|concerns?|issues?|qualms)"
+    r"|not (?:opposed|against|objecting)|don'?t mind|do not mind"
+    r"|do not hesitate|don'?t hesitate|not only)\b",
     re.I,
 )
 _DONATION_CLAUSE_SPLIT = re.compile(r"[.;,]|\bbut\b", re.I)
@@ -1121,7 +1139,17 @@ def _organ_donation_declined(value: Any) -> bool:
     for clause in _DONATION_CLAUSE_SPLIT.split(normalized):
         if not _DONATION_KEYWORD.search(clause):
             continue
-        if _DONATION_NEGATED.search(clause):
+        if _DONATION_CONSENT_IDIOM.search(clause):
+            # Consent idiom ("no objection", "not only", ...): rescue
+            # the clause UNLESS a second, real negation still scopes
+            # over the keyword once the idiom itself is removed
+            # ("not only do I not wish to donate" is a decline).
+            remainder = _DONATION_CONSENT_IDIOM.sub("", clause)
+            if _DONATION_NEGATED.search(remainder):
+                negated = True
+            else:
+                affirmative = True
+        elif _DONATION_NEGATED.search(clause):
             negated = True
         else:
             affirmative = True

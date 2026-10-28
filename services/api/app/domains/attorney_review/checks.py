@@ -50,6 +50,9 @@ _FAMILY_SLOTS = frozenset({
     "grantor_city", "parent_city",
     "upbringing_wishes", "education_wishes", "religious_wishes",
     "financial_provisions", "extended_family",
+    # Composed prose slots (documents builder): the Will's Article I
+    # recital and the AMD's anatomical-gift appointment sentence.
+    "family_identification", "anatomical_gift_appointment",
 })
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
@@ -508,6 +511,29 @@ def _is_placeholder_value(value: Any) -> bool:
     return not text or all(ch in "_–—- " for ch in text)
 
 
+#: Composed prose slots: the value is a full sentence, so a blank-only
+#: test misses the attorney-fill blank EMBEDDED in it — "I am married
+#: to ___." is an unfilled recital, not a filled one (review M-1: the
+#: composed-slot change must not retire the answered-but-dropped net
+#: the raw {{spouse_name}} / {{organ_donation_agent}} tokens carried).
+_COMPOSED_SLOTS = frozenset({"family_identification", "anatomical_gift_appointment"})
+
+
+def _slot_unfilled(token: str, value: Any) -> bool:
+    if _is_placeholder_value(value):
+        return True
+    return token in _COMPOSED_SLOTS and "___" in str(value or "")
+
+
+def _donation_declined(value: Any) -> bool:
+    """The render layer's donation interpreter (deferred import: the
+    documents service imports this package lazily, never at module
+    load, and the interpreter belongs to the layer that renders it)."""
+    from ..documents.service import _organ_donation_declined
+
+    return _organ_donation_declined(value)
+
+
 # Slots whose blank is BY DESIGN when a gate answer is exactly False
 # (the renderer emits the "___" fallback for them in that case).
 _FALSE_GATE_KEYS: dict[str, str] = {
@@ -533,7 +559,7 @@ def _check_unfilled_placeholders(
         template_body = str(snap.get("template_body") or "")
         context = dict(snap.get("context") or {})
         for token in sorted(set(_TOKEN_RE.findall(template_body))):
-            if token in context and not _is_placeholder_value(context[token]):
+            if token in context and not _slot_unfilled(token, context[token]):
                 continue  # genuinely filled at render time
             # A slot present in the context with a placeholder value
             # (the renderer's "___" fallback, e.g. children_list) is
@@ -548,6 +574,10 @@ def _check_unfilled_placeholders(
             gate_key = _FALSE_GATE_KEYS.get(token)
             if gate_key is not None and answers_map.get(gate_key) is False:
                 continue
+            if token == "anatomical_gift_appointment" and _donation_declined(
+                answers_map.get("organ_donation_wishes")
+            ):
+                continue  # no appointment BY DESIGN when donation was declined
             if token not in _FAMILY_SLOTS and token not in slot_sources:
                 continue  # attorney-fill (witness/notary/date blanks)
             sources = [str(k) for k in slot_sources.get(token) or [token]]

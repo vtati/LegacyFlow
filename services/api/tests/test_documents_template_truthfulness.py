@@ -229,8 +229,56 @@ def test_no_marital_signal_at_all_no_assertion(db):
     """Legacy-shaped data: no marital_status answer, no spouse signal.
     The Will must not assert a marriage it has no evidence for."""
     _h, matter_id, _ids = build_world(db)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["family_identification"] == ""
     will = render(db, matter_id, "last-will-and-testament.txt")
     assert "married to" not in will
+
+
+def test_partnered_with_captured_spouse_renders_as_before(db):
+    """Partnered + relationships signal: the sentence renders with the
+    spouse's name, byte-identical to the pre-fix married rendering
+    (accepted L-4 — the fix targets assertion-without-facts, not the
+    partnered wording, which is a separate product question)."""
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True)
+    set_answer(db, matter_id, "marital_status", "partnered")
+    set_answer(db, matter_id, "has_minor_children", False)
+    will = render(db, matter_id, "last-will-and-testament.txt")
+    assert f"I am married to {SPOUSE}." in will
+
+
+def test_household_less_matter_leaves_composed_slots_absent(monkeypatch):
+    """No household: the composed slots are simply absent (the merge
+    blanks them); the builder must not crash or invent recitals."""
+    from contextlib import contextmanager
+
+    from app.domains.intake import repository as intake_repo
+
+    class _Cursor:
+        def __init__(self, row):
+            self._row = row
+
+        def execute(self, *_a, **_k):
+            pass
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def __init__(self, row):
+            self._row = row
+
+        @contextmanager
+        def cursor(self):
+            yield _Cursor(self._row)
+
+    matter_id = uuid4()
+    conn = _Conn({"id": str(matter_id), "household_id": None})
+    monkeypatch.setattr(documents_service, "_render_context", lambda c, m: {})
+    monkeypatch.setattr(intake_repo, "list_answers", lambda c, mid: [])
+    ctx = documents_service.build_template_context(conn, matter_id)
+    assert "family_identification" not in ctx
+    assert "anatomical_gift_appointment" not in ctx
 
 
 def test_married_but_spouse_name_uncaptured_keeps_attorney_blank(db):
@@ -342,6 +390,21 @@ def test_amd_no_donation_answer_keeps_legacy_appointment(db):
     "None",
     "Declined",
     "I do not wish to donate organs, tissue, or eyes",
+    # Reviewer-found misses (M-2): donor/harvest/object/oppose/forbid.
+    "I decline to be an organ donor",
+    "Not an organ donor",
+    "I am not a donor",
+    "Do not harvest my organs",
+    "No harvesting",
+    "Please do not use my organs",
+    "I object to organ donation",
+    "I oppose donation",
+    "Opposed to donation",
+    "I forbid organ donation",
+    "I refuse organ donation",
+    "My organs are not to be donated",
+    "Not only do I refuse, I forbid organ donation",
+    "Not only do I not wish to donate, I forbid it",
 ])
 def test_donation_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is True
@@ -357,6 +420,22 @@ def test_donation_declined_phrasings(text):
     "Undecided — ask my family",
     "",
     "Donate everything, no exceptions",
+    # Reviewer-found false declines (H-1): consent idioms phrase the
+    # wish AS a negation of objection — they must keep the appointment.
+    "I have no objection to donating my organs",
+    "I have no problem donating organs",
+    "No problem with organ donation",
+    "Not opposed to organ donation",
+    "I'm not against donating organs",
+    "I don't mind donating organs",
+    "Do not hesitate to donate my organs",
+    "No hesitation - donate my organs",
+    "No restrictions on organ donation",
+    "Not only donate organs, but tissue too",
+    "I want to donate, no question",
+    "Donate — not for resale",
+    "My wish: not cremation, donate organs",
+    "NoVA resident; donate any organs",
 ])
 def test_donation_not_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is False
