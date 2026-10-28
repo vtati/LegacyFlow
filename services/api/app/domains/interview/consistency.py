@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
+import psycopg.errors
+
 from app.core.config import get_settings
 from app.core.errors import (
     AuthorizationError,
@@ -212,20 +214,40 @@ def run_consistency_review(
         rule_id = _rule_id(finding.question, finding.fields)
         if escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
             continue
-        escalation_repo.insert_escalation(
-            conn,
-            matter_id=matter_id,
-            rule_id=rule_id,
-            severity=finding.severity,
-            outcome="attorney_review",
-            facts_snapshot={
-                "source": "interview",
-                "kind": "consistency_finding",
-                "question": finding.question,
-                "fields": finding.fields,
-                "session_id": str(session_id),
-            },
-        )
+        # Savepoint-isolated: one finding's escalation write must never
+        # sink the whole review. A failed insert rolls back to the
+        # savepoint, is logged, and the remaining findings (and the
+        # review record itself) still persist — the endpoint degrades
+        # instead of returning 500 in the family's face. (2026-10-27:
+        # an 'attention' severity the escalations CHECK did not know
+        # took down the entire review; the CHECK is fixed by migration
+        # 20261027170000, this guard covers the next surprise.)
+        try:
+            with conn.transaction():
+                escalation_repo.insert_escalation(
+                    conn,
+                    matter_id=matter_id,
+                    rule_id=rule_id,
+                    severity=finding.severity,
+                    outcome="attorney_review",
+                    facts_snapshot={
+                        "source": "interview",
+                        "kind": "consistency_finding",
+                        "question": finding.question,
+                        "fields": finding.fields,
+                        "session_id": str(session_id),
+                    },
+                )
+        except psycopg.errors.Error:
+            # DB failures only: a programming error in the insert path
+            # should still fail loudly, not silently drop a finding.
+            logger.exception(
+                "consistency escalation insert failed matter_id=%s rule_id=%s severity=%s",
+                matter_id,
+                rule_id,
+                finding.severity,
+            )
+            continue
         escalations_created += 1
 
     repo.insert_ai_trace(
