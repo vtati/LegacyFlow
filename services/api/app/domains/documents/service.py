@@ -1143,7 +1143,8 @@ _DONATION_SATURATED = re.compile(
 )
 _DONATION_CLAUSE_VERB = re.compile(
     r"\b(?:donat(?:e|es|ed|ing)|giv\w+|authorize\w*|support\w*|allow\w*|permit\w*"
-    r"|harvest|harvests|use|uses|take|takes|are|is|was|were)\b",
+    r"|harvest|harvests|use|uses|take|takes|are|is|was|were"
+    r"|mak\w+|mad\w*|offer\w*|pledge\w*|leav\w+|bequeath\w*|provid\w+)\b",
     re.I,
 )
 _DONATION_CLAUSE_SPLIT = re.compile(r"([.;,]|\bbut\b|\band\b|\s[-—–]\s)", re.I)

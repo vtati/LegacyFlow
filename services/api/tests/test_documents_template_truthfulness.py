@@ -487,6 +487,9 @@ def test_donation_declined_phrasings(text):
     "I oppose organ donation and support tissue donation",
     "I refuse brain donation and my organs are available for transplant",
     "I refuse organ donation and then donate my organs later",
+    "I refuse organ donation and make my organs available for transplant",
+    "I decline eye donation and offer my organs to others",
+    "I refuse organ donation and pledge my organs to research",
 ])
 def test_donation_not_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is False
