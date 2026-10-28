@@ -405,6 +405,14 @@ def test_amd_no_donation_answer_keeps_legacy_appointment(db):
     "My organs are not to be donated",
     "Not only do I refuse, I forbid organ donation",
     "Not only do I not wish to donate, I forbid it",
+    # Delta-review N-2: a donor-card/registry mention must not rescue
+    # an explicit decline in another clause.
+    "I do not wish to donate. Please destroy my donor card",
+    "Not an organ donor. Ignore my old donor card",
+    "I forbid organ donation, donor registry entry was a mistake",
+    # Conjunction-split safety: declines joined by "and" still decline.
+    "I do not wish to donate organs and tissue",
+    "Do not donate organs and do not harvest tissue",
 ])
 def test_donation_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is True
@@ -436,6 +444,18 @@ def test_donation_declined_phrasings(text):
     "Donate — not for resale",
     "My wish: not cremation, donate organs",
     "NoVA resident; donate any organs",
+    # Delta-review N-1: an objection aimed at something else in the
+    # same sentence must not scope onto the donation wish.
+    "I oppose cremation and want to donate my organs",
+    "I object to cremation and wish to donate my organs",
+    "Forbid cremation and donate my organs",
+    "I am opposed to cremation and want to be an organ donor",
+    "I object to cremation, donate my organs",
+    "Opposed to cremation; donate everything",
+    "My donor card is signed",
+    "I am a registered organ donor",
+    "Harvest my organs for transplant",
+    "Forbid cremation, donate organs",
 ])
 def test_donation_not_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is False
