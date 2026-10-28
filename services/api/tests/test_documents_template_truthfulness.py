@@ -413,6 +413,22 @@ def test_amd_no_donation_answer_keeps_legacy_appointment(db):
     # Conjunction-split safety: declines joined by "and" still decline.
     "I do not wish to donate organs and tissue",
     "Do not donate organs and do not harvest tissue",
+    # Delta-review R-1: ONE negation scoping over coordinated donation
+    # keywords — the post-"and" fragment is part of the same decline,
+    # not a new wish.
+    "I refuse organ and tissue donation",
+    "I oppose organ and tissue donation",
+    "I decline organ and tissue donation",
+    "No organ and tissue donation",
+    "I am against organ and tissue donation",
+    "Not for organ and tissue donation",
+    "Decline organs and tissue donation",
+    "Do not harvest and donate my organs",
+    "Do not donate and harvest my organs",
+    "I do not want my organs harvested and donated",
+    "No harvesting and donation of my organs",
+    "I forbid harvesting and donation",
+    "I refuse organ and tissue and eye donation",
 ])
 def test_donation_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is True
@@ -456,6 +472,10 @@ def test_donation_declined_phrasings(text):
     "I am a registered organ donor",
     "Harvest my organs for transplant",
     "Forbid cremation, donate organs",
+    # Delta-review R-1 counterweight: a coordinated fragment carrying
+    # its own explicit wish breaks a preceding decline's coordination
+    # (a partial wish — the appointment renders).
+    "I refuse brain donation and want to donate my organs",
 ])
 def test_donation_not_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is False

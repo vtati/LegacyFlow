@@ -1102,7 +1102,13 @@ _PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
 #: donation keyword. Mentions of a donor CARD / REGISTRY /
 #: REGISTRATION are references to a registration artifact, not
 #: expressions of current wishes, and are stripped before evaluation
-#: ("Please destroy my donor card" must not rescue a decline).
+#: ("Please destroy my donor card" must not rescue a decline). One
+#: refinement in the other direction: a negation that DOES scope over
+#: a donation keyword carries across a coordinating "and" to a bare
+#: coordinated fragment — "I refuse organ and tissue donation" is one
+#: decline, not a decline plus a wish — unless that fragment carries
+#: its own explicit wish ("...and want to donate my organs"), which
+#: breaks the coordination. Hard boundaries reset the coordination.
 #: No donation mention at all is NOT a decline (legacy behavior
 #: preserved). Residual misses are oblique phrasings with no donation
 #: keyword ("keep my body intact") — the attorney reviewer's model
@@ -1121,7 +1127,8 @@ _DONATION_CONSENT_IDIOM = re.compile(
     re.I,
 )
 _DONATION_ARTIFACT = re.compile(r"donor\s+(?:card|registry|registration)", re.I)
-_DONATION_CLAUSE_SPLIT = re.compile(r"[.;,]|\bbut\b|\band\b|\s[-—–]\s", re.I)
+_DONATION_WISH = re.compile(r"\b(?:want|wish|hope|intend|please|let|request)\b", re.I)
+_DONATION_CLAUSE_SPLIT = re.compile(r"([.;,]|\bbut\b|\band\b|\s[-—–]\s)", re.I)
 _DONATION_BARE_DECLINES = frozenset({
     "no", "none", "no thanks", "not interested", "decline", "declined",
     "rather not", "no donation", "no organ donation", "no anatomical gift",
@@ -1143,10 +1150,18 @@ def _organ_donation_declined(value: Any) -> bool:
         return True
     negated = False
     affirmative = False
-    for clause in _DONATION_CLAUSE_SPLIT.split(normalized):
+    # Split WITH separators retained (odd indexes): a scoping negation
+    # carries across a coordinating "and"; any other separator is a
+    # hard boundary that resets the coordination.
+    coordinated_negation = False
+    for index, part in enumerate(_DONATION_CLAUSE_SPLIT.split(normalized)):
+        if index % 2 == 1:
+            if part.strip().lower() != "and":
+                coordinated_negation = False
+            continue
         # Donor-card/registry mentions are artifact references, not
         # wishes: evaluate the clause with them stripped.
-        evaluable = _DONATION_ARTIFACT.sub("", clause)
+        evaluable = _DONATION_ARTIFACT.sub("", part)
         if not _DONATION_KEYWORD.search(evaluable):
             continue
         if _DONATION_CONSENT_IDIOM.search(evaluable):
@@ -1157,12 +1172,21 @@ def _organ_donation_declined(value: Any) -> bool:
             remainder = _DONATION_CONSENT_IDIOM.sub("", evaluable)
             if _DONATION_NEGATED.search(remainder):
                 negated = True
+                coordinated_negation = True
             else:
                 affirmative = True
+                coordinated_negation = False
         elif _DONATION_NEGATED.search(evaluable):
             negated = True
+            coordinated_negation = True
+        elif coordinated_negation and not _DONATION_WISH.search(evaluable):
+            # Bare fragment coordinated under a scoping negation
+            # ("...and tissue donation"): part of the same decline.
+            negated = True
+            coordinated_negation = True
         else:
             affirmative = True
+            coordinated_negation = False
     return negated and not affirmative
 
 
