@@ -481,11 +481,15 @@ def test_merged_bodies_have_names_not_ids_or_addresses(db, shape):
         assert "{{" not in body
 
 
-def test_merged_will_blanks_spouse_without_signal(db):
+def test_merged_will_no_marital_assertion_without_signal(db):
+    """No spouse signal AND no marital_status answer: the Will must not
+    assert a marriage it has no evidence for (pre-fix it printed
+    "I am married to ___." for every testator, married or not — the
+    2026-10-27 Lee defect). It must NEVER name the guardian as spouse."""
     _household_id, matter_id, ids = build_world(db)
     set_answers(db, matter_id, answers_shape_a(ids))
     will = render(db, matter_id, "last-will-and-testament.txt")
-    assert "I am married to ___." in will
+    assert "married to" not in will
     assert f"married to {GUARDIAN}" not in will
 
 

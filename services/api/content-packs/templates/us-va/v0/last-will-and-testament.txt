@@ -6,10 +6,7 @@ I, {{testator_name}}, of {{testator_address}}, {{testator_city}}, Virginia, bein
 
 ARTICLE I — IDENTIFICATION AND FAMILY
 
-I am married to {{spouse_name}}.
-
-I have the following children:
-{{children_list}}
+{{family_identification}}
 
 ARTICLE II — EXECUTOR
 

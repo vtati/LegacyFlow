@@ -1081,6 +1081,53 @@ _PERSON_ANSWER_KEYS = frozenset(
 _PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
 
 
+#: The anatomical-gift appointment in the advance directive is lawful
+#: prose only when the declarant actually wishes to donate. The donation
+#: answer (``organ_donation_wishes``) is free text, so the render layer
+#: interprets it conservatively: an affirmative decline requires a
+#: negation scoping over a donation keyword within one clause, and any
+#: unnegated donation clause (a partial wish — "donate my organs, but
+#: not my eyes") keeps the appointment, with the directions text
+#: carrying the specifics. No donation mention at all is NOT a decline
+#: (legacy behavior preserved; the attorney reviewer reads the body).
+_DONATION_KEYWORD = re.compile(r"donat|anatomical", re.I)
+_DONATION_NEGATED = re.compile(
+    r"\b(?:do not|don't|does not|doesn't|did not|not|no|never|declin\w*"
+    r"|against|refus\w*|unwilling)\b[^.;,]*?(?:donat|anatomical)",
+    re.I,
+)
+_DONATION_CLAUSE_SPLIT = re.compile(r"[.;,]|\bbut\b", re.I)
+_DONATION_BARE_DECLINES = frozenset({
+    "no", "none", "no thanks", "not interested", "decline", "declined",
+    "rather not", "no donation", "no organ donation", "no anatomical gift",
+})
+
+
+def _organ_donation_declined(value: Any) -> bool:
+    """True only when the free-text donation answer affirmatively declines.
+
+    Non-string or empty answers are not declines. See the clause rules
+    above ``_DONATION_KEYWORD``.
+    """
+    if not isinstance(value, str):
+        return False
+    normalized = " ".join(value.lower().split()).strip(" .")
+    if not normalized:
+        return False
+    if normalized in _DONATION_BARE_DECLINES:
+        return True
+    negated = False
+    affirmative = False
+    for clause in _DONATION_CLAUSE_SPLIT.split(normalized):
+        if not _DONATION_KEYWORD.search(clause):
+            continue
+        if _DONATION_NEGATED.search(clause):
+            negated = True
+        else:
+            affirmative = True
+    return negated and not affirmative
+
+
 def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
     """Build the full placeholder context for document templates.
 
@@ -1163,12 +1210,17 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                 adult_ids.append(str(p.get("id") or ""))
         if children:
             context["children_list"] = ", ".join(children)
+            children_known = True
         else:
             # Fallback to the interview answer if household persons aren't populated
             details = answers.get("minor_children_details", "")
-            context["children_list"] = (
-                details.strip() if isinstance(details, str) and details.strip() else "___"
-            )
+            details_text = details.strip() if isinstance(details, str) else ""
+            if details_text:
+                context["children_list"] = details_text
+                children_known = True
+            else:
+                context["children_list"] = "___"
+                children_known = False
         # Household membership rows (best-effort: older fakes/mocks may not
         # implement the read; absence just skips the member-based signals).
         members: list[dict[str, Any]] = []
@@ -1274,6 +1326,14 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                         break
         if spouse_name:
             context["spouse_name"] = spouse_name
+        # The anatomical-gift appointment is gated on the donation
+        # answer: when the declarant declined donation, the healthcare
+        # agent must NOT be aliased into organ_donation_agent (the
+        # directive would appoint an agent to make a gift the declarant
+        # refused — the 2026-10-27 Lee defect).
+        donation_declined = _organ_donation_declined(
+            answers.get("organ_donation_wishes")
+        )
         # Role slots from verified interview answers via the EXPLICIT
         # key -> slot table (R1): exact key match only, so an address
         # answer can never claim a name slot and iteration order over
@@ -1292,10 +1352,57 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             value = resolve_person(ans) if is_person else ans
             if value:
                 for slot in slots:
+                    if slot == "organ_donation_agent" and donation_declined:
+                        continue
                     context[slot] = value
             if key == "successor_healthcare_agent_person":
                 context.setdefault("successor_healthcare_agent_address", "___")
                 context.setdefault("successor_healthcare_agent_phone", "___")
+
+        # Conditional prose, composed here because its TRUTH depends on
+        # facts only this builder knows. The templates are dumb text
+        # with no conditional mechanism, so a hardcoded sentence prints
+        # whether or not it is true (2026-10-27: a single testator's
+        # Will asserted "I am married to ___." plus a blank children
+        # line, and a declined-donation directive still appointed an
+        # anatomical-gift agent). The templates now reference these
+        # composed slots; spouse resolution above is unchanged.
+        status_raw = answers.get("marital_status")
+        marital_status = (
+            status_raw.strip().lower() if isinstance(status_raw, str) else ""
+        )
+        recital: list[str] = []
+        if spouse_name:
+            recital.append(f"I am married to {spouse_name}.")
+        elif marital_status in ("married", "partnered"):
+            # Married/partnered by their own answer, but the spouse's
+            # name was never captured: the genuine gap stays visible as
+            # an attorney-fill blank instead of the assertion vanishing
+            # for someone who IS married.
+            recital.append("I am married to ___.")
+        elif marital_status == "single":
+            recital.append("I am not married.")
+        elif marital_status == "widowed":
+            recital.append("I am widowed.")
+        if children_known:
+            recital.append(
+                f"I have the following children:\n{context['children_list']}"
+            )
+        elif answers.get("has_minor_children") is True:
+            # They said they have minor children but none were captured:
+            # keep the block with the attorney-fill blank rather than
+            # silently erasing the children's existence.
+            recital.append("I have the following children:\n___")
+        context["family_identification"] = "\n\n".join(recital)
+
+        if donation_declined:
+            context["anatomical_gift_appointment"] = ""
+        else:
+            gift_agent = context.get("organ_donation_agent") or "___"
+            context["anatomical_gift_appointment"] = (
+                f"I appoint {gift_agent} to make any anatomical gift or "
+                "organ, tissue, or eye donation following my death."
+            )
 
     # Replace any remaining unfilled placeholders with blank lines.
     # The _flag_unfilled_placeholders step still records them for attorney review.

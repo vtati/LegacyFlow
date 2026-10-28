@@ -48,7 +48,7 @@ PART 3 — ANATOMICAL GIFT
 Upon my death, I direct that an anatomical gift be made as follows:
 {{anatomical_gift_directions}}
 
-I appoint {{organ_donation_agent}} to make any anatomical gift or organ, tissue, or eye donation following my death.
+{{anatomical_gift_appointment}}
 
 ─────────────────────────────────────────
 AFFIRMATION AND RIGHT TO REVOKE

@@ -319,7 +319,8 @@ def test_spouse_person_rename_flows_through_the_same_row(db):
 
 # ---------------------------------------------------------------------------
 # Renderer integration — interview-shaped data renders the spouse;
-# no signal still blanks (renderer not loosened).
+# the spouse slot still stays unset without a signal (renderer not
+# loosened), and the Will asserts marriage only on a married signal.
 # ---------------------------------------------------------------------------
 
 
@@ -340,7 +341,11 @@ def test_single_profile_renders_no_spouse(db):
     assert "spouse_name" not in ctx
     body = (TEMPLATES_DIR / "last-will-and-testament.txt").read_text(encoding="utf-8")
     will = documents_service.render_template_content(body, ctx)
-    assert "I am married to ___." in will
+    # A single testator's Will must not assert a marriage (pre-fix it
+    # printed "I am married to ___." — the 2026-10-27 Lee defect); the
+    # recital states the recorded status instead.
+    assert "I am married to" not in will
+    assert "I am not married." in will
 
 
 # ---------------------------------------------------------------------------
