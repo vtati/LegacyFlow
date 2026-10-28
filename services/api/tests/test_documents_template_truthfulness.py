@@ -429,6 +429,8 @@ def test_amd_no_donation_answer_keeps_legacy_appointment(db):
     "No harvesting and donation of my organs",
     "I forbid harvesting and donation",
     "I refuse organ and tissue and eye donation",
+    # Saturation still absorbs a bare coordinated NP fragment.
+    "I decline eye donation and organ donation",
 ])
 def test_donation_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is True
@@ -476,6 +478,15 @@ def test_donation_declined_phrasings(text):
     # its own explicit wish breaks a preceding decline's coordination
     # (a partial wish — the appointment renders).
     "I refuse brain donation and want to donate my organs",
+    # Delta-review R-2: once a refusal is saturated by its own
+    # donation object, a following VERB-bearing fragment is a new,
+    # affirmative clause (partial wish), not part of the decline.
+    "I decline eye donation and donate my organs",
+    "I refuse brain donation and give my organs to science",
+    "I refuse organ donation and authorize tissue donation",
+    "I oppose organ donation and support tissue donation",
+    "I refuse brain donation and my organs are available for transplant",
+    "I refuse organ donation and then donate my organs later",
 ])
 def test_donation_not_declined_phrasings(text):
     assert documents_service._organ_donation_declined(text) is False

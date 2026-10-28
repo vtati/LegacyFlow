@@ -1109,6 +1109,14 @@ _PERSON_SCRUB_KEYS = _PERSON_ANSWER_KEYS | {"testator_full_name"}
 #: decline, not a decline plus a wish — unless that fragment carries
 #: its own explicit wish ("...and want to donate my organs"), which
 #: breaks the coordination. Hard boundaries reset the coordination.
+#: The carry is also SATURATION-gated: once a refusal already holds
+#: its own donation object ("I decline eye donation"), a following
+#: fragment with its own finite verb is a NEW affirmative clause
+#: ("...and donate my organs" — a partial wish), while a bare noun
+#: fragment ("...and organ donation") still belongs to the refusal.
+#: An unsaturated negation ("do not harvest", "refuse organ") absorbs
+#: verb continuations too ("...and donate my organs" under "do not
+#: harvest" is one imperative decline).
 #: No donation mention at all is NOT a decline (legacy behavior
 #: preserved). Residual misses are oblique phrasings with no donation
 #: keyword ("keep my body intact") — the attorney reviewer's model
@@ -1128,6 +1136,16 @@ _DONATION_CONSENT_IDIOM = re.compile(
 )
 _DONATION_ARTIFACT = re.compile(r"donor\s+(?:card|registry|registration)", re.I)
 _DONATION_WISH = re.compile(r"\b(?:want|wish|hope|intend|please|let|request)\b", re.I)
+_DONATION_SATURATED = re.compile(
+    r"\b(?:declin\w*|refus\w*|oppos\w*|object\w*|forbid\w*|against|no|not|never)\b"
+    r"[^.;,]*?\bdonations?\b",
+    re.I,
+)
+_DONATION_CLAUSE_VERB = re.compile(
+    r"\b(?:donat(?:e|es|ed|ing)|giv\w+|authorize\w*|support\w*|allow\w*|permit\w*"
+    r"|harvest|harvests|use|uses|take|takes|are|is|was|were)\b",
+    re.I,
+)
 _DONATION_CLAUSE_SPLIT = re.compile(r"([.;,]|\bbut\b|\band\b|\s[-—–]\s)", re.I)
 _DONATION_BARE_DECLINES = frozenset({
     "no", "none", "no thanks", "not interested", "decline", "declined",
@@ -1152,12 +1170,14 @@ def _organ_donation_declined(value: Any) -> bool:
     affirmative = False
     # Split WITH separators retained (odd indexes): a scoping negation
     # carries across a coordinating "and"; any other separator is a
-    # hard boundary that resets the coordination.
-    coordinated_negation = False
+    # hard boundary that resets the coordination. carry_saturated is
+    # None while no coordination is armed; when armed it records
+    # whether the arming refusal already held its own donation object.
+    carry_saturated: bool | None = None
     for index, part in enumerate(_DONATION_CLAUSE_SPLIT.split(normalized)):
         if index % 2 == 1:
             if part.strip().lower() != "and":
-                coordinated_negation = False
+                carry_saturated = None
             continue
         # Donor-card/registry mentions are artifact references, not
         # wishes: evaluate the clause with them stripped.
@@ -1172,21 +1192,26 @@ def _organ_donation_declined(value: Any) -> bool:
             remainder = _DONATION_CONSENT_IDIOM.sub("", evaluable)
             if _DONATION_NEGATED.search(remainder):
                 negated = True
-                coordinated_negation = True
+                carry_saturated = bool(_DONATION_SATURATED.search(remainder))
             else:
                 affirmative = True
-                coordinated_negation = False
+                carry_saturated = None
         elif _DONATION_NEGATED.search(evaluable):
             negated = True
-            coordinated_negation = True
-        elif coordinated_negation and not _DONATION_WISH.search(evaluable):
-            # Bare fragment coordinated under a scoping negation
-            # ("...and tissue donation"): part of the same decline.
+            carry_saturated = bool(_DONATION_SATURATED.search(evaluable))
+        elif (
+            carry_saturated is not None
+            and not _DONATION_WISH.search(evaluable)
+            and not (carry_saturated and _DONATION_CLAUSE_VERB.search(evaluable))
+        ):
+            # Coordinated fragment under a scoping negation: a bare
+            # fragment always belongs to the refusal; a verb-bearing
+            # fragment belongs only while the negation is unsaturated.
             negated = True
-            coordinated_negation = True
+            carry_saturated = carry_saturated or "donation" in evaluable
         else:
             affirmative = True
-            coordinated_negation = False
+            carry_saturated = None
     return negated and not affirmative
 
 
