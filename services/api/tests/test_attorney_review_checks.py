@@ -593,3 +593,28 @@ def test_reference_integrity_near_miss_name_is_should_fix() -> None:
     typo = [f for f in findings if "Maya Lea" in (f.excerpt or "")]
     assert len(typo) == 1
     assert typo[0].severity == "should_fix"
+
+
+def test_childless_packet_children_list_blank_is_by_design() -> None:
+    """Review N2: the renderer writes children_list="___" BY DESIGN
+    for a childless family, and has_minor_children is a required
+    question — membership-based gating flagged every clean childless
+    packet. A False gate answer makes the blank inapplicable."""
+    context = _context()
+    context["children_list"] = "___"
+    will = _snapshot(
+        "will", "LAST WILL\nChildren: ___",
+        context=context, template_body="Children: {{children_list}}",
+    )
+    answers = {
+        "has_minor_children": False,
+        "wants_revocable_trust": True,
+        "testator_full_name": "Arjun Sharma",
+        "spouse_full_name": "Neha Kapoor",
+    }
+    source = _source(
+        answers=answers,
+        slot_answer_keys={"children_list": ["minor_children_details", "has_minor_children"]},
+    )
+    flagged = _by_check(_run(snapshots=[will], source=source), "unfilled_placeholders")
+    assert flagged == []

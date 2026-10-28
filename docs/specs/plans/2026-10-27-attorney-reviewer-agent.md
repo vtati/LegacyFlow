@@ -363,3 +363,36 @@ authz, SQL safety, RLS, and gate-isolation verified clean. It raised
 - L6 (migration FKs without ON DELETE) — DEFERRED: friction for hard
   deletes only (ops cleanup deletes reviewer rows first, as the
   verification cleanup did); no runtime impact.
+
+## Addendum 3 — fix-pass reviews (2026-10-27/28)
+
+Both fix passes were independently re-reviewed. Fix pass 1 verdict:
+SHIP-WITH-FIXES (claims confirmed; one Medium — the recorder wrap
+did not survive DB-origin failures; closed in 526dade with SAVEPOINT
+armor + a genuine-UniqueViolation test). Fix pass 2 verdict:
+SHIP-WITH-FIXES with two items that reopened claimed fixes:
+
+- N1 (L5 profiles): the version pin matched directory NAMES
+  (v2.0.0) that never exist — dirs are v0/v1/v2 with the semantic
+  version in manifest.yaml. NOW FIXED properly: _content_pack_files
+  resolves the version through each directory's manifest (the
+  pack_loader pattern), with a two-version scratch-pack test. The
+  Addendum-2 L5 line stands corrected by this note.
+- N2 (M3 regression): children_list blank is by design when
+  has_minor_children is False, but the gate answer is a required
+  question, so membership-based gating flagged clean childless
+  packets. FIXED: value-aware gating (_FALSE_GATE_KEYS) + a clean
+  childless regression test.
+- N3: per-matter run lock serializes overlapping runs (background
+  threads made check-then-act races possible), and per-fingerprint
+  latest-run reads now prefer a full run over a deterministic-only
+  one so a late det-only persist cannot shadow the full run.
+- N4: the module docstring now states the one live read precisely
+  (answers are read only to resolve which fingerprint is current;
+  the analysis consumes only frozen artifacts). Known limitation,
+  fail-closed and advisory-only: an answer edit that changes the
+  draft set before regeneration can pause findings for the in-flight
+  set until the set is uniform again.
+- N5: coverage added for the pack pin, review_date aging, the
+  mixed-stamp fail-closed half of H3, flag-off acknowledgment, and
+  the service-level identity slot keys.

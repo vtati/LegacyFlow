@@ -1676,11 +1676,27 @@ def _content_pack_files(
     version_dirs = sorted(d for d in pack_root.iterdir() if d.is_dir() and d.name.startswith("v"))
     if not version_dirs:
         return None
+    try:
+        import yaml
+    except ImportError:
+        return None
     chosen = version_dirs[-1]
     if version:
-        pinned = pack_root / f"v{version}"
-        if pinned.is_dir():
-            chosen = pinned
+        # Version directories are named v0/v1/v2 — the SEMANTIC version
+        # lives in each directory's manifest.yaml (the same resolution
+        # pack_loader.get_pack performs). Match on the manifest, never
+        # on the directory name.
+        for candidate in version_dirs:
+            manifest_file = candidate / "manifest.yaml"
+            if not manifest_file.is_file():
+                continue
+            try:
+                manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8")) or {}
+            except Exception:
+                continue
+            if str(manifest.get("semantic_version")) == version:
+                chosen = candidate
+                break
     profiles_file = chosen / "execution-profiles.yaml"
     playbooks_file = chosen / "funding-playbooks.yaml"
     if not profiles_file.is_file() or not playbooks_file.is_file():

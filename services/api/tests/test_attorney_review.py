@@ -777,3 +777,125 @@ def test_source_payload_recorded_once_per_fingerprint(db) -> None:
     source = _one(db, "SELECT * FROM attorney_review_sources WHERE matter_id = %s",
                   (w.matter_id,))
     assert "has_minor_children" not in source["payload"]["answers"]
+
+
+# ---------------------------------------------------------------------------
+# Review pass 3 — N1 (pack pin) / N3 / N4 / N5 coverage
+# ---------------------------------------------------------------------------
+
+
+def test_content_pack_files_version_pin_matches_manifest(tmp_path, monkeypatch) -> None:
+    """Review N1: version dirs are v0/v1/... — the pin must resolve
+    through each dir's manifest semantic_version, not the dir name."""
+    from app.domains.documents import service as documents_service
+
+    pack = tmp_path / "content-packs" / "us-va"
+    for dirname, semver, marker in (("v0", "0.1.0", "A"), ("v1", "2.0.0", "B")):
+        d = pack / dirname
+        d.mkdir(parents=True)
+        (d / "manifest.yaml").write_text(f"semantic_version: {semver}\n")
+        (d / "execution-profiles.yaml").write_text(f"marker: {marker}\n")
+        (d / "funding-playbooks.yaml").write_text("playbooks: []\n")
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(tmp_path / "content-packs"))
+    pinned_a = documents_service._content_pack_files("us-va", "0.1.0")
+    pinned_b = documents_service._content_pack_files("us-va", "2.0.0")
+    newest = documents_service._content_pack_files("us-va")
+    assert pinned_a is not None and pinned_a[0]["marker"] == "A"
+    assert pinned_b is not None and pinned_b[0]["marker"] == "B"
+    assert newest is not None and newest[0]["marker"] == "B"
+
+
+def test_mixed_stamps_within_draft_set_fail_closed(api_client, db) -> None:
+    """H3 second half: a newer package of an included type stamped
+    with a different fingerprint (regeneration mid-flight) → 409."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    poa_pkg = _one(
+        db, "SELECT template_id::text AS tid FROM document_packages WHERE id = %s",
+        (w.package_ids["poa"],),
+    )
+    _exec(
+        db,
+        "INSERT INTO document_packages"
+        " (id, firm_id, matter_id, template_id, status, source_fingerprint, created_by_user_id)"
+        " VALUES (%s, %s, %s, %s, 'demo_released', 'fp-mixed', %s)",
+        (str(uuid4()), w.firm_id, w.matter_id, poa_pkg["tid"], CLIENT),
+    )
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_acknowledge_rejected_when_flag_disabled(api_client, db) -> None:
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+    finding_id = resp.json()["findings"][0]["id"]
+    _exec(db, "UPDATE feature_flags SET is_enabled = false WHERE scope_ref = %s"
+              " AND key = 'attorney_reviewer'", (w.firm_id,))
+    from app.domains.feature_flags import service as flags_service
+
+    flags_service._flag_cache.clear()
+    ack = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/findings/{finding_id}/acknowledge",
+        headers=_headers(ADMIN), json={"note": "Verified."},
+    )
+    assert ack.status_code == 409, ack.text
+
+
+def test_review_date_uses_frozen_packet_date(api_client, db) -> None:
+    """L5 (date half): ages are judged as of the packet's recorded
+    date — Kabir (DOB 2002-06-01, recorded as a minor) is 17 on the
+    packet date 2020-01-01 (consistent) but 24 today (would flag)."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    source = _one(db, "SELECT * FROM attorney_review_sources WHERE matter_id = %s",
+                  (w.matter_id,))
+    payload = source["payload"]
+    for person in payload["persons"]:
+        if person["full_name"] == "Kabir Sharma":
+            person["date_of_birth"] = "2002-06-01"
+    _exec(
+        db,
+        "        "UPDATE attorney_review_sources SET payload = %s::jsonb,"
+        " created_at = '2020-01-01T00:00:00Z'""
+        " WHERE matter_id = %s",
+        (json.dumps(payload), w.matter_id),
+    )
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+    checks = {f["check"] for f in resp.json()["findings"]}
+    assert "date_age_arithmetic" not in checks
+
+
+def test_payload_slot_keys_cover_identity_slots(db) -> None:
+    """M3 integration: the recorded payload's slot sources include
+    the relationship-derived identity slots."""
+    from app.domains.attorney_review import service as review_service
+
+    w = build_world(db)
+    review_service.record_render_snapshot(
+        db,
+        matter={
+            "id": w.matter_id, "firm_id": w.firm_id, "household_id": w.household_id,
+            "jurisdiction_snapshot": {
+                "pack_id": "us-va", "jurisdiction_code": "US-VA",
+                "semantic_version": "2.0.0",
+            },
+        },
+        package_id=w.package_ids["will"], package_version=4,
+        source_fingerprint=FINGERPRINT, template_type="will",
+        template_body="Body {{spouse_name}}", body_text=WILL_BODY, context=CONTEXT,
+    )
+    db.commit()
+    source = _one(db, "SELECT * FROM attorney_review_sources WHERE matter_id = %s",
+                  (w.matter_id,))
+    keys = source["payload"]["slot_answer_keys"]
+    assert "spouse_full_name" in keys["spouse_name"]
+    assert "has_minor_children" in keys["children_list"]

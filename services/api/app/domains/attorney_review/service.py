@@ -2,14 +2,20 @@
 
 The reviewer analyses ONLY the frozen artifact persisted at render time
 (snapshots + the source payload for the packages' stamped fingerprint).
-It never reads live intake answers, never touches a gate, and its
-findings are advisory: nothing in this module can block generation,
-submission, or release (plan 2026-10-27, design §9.7).
+The one live read is the intake answers' draft-set resolution, used
+solely to decide WHICH stamped fingerprint is the current one (an
+orphaned package must not silence the reviewer); the analysis itself
+never consumes live answers. It never touches a gate, and its findings
+are advisory: nothing in this module can block generation, submission,
+or release (plan 2026-10-27, design §9.7).
 """
 
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from typing import Any
 from uuid import UUID
@@ -27,6 +33,32 @@ logger = logging.getLogger(__name__)
 
 FLAG_KEY = "attorney_reviewer"
 PROMPT_VERSION = model_review.PROMPT_VERSION
+
+# Per-matter run serialization (review N3): auto-runs now execute on
+# background threads, so a generate run and a submit run (or a manual
+# run) for the same matter can overlap. Idempotency is check-then-act
+# in the prepare phase; without serialization two overlapping runs
+# could both compute and both persist (duplicate model spend). A
+# per-matter lock makes the second caller wait, after which its
+# prepare phase sees the first run's completed row and returns it.
+_run_locks: dict[str, threading.Lock] = {}
+_run_locks_guard = threading.Lock()
+
+
+@contextmanager
+def _matter_run_lock(matter_id: UUID) -> Iterator[None]:
+    key = str(matter_id)
+    with _run_locks_guard:
+        lock = _run_locks.setdefault(key, threading.Lock())
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+    # Entries are never removed: one small Lock per matter that has
+    # ever run a review is a bounded, acceptable footprint, and
+    # removing one races with a waiter that already holds a reference
+    # to it (which could then run concurrently with a fresh lock).
 
 
 class AttorneyReviewDisabledError(ConflictError):
@@ -674,32 +706,35 @@ def run_review(
     from ...domains.matters import service as matters_service
 
     actor_id = _actor_id(actor_sub)
-    with db.transaction() as conn:
-        scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
-        prepared, early = _prepare_review(
-            conn,
-            matter=scope.matter,
-            actor_id=actor_id,
-            force=force and scope.via == "firm",
-            full=True,
-            quiet=False,
-        )
-    if early is not None:
-        return early
-    assert prepared is not None
-    try:
-        findings, model_id, usage = _compute_findings(prepared, full=True)
+    with _matter_run_lock(matter_id):
         with db.transaction() as conn:
-            return _persist_review(
-                conn,
-                prepared=prepared,
-                findings=findings,
-                model_id=model_id,
-                usage=usage,
+            scope = matters_service.require_matter_write_scope(
+                conn, matter_id, actor_id
             )
-    except Exception as exc:
-        _record_failed_run(prepared, exc)
-        raise
+            prepared, early = _prepare_review(
+                conn,
+                matter=scope.matter,
+                actor_id=actor_id,
+                force=force and scope.via == "firm",
+                full=True,
+                quiet=False,
+            )
+        if early is not None:
+            return early
+        assert prepared is not None
+        try:
+            findings, model_id, usage = _compute_findings(prepared, full=True)
+            with db.transaction() as conn:
+                return _persist_review(
+                    conn,
+                    prepared=prepared,
+                    findings=findings,
+                    model_id=model_id,
+                    usage=usage,
+                )
+        except Exception as exc:
+            _record_failed_run(prepared, exc)
+            raise
 
 
 def run_review_for_matter(
@@ -717,6 +752,26 @@ def run_review_for_matter(
     frozen package exists; failures are logged and swallowed — the
     reviewer advises on the core flow and must never break it.
     """
+    try:
+        with _matter_run_lock(UUID(str(matter["id"]))):
+            _run_review_for_matter_locked(
+                matter=matter,
+                actor_id=actor_id,
+                deterministic_only=deterministic_only,
+            )
+    except Exception:
+        logger.exception(
+            "attorney_review auto-run failed for matter %s", matter.get("id")
+        )
+
+
+def _run_review_for_matter_locked(
+    *,
+    matter: dict[str, Any],
+    actor_id: UUID | None,
+    deterministic_only: bool = False,
+) -> None:
+    """The auto-run body, executed under the per-matter run lock."""
     from ...core import db
 
     prepared: _PreparedReview | None = None
@@ -746,9 +801,7 @@ def run_review_for_matter(
     except Exception as exc:
         if prepared is not None:
             _record_failed_run(prepared, exc)
-        logger.exception(
-            "attorney_review auto-run failed for matter %s", matter.get("id")
-        )
+        raise
 
 
 def _pack_ref(matter: dict[str, Any]) -> tuple[str, str, str]:

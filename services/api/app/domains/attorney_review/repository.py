@@ -146,7 +146,17 @@ def latest_completed_run(
     if exclude_run_id is not None:
         query += " AND id != %s"
         params.append(str(exclude_run_id))
-    query += " ORDER BY created_at DESC LIMIT 1"
+    if source_fingerprint is not None:
+        # Within one fingerprint, a FULL run always outranks a
+        # deterministic-only one: with background auto-runs, a slow
+        # det-only run can persist after the submit-time full run and
+        # must not shadow it as "latest" (review N3).
+        query += (
+            " ORDER BY (model_id IS NOT NULL AND model_id = 'deterministic_only')"
+            " ASC, created_at DESC LIMIT 1"
+        )
+    else:
+        query += " ORDER BY created_at DESC LIMIT 1"
     with conn.cursor() as cur:
         cur.execute(query, params)
         row = cur.fetchone()

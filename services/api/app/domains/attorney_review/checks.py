@@ -388,7 +388,7 @@ def _check_date_age(
                     severity=SHOULD_FIX,
                     document="guardianship",
                     field="date_of_birth",
-                subject=name,
+                    subject=name,
                     excerpt=str(person.get("date_of_birth")),
                     explanation=(
                         f"{name} is recorded as a minor child, but their date "
@@ -508,6 +508,13 @@ def _is_placeholder_value(value: Any) -> bool:
     return not text or all(ch in "_–—- " for ch in text)
 
 
+# Slots whose blank is BY DESIGN when a gate answer is exactly False
+# (the renderer emits the "___" fallback for them in that case).
+_FALSE_GATE_KEYS: dict[str, str] = {
+    "children_list": "has_minor_children",
+}
+
+
 def _check_unfilled_placeholders(
     snapshots: list[dict[str, Any]], source: dict[str, Any]
 ) -> list[Finding]:
@@ -518,6 +525,7 @@ def _check_unfilled_placeholders(
     # design; flagging it would cry wolf on every packet (the first
     # production run flagged 7 such blanks on a complete packet).
     answered = {str(k) for k in (source.get("answers") or {})}
+    answers_map = source.get("answers") or {}
     required_q = {str(k) for k in source.get("required_question_keys") or []}
     slot_sources: dict[str, Any] = source.get("slot_answer_keys") or {}
     findings: list[Finding] = []
@@ -531,6 +539,15 @@ def _check_unfilled_placeholders(
             # (the renderer's "___" fallback, e.g. children_list) is
             # NOT filled — fall through to the applicability test
             # instead of treating presence as filled (review M3).
+            # Value-aware gate: some slots are blank BY DESIGN when a
+            # gate answer is exactly False — the renderer writes
+            # children_list = "___" for a childless family, and
+            # has_minor_children is a required question, so key
+            # membership alone would flag every clean childless
+            # packet (review N2).
+            gate_key = _FALSE_GATE_KEYS.get(token)
+            if gate_key is not None and answers_map.get(gate_key) is False:
+                continue
             if token not in _FAMILY_SLOTS and token not in slot_sources:
                 continue  # attorney-fill (witness/notary/date blanks)
             sources = [str(k) for k in slot_sources.get(token) or [token]]
