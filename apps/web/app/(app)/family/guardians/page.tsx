@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Modal } from '@/components/ui/modal';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import {
@@ -238,6 +239,7 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [withdrawTarget, setWithdrawTarget] = useState<Nomination | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadData = useCallback((id: string) => {
@@ -303,30 +305,39 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
       .finally(() => setFormSaving(false));
   };
 
+  // Confirmation goes through the in-app Modal, never window.confirm:
+  // browsing contexts that suppress native dialogs make confirm() return
+  // false without showing anything, so the click silently did nothing.
   const handleWithdraw = (nomination: Nomination) => {
-    if (!matterId) return;
-    const person = persons.find((p) => p.id === nomination.person_id);
-    const confirmed = window.confirm(
-      `Withdraw the ${roleLabel(nomination.nomination_type)} nomination for ${person?.full_name ?? 'this person'}?`,
-    );
-    if (!confirmed) return;
+    setWithdrawTarget(nomination);
+  };
+
+  const confirmWithdraw = () => {
+    const nomination = withdrawTarget;
+    if (!nomination || !matterId) return;
     setWithdrawingId(nomination.id);
     setNotice(null);
     api
       .deleteNomination(matterId, nomination.id)
       .then(() => {
         setNotice('Nomination withdrawn.');
+        setWithdrawTarget(null);
         loadData(matterId);
       })
-      .catch((err: unknown) =>
+      .catch((err: unknown) => {
         setNotice(
           err instanceof Error
             ? `Could not withdraw: ${err.message}`
             : 'Could not withdraw the nomination.',
-        ),
-      )
+        );
+        setWithdrawTarget(null);
+      })
       .finally(() => setWithdrawingId(null));
   };
+
+  const withdrawTargetPerson = withdrawTarget
+    ? persons.find((p) => p.id === withdrawTarget.person_id)
+    : null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -469,6 +480,33 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
           </section>
         </>
       )}
+
+      <Modal
+        open={withdrawTarget != null}
+        onClose={() => setWithdrawTarget(null)}
+        title="Withdraw this nomination?"
+        description={
+          withdrawTarget
+            ? `The ${roleLabel(withdrawTarget.nomination_type)} nomination for ${withdrawTargetPerson?.full_name ?? 'this person'} will be withdrawn. This cannot be undone — you would need to nominate them again.`
+            : undefined
+        }
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setWithdrawTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={confirmWithdraw}
+            disabled={withdrawTarget != null && withdrawingId === withdrawTarget.id}
+            className="bg-lf-error-600 text-white hover:bg-lf-error-700"
+          >
+            {withdrawTarget != null && withdrawingId === withdrawTarget.id
+              ? 'Withdrawing…'
+              : 'Withdraw nomination'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

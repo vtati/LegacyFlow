@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Modal } from '@/components/ui/modal';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { LiabilityForm, liabilityTypeLabel } from '@/components/family/liability-form';
@@ -76,6 +77,7 @@ export default function FamilyLiabilitiesPage(): React.JSX.Element {
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Liability | null>(null);
 
   const householdId = useMemo(
     () => matters.find((matter) => matter.id === matterId)?.household?.id ?? null,
@@ -143,25 +145,33 @@ export default function FamilyLiabilitiesPage(): React.JSX.Element {
       .finally(() => setFormSaving(false));
   };
 
+  // Confirmation goes through the in-app Modal, never window.confirm:
+  // browsing contexts that suppress native dialogs make confirm() return
+  // false without showing anything, so the click silently did nothing.
   const handleDelete = (liability: Liability) => {
-    if (!householdId) return;
-    const confirmed = window.confirm(`Delete “${liability.label}”? This cannot be undone.`);
-    if (!confirmed) return;
+    setDeleteTarget(liability);
+  };
+
+  const confirmDelete = () => {
+    const liability = deleteTarget;
+    if (!liability || !householdId) return;
     setDeletingId(liability.id);
     setNotice(null);
     api
       .deleteLiability(liability.id)
       .then(() => {
         setNotice(`“${liability.label}” deleted.`);
+        setDeleteTarget(null);
         loadData(householdId);
       })
-      .catch((err: unknown) =>
+      .catch((err: unknown) => {
         setNotice(
           err instanceof Error
             ? `Could not delete: ${err.message}`
             : 'Could not delete the liability.',
-        ),
-      )
+        );
+        setDeleteTarget(null);
+      })
       .finally(() => setDeletingId(null));
   };
 
@@ -265,6 +275,33 @@ export default function FamilyLiabilitiesPage(): React.JSX.Element {
           )}
         </section>
       )}
+
+      <Modal
+        open={deleteTarget != null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete this liability?"
+        description={
+          deleteTarget
+            ? `“${deleteTarget.label}” will be removed from your plan. This cannot be undone.`
+            : undefined
+        }
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deleteTarget != null && deletingId === deleteTarget.id}
+            className="bg-lf-error-600 text-white hover:bg-lf-error-700"
+          >
+            {deleteTarget != null && deletingId === deleteTarget.id
+              ? 'Deleting…'
+              : 'Delete liability'}
+          </Button>
+        </div>
+      </Modal>
 
       <LiabilityForm
         key={editing ? `edit-${editing.id}` : 'new'}

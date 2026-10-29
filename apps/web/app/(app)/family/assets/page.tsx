@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Modal } from '@/components/ui/modal';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { MatterSelect, useMatters } from '@/components/family/matter-context';
 import { AssetForm, assetTypeLabel, ownershipLabel } from '@/components/family/asset-form';
@@ -168,6 +169,7 @@ export default function FamilyAssetsPage(): React.JSX.Element {
   const [beneficiariesError, setBeneficiariesError] = useState<string | null>(null);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
 
   const householdId = useMemo(
@@ -262,23 +264,31 @@ export default function FamilyAssetsPage(): React.JSX.Element {
       .finally(() => setBeneficiariesSaving(false));
   };
 
+  // Confirmation goes through the in-app Modal, never window.confirm:
+  // browsing contexts that suppress native dialogs make confirm() return
+  // false without showing anything, so the click silently did nothing.
   const handleDelete = (asset: Asset) => {
-    if (!householdId) return;
-    const confirmed = window.confirm(`Delete “${asset.label}”? This cannot be undone.`);
-    if (!confirmed) return;
+    setDeleteTarget(asset);
+  };
+
+  const confirmDelete = () => {
+    const asset = deleteTarget;
+    if (!asset || !householdId) return;
     setDeletingId(asset.id);
     setNotice(null);
     api
       .deleteAsset(asset.id)
       .then(() => {
         setNotice(`“${asset.label}” deleted.`);
+        setDeleteTarget(null);
         loadData(householdId);
       })
-      .catch((err: unknown) =>
+      .catch((err: unknown) => {
         setNotice(
           err instanceof Error ? `Could not delete: ${err.message}` : 'Could not delete the asset.',
-        ),
-      )
+        );
+        setDeleteTarget(null);
+      })
       .finally(() => setDeletingId(null));
   };
 
@@ -399,6 +409,31 @@ export default function FamilyAssetsPage(): React.JSX.Element {
           setEditing(null);
         }}
       />
+
+      <Modal
+        open={deleteTarget != null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete this asset?"
+        description={
+          deleteTarget
+            ? `“${deleteTarget.label}” will be removed from your plan, along with its beneficiary designations. This cannot be undone.`
+            : undefined
+        }
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deleteTarget != null && deletingId === deleteTarget.id}
+            className="bg-lf-error-600 text-white hover:bg-lf-error-700"
+          >
+            {deleteTarget != null && deletingId === deleteTarget.id ? 'Deleting…' : 'Delete asset'}
+          </Button>
+        </div>
+      </Modal>
 
       {beneficiaryAsset && (
         <BeneficiaryEditor
