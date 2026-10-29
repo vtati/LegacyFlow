@@ -10,10 +10,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import dramatiq
-import psycopg
-from psycopg.rows import dict_row
 
 from worker.broker import get_broker
+from worker.db import get_connection
 from worker.scanning import perform_file_scan
 from worker.settings import get_worker_settings
 
@@ -101,7 +100,7 @@ def drain_outbox(batch_size: int = 25) -> dict[str, int]:
 
     sent = 0
     failed = 0
-    with psycopg.connect(settings.DATABASE_URL, row_factory=dict_row) as conn:
+    with get_connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -291,7 +290,7 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
     processed = 0
     queued = 0
     skipped = 0
-    with psycopg.connect(settings.DATABASE_URL, row_factory=dict_row) as conn:
+    with get_connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
                 skipped = _count_suppressed_reminders(cur)
@@ -351,6 +350,6 @@ def scan_file(upload_id: str) -> dict[str, Any]:
     if not settings.DATABASE_URL:
         logger.warning("DATABASE_URL is not set; scan_file has nothing to scan.")
         return {"scanned": 0, "status": "no_database"}
-    with psycopg.connect(settings.DATABASE_URL, row_factory=dict_row) as conn:
+    with get_connection() as conn:
         with conn.transaction():
             return perform_file_scan(conn, UUID(upload_id))

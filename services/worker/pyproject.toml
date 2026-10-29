@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "dramatiq>=1.18",
     "redis>=5.0",
-    "psycopg[binary]>=3.1",
+    "psycopg[binary,pool]>=3.1",
     "pydantic>=2.7",
     "pydantic-settings>=2.4",
 ]

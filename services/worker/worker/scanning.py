@@ -24,9 +24,7 @@ import json
 import urllib.request
 import urllib.error
 
-import psycopg
-from psycopg.rows import dict_row
-
+from worker.db import get_connection
 from worker.settings import get_worker_settings
 
 logger = logging.getLogger(__name__)
@@ -200,7 +198,7 @@ def scan_pending_uploads(batch_size: int = 25, *, scanner: Scanner | None = None
     scanned = 0
     clean = 0
     quarantined = 0
-    with psycopg.connect(settings.DATABASE_URL, row_factory=dict_row) as conn:
+    with get_connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
