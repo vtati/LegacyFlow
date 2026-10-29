@@ -6,9 +6,10 @@ service. Mounted by the coordinator under ``/v1``::
     from app.domains.documents.router import router
 
 Demo documents are ALWAYS watermarked "DEMO ONLY — NOT LEGALLY VALID";
-production release always fails closed (HTTP 409,
-``production_release_unavailable``). Errors follow the RFC 7807
-``AppError`` convention; the handler in ``app.main`` renders them.
+production release is gated on an approved ``document_release`` gate
+and an attorney / firm_admin actor, and fails closed (HTTP 409) without
+them. Errors follow the RFC 7807 ``AppError`` convention; the handler
+in ``app.main`` renders them.
 """
 
 import json
