@@ -1467,3 +1467,48 @@ def test_funding_evidence_unknown_magic_rejected(db, api_client):
         headers=auth(CLIENT_A),
     )
     assert response.status_code == 422, response.text
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: FUNC-017 — send_reminders counters track reality
+# ---------------------------------------------------------------------------
+
+
+def test_send_reminders_counts_failed_enqueue_honestly(db, monkeypatch):
+    """FUNC-017: processed counts rows examined; queued counts only
+    successful enqueues — a failing enqueue yields processed > queued."""
+    from app.domains.documents import repository as documents_repo
+    from app.domains.review import repository as review_repo
+
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    scheduled_for = datetime.now(UTC) - timedelta(minutes=5)
+    reminder_ids = []
+    for _ in range(2):
+        rid = str(uuid4())
+        reminder_ids.append(rid)
+        _exec(
+            db,
+            "INSERT INTO reminders (id, firm_id, matter_id, user_id, reminder_type,"
+            " scheduled_for, payload) VALUES (%s, %s, %s, %s, 'signing_deadline', %s, '{}'::jsonb)",
+            (rid, firm_id, matter_id, CLIENT_A, scheduled_for),
+        )
+
+    real_enqueue = review_repo.enqueue_notification
+    calls = {"n": 0}
+
+    def flaky_enqueue(conn, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("broker unavailable (synthetic)")
+        return real_enqueue(conn, **kwargs)
+
+    monkeypatch.setattr(review_repo, "enqueue_notification", flaky_enqueue)
+    result = documents_service.send_reminders(db)
+    db.commit()
+    assert result == {"processed": 2, "queued": 1}
+    # the failed reminder was NOT marked sent; the successful one was
+    with db.cursor() as cur:
+        cur.execute("SELECT id, sent_at FROM reminders ORDER BY created_at")
+        rows = cur.fetchall()
+    sent = [r for r in rows if r["sent_at"] is not None]
+    assert len(sent) == 1

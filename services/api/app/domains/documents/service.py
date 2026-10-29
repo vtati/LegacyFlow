@@ -3218,37 +3218,50 @@ def send_reminders(conn: Any, *, limit: int = 100) -> dict[str, int]:
     """
     from ..review import repository as review_repo
 
+    # FUNC-017: the counters track reality — ``processed`` counts rows
+    # examined, ``queued`` counts only SUCCESSFUL enqueues. Each reminder
+    # runs in its own savepoint so one failing enqueue neither aborts
+    # the batch nor gets counted (or marked sent).
     processed = 0
     queued = 0
     due = repo.list_due_reminders(conn, limit=limit)
     for reminder in due:
-        payload = dict(reminder.get("payload") or {})
-        review_repo.enqueue_notification(
-            conn,
-            firm_id=reminder["firm_id"],
-            matter_id=reminder.get("matter_id"),
-            template_key="reminder.due",
-            payload={
-                "reminder_id": str(reminder["id"]),
-                "reminder_type": reminder["reminder_type"],
-                "scheduled_for": str(reminder["scheduled_for"]),
-                **payload,
-            },
-            recipient_user_id=reminder["user_id"],
-        )
-        repo.mark_reminder_sent(conn, reminder["id"])
-        record_audit_event(
-            conn,
-            action="reminder.sent",
-            resource_type="reminders",
-            actor_user_id=None,
-            actor_type="system",
-            firm_id=reminder["firm_id"],
-            matter_id=reminder.get("matter_id"),
-            resource_id=reminder["id"],
-            after_summary={"reminder_type": reminder["reminder_type"]},
-        )
         processed += 1
+        payload = dict(reminder.get("payload") or {})
+        try:
+            with conn.transaction():
+                review_repo.enqueue_notification(
+                    conn,
+                    firm_id=reminder["firm_id"],
+                    matter_id=reminder.get("matter_id"),
+                    template_key="reminder.due",
+                    payload={
+                        "reminder_id": str(reminder["id"]),
+                        "reminder_type": reminder["reminder_type"],
+                        "scheduled_for": str(reminder["scheduled_for"]),
+                        **payload,
+                    },
+                    recipient_user_id=reminder["user_id"],
+                )
+                repo.mark_reminder_sent(conn, reminder["id"])
+                record_audit_event(
+                    conn,
+                    action="reminder.sent",
+                    resource_type="reminders",
+                    actor_user_id=None,
+                    actor_type="system",
+                    firm_id=reminder["firm_id"],
+                    matter_id=reminder.get("matter_id"),
+                    resource_id=reminder["id"],
+                    after_summary={"reminder_type": reminder["reminder_type"]},
+                )
+        except Exception:
+            logger.warning(
+                "documents: reminder %s could not be queued; leaving it unsent",
+                reminder["id"],
+                exc_info=True,
+            )
+            continue
         queued += 1
     return {"processed": processed, "queued": queued}
 

@@ -278,8 +278,10 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
     delivered reminder with a generic subject (FR-FUND-004), marks
     ``sent_at`` idempotently, and records an audit event per send.
 
-    Returns ``{"processed": p, "queued": q, "skipped": s}``. Never logs
-    reminder payloads or recipient PII — only counts (contract rule 9).
+    Returns ``{"processed": p, "queued": q, "skipped": s}`` where
+    ``processed`` counts due rows examined and ``queued`` counts only
+    successful enqueues (FUNC-017). Never logs reminder payloads or
+    recipient PII — only counts (contract rule 9).
     """
     settings = get_worker_settings()
     if not settings.DATABASE_URL:
@@ -295,13 +297,32 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
                 skipped = _count_suppressed_reminders(cur)
                 due = _select_due_reminders(cur, batch_size)
             for reminder in due:
+                # FUNC-017: counters track reality — ``processed``
+                # counts rows examined, ``queued`` counts only
+                # successful enqueues. Each reminder runs in its own
+                # savepoint so a failing enqueue neither aborts the
+                # batch nor gets counted (or marked sent).
+                processed += 1
                 reminder_id = UUID(str(reminder["id"]))
-                with conn.cursor() as cur:
-                    _enqueue_reminder_notification(cur, reminder)
-                    if _mark_reminder_sent(cur, reminder_id):
-                        _audit_reminder_sent(cur, reminder)
-                        processed += 1
-                        queued += 1
+                try:
+                    with conn.transaction():
+                        with conn.cursor() as cur:
+                            _enqueue_reminder_notification(cur, reminder)
+                            if not _mark_reminder_sent(cur, reminder_id):
+                                raise RuntimeError(
+                                    "reminder was already marked sent; "
+                                    "rolling back the duplicate enqueue"
+                                )
+                            _audit_reminder_sent(cur, reminder)
+                except Exception:
+                    logger.warning(
+                        "send_due_reminders: reminder %s could not be queued; "
+                        "leaving it unsent",
+                        reminder_id,
+                        exc_info=True,
+                    )
+                    continue
+                queued += 1
     logger.info(
         "send_due_reminders processed batch: processed=%d queued=%d skipped=%d",
         processed,

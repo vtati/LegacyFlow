@@ -346,3 +346,43 @@ def test_send_due_reminders_actor_is_registered() -> None:
     from worker import actors
 
     assert actors.send_due_reminders.actor_name == "send_due_reminders"
+
+
+def test_dispatch_failed_enqueue_counts_honestly(
+    reminders_dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FUNC-017 (worker copy): processed counts rows examined, queued
+    counts only successful enqueues — one failing enqueue yields
+    processed > queued and leaves that reminder unsent."""
+    from worker import actors
+    from worker.settings import get_worker_settings
+
+    monkeypatch.setenv("DATABASE_URL", reminders_dsn)
+    get_worker_settings.cache_clear()
+    try:
+        _truncate(reminders_dsn)
+        user = uuid.uuid4()
+        good_id = _insert_reminder(
+            reminders_dsn, user, scheduled_for=datetime.now(UTC) - timedelta(hours=1)
+        )
+        bad_id = _insert_reminder(
+            reminders_dsn, user, scheduled_for=datetime.now(UTC) - timedelta(hours=1)
+        )
+
+        real_enqueue = actors._enqueue_reminder_notification
+
+        def flaky_enqueue(cur: Any, reminder: dict[str, Any]) -> None:
+            if str(reminder["id"]) == str(bad_id):
+                raise RuntimeError("outbox unavailable (synthetic)")
+            return real_enqueue(cur, reminder)
+
+        monkeypatch.setattr(actors, "_enqueue_reminder_notification", flaky_enqueue)
+
+        ledger = actors.dispatch_due_reminders(batch_size=100)
+
+        assert ledger == {"processed": 2, "queued": 1, "skipped": 0}
+        assert _fetch_reminder(reminders_dsn, good_id)["sent_at"] is not None
+        assert _fetch_reminder(reminders_dsn, bad_id)["sent_at"] is None
+        assert len(_outbox_rows(reminders_dsn)) == 1
+    finally:
+        get_worker_settings.cache_clear()
