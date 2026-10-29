@@ -498,3 +498,54 @@ def test_donation_not_declined_phrasings(text):
 def test_donation_declined_non_string_answers():
     assert documents_service._organ_donation_declined(None) is False
     assert documents_service._organ_donation_declined(True) is False
+
+
+# ---------------------------------------------------------------------------
+# (c) Revocable living trust Article V — distribution clauses follow the
+# facts (FUNC-026: the Will's truthfulness fix, applied to the trust)
+# ---------------------------------------------------------------------------
+
+
+def test_trust_single_childless_grantor_has_no_marital_or_children_clauses(db):
+    _h, matter_id, _ids = build_world(db, with_spouse_row=False, with_child=False)
+    set_answer(db, matter_id, "marital_status", "single")
+    set_answer(db, matter_id, "has_minor_children", False)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["trust_distribution_provisions"] == ""
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "Marital share" not in trust
+    assert "Shares for children" not in trust
+    assert "divided into equal shares for my children" not in trust
+
+
+def test_trust_married_with_children_keeps_both_clauses_verbatim(db):
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True, with_child=True)
+    set_answer(db, matter_id, "marital_status", "married")
+    set_answer(db, matter_id, "has_minor_children", True)
+    set_answer(db, matter_id, "trust_marital_share", "one-half of the trust estate")
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "5.2 Marital share. one-half of the trust estate" in trust
+    assert (
+        "5.3 Shares for children. The remaining trust property shall be "
+        f"divided into equal shares for my children:\n{CHILD}"
+    ) in trust
+
+
+def test_trust_married_no_children_omits_children_clause(db):
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True, with_child=False)
+    set_answer(db, matter_id, "marital_status", "married")
+    set_answer(db, matter_id, "has_minor_children", False)
+    set_answer(db, matter_id, "trust_marital_share", "the marital share as elected")
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "5.2 Marital share. the marital share as elected" in trust
+    assert "Shares for children" not in trust
+
+
+def test_trust_single_with_children_omits_marital_clause(db):
+    _h, matter_id, _ids = build_world(db, with_spouse_row=False, with_child=True)
+    set_answer(db, matter_id, "marital_status", "single")
+    set_answer(db, matter_id, "has_minor_children", True)
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "Marital share" not in trust
+    assert "Shares for children" in trust
+    assert CHILD in trust

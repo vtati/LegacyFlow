@@ -46,10 +46,7 @@ ARTICLE V — DISTRIBUTIONS AFTER THE GRANTOR'S DEATH
 
 5.1 Payment of expenses. Upon my death, the Trustee shall pay from the trust estate my legally enforceable debts, funeral expenses, administration expenses, and death taxes attributable to the trust property.
 
-5.2 Marital share. {{marital_share}}
-
-5.3 Shares for children. The remaining trust property shall be divided into equal shares for my children:
-{{children_list}}
+{{trust_distribution_provisions}}
 
 5.4 Minors' shares in continuing trust. The share of any child who has not attained the age of {{distribution_age}} shall be held in a separate continuing trust for that child. The Trustee shall apply so much of the income and principal as the Trustee deems advisable for the child's health, education, maintenance, and support until the child attains the age of {{distribution_age}}, at which time the remaining balance shall be distributed outright to the child, free of trust.
 

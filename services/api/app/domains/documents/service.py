@@ -1541,6 +1541,28 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
             recital.append("I have the following children:\n___")
         context["family_identification"] = "\n\n".join(recital)
 
+        # Trust Article V distribution clauses, composed the same way
+        # (FUNC-026): the trust template previously printed §5.2 marital
+        # share and §5.3 children-division unconditionally, so a single,
+        # childless grantor's draft asserted a spouse share and children
+        # that don't exist. Omit each clause when its facts are absent;
+        # sections are renumbered sequentially from 5.2 so the married-
+        # with-children rendering is identical in substance to before.
+        provisions: list[str] = []
+        section = 2
+        if spouse_name or marital_status in ("married", "partnered"):
+            share = context.get("marital_share") or "___"
+            provisions.append(f"5.{section} Marital share. {share}")
+            section += 1
+        if children_known:
+            provisions.append(
+                f"5.{section} Shares for children. The remaining trust "
+                "property shall be divided into equal shares for my "
+                f"children:\n{context['children_list']}"
+            )
+            section += 1
+        context["trust_distribution_provisions"] = "\n\n".join(provisions)
+
         if donation_declined:
             context["anatomical_gift_appointment"] = ""
         else:
