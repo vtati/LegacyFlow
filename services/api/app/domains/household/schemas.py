@@ -45,16 +45,31 @@ class PersonCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
     relationship_role: str = Field(
         default="dependent",
-        description="Household member role for the auto-created membership link.",
+        description=(
+            "Household member role for the auto-created membership link. "
+            "Only non-privileged roles may be auto-assigned here (FUNC-029)."
+        ),
     )
 
     @field_validator("relationship_role")
     @classmethod
     def _role_allowed(cls, value: str) -> str:
         normalized = value.strip().lower()
-        allowed = {"primary_client", "collaborator", "dependent", "trusted_contact"}
+        # FUNC-029: primary_client/collaborator are privileged membership
+        # roles — primary_client is a household singleton that member and
+        # testator resolution assume unique, and collaborator carries
+        # household write access. They are minted by household
+        # provisioning / invitation flows, never by person-create's
+        # auto-assignment; accepting them here let any household writer
+        # mint a second primary_client row and corrupt that resolution.
+        allowed = {"dependent", "trusted_contact"}
         if normalized not in allowed:
-            raise ValueError(f"relationship_role must be one of: {', '.join(sorted(allowed))}.")
+            raise ValueError(
+                "relationship_role for a new person must be one of: "
+                f"{', '.join(sorted(allowed))}. primary_client and "
+                "collaborator memberships are created through household "
+                "provisioning and invitations, not by adding a person."
+            )
         return normalized
 
 
