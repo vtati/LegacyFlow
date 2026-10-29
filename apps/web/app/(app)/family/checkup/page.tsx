@@ -16,6 +16,7 @@ import {
   type MatterSummary,
   type SigningChecklist,
 } from '@/lib/api-client';
+import { mapWithConcurrency } from '@/lib/concurrency';
 import { formatStatus, statusBadgeClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -252,7 +253,13 @@ export default function FamilyCheckupPage(): React.JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const results = await Promise.all(list.map((matter) => buildMatterCheckup(matter)));
+      // PERF-017 (partial, by design): each matter's checkup fires ~8
+      // API calls, and this page previously ran them for ALL matters at
+      // once — an uncapped burst that grows with the matter count.
+      // Capping at 2 matters in flight bounds the burst; it does not
+      // reduce the per-matter call count. The real fix is a server-side
+      // checkup aggregate endpoint, which is out of scope here.
+      const results = await mapWithConcurrency(list, 2, (matter) => buildMatterCheckup(matter));
       setCheckups(results);
     } catch (err: unknown) {
       setError(err);
