@@ -16,14 +16,21 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    // UI-023: closing returns focus to the trigger — without it,
+    // keyboard focus is dropped to <body> when the menu unmounts.
+    const closeAndRestoreFocus = (): void => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') closeAndRestoreFocus();
     };
     const onClick = (e: MouseEvent): void => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeAndRestoreFocus();
     };
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onClick);
@@ -48,6 +55,7 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
   return (
     <div className="relative" ref={menuRef}>
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         onClick={() => setOpen((v) => !v)}

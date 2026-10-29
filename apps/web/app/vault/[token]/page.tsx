@@ -113,7 +113,9 @@ export default function VaultAccessPage({ params }: VaultAccessPageProps): React
                           className="size-4 shrink-0 text-lf-text-subtle"
                           aria-hidden="true"
                         />
-                        <span className="truncate">{document.filename}</span>
+                        <span className="truncate" title={document.filename}>
+                          {document.filename}
+                        </span>
                         <span className="shrink-0 text-xs text-lf-text-subtle">
                           {document.content_type}
                         </span>
