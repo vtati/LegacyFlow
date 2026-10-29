@@ -45,6 +45,42 @@ def test_download_response_sets_referrer_policy_no_referrer(db, api_client):
     assert response.headers.get("referrer-policy") == "no-referrer"
 
 
+def test_download_redirect_branch_sets_referrer_policy_no_referrer(db, api_client, monkeypatch):
+    """SEC-015 (Batch F review M3): the Supabase branch of the download
+    endpoint answers 302 RedirectResponse to a signed URL instead of
+    streaming bytes — that branch must carry the same
+    ``Referrer-Policy: no-referrer`` header. The storage layer is
+    stubbed at the service seam the router calls
+    (``files_service.storage_signed_url``), exactly where the local
+    backend returns None and the Supabase backend returns a URL, so the
+    request still flows end-to-end through token minting,
+    ``authorize_download``, and the router's redirect branch."""
+    from app.domains.files import service as files_service
+
+    signed_url = (
+        "https://storage.example.test/object/sign/client-uploads/"
+        "synthetic.pdf?token=synthetic-signed-url"
+    )
+    monkeypatch.setattr(
+        files_service,
+        "storage_signed_url",
+        lambda stored_path, expires_in=900: signed_url,
+    )
+
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    intent = _upload_clean_file(db, api_client, ATTORNEY_A, matter_id)
+    upload_id = intent["upload_id"]
+
+    response = api_client.post(f"/v1/files/{upload_id}/download-token", headers=auth(ATTORNEY_A))
+    assert response.status_code == 200, response.text
+    token = response.json()["token"]
+
+    response = api_client.get(f"/v1/files/download?token={token}", follow_redirects=False)
+    assert response.status_code == 302, response.text
+    assert response.headers.get("location") == signed_url
+    assert response.headers.get("referrer-policy") == "no-referrer"
+
+
 def _record(message: str, *args: object) -> logging.LogRecord:
     return logging.LogRecord(
         name="test",
