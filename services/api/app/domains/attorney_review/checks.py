@@ -91,8 +91,21 @@ class Finding:
     subject: str | None = None
 
 
+def _normalize_text(text: str | None) -> str:
+    """Collapse all whitespace runs and case-fold (hash stability)."""
+    return " ".join((text or "").split()).lower()
+
+
 def finding_hash(finding: Finding) -> str:
-    """Content hash (layer + check + location + subject + evidence)."""
+    """Content hash (layer + check + location + subject + evidence).
+
+    FUNC-024: severity and the normalized EXPLANATION are hashed too.
+    For execution-requirements findings the excerpt is always None and
+    the material evidence (required vs found witness counts, the
+    statutory citation) lives only in the explanation — without it, a
+    template edit that changed the evidence produced a finding with
+    the same hash, and a stale acknowledgment carried over silently.
+    """
     payload = {
         "layer": finding.layer,
         "check": finding.check,
@@ -100,6 +113,8 @@ def finding_hash(finding: Finding) -> str:
         "field": finding.field,
         "subject": (finding.subject or "").strip().lower(),
         "excerpt": (finding.excerpt or "").strip().lower(),
+        "severity": finding.severity,
+        "explanation": _normalize_text(finding.explanation),
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")

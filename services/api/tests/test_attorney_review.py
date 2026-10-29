@@ -411,7 +411,7 @@ def test_attorney_acknowledgment_is_recorded(api_client, db) -> None:
     assert str(row["acknowledged_by_user_id"]) == ADMIN
 
 
-def test_regeneration_dispositions_fixed_and_acknowledgment_carries(api_client, db) -> None:
+def test_regeneration_dispositions_fixed_and_ack_stays_within_fingerprint(api_client, db) -> None:
     w = seed_reviewable_world(db)
     enable_flag(db, w.firm_id)
     # A second, persistent defect: successor executor == executor in context.
@@ -450,8 +450,13 @@ def test_regeneration_dispositions_fixed_and_acknowledgment_carries(api_client, 
     assert resp.status_code == 201, resp.text
     second = {f["check"]: f for f in resp.json()["findings"]}
     assert "name_consistency" not in second  # fixed by the regeneration
-    assert second["role_consistency"]["disposition"] == "acknowledged"
-    assert second["role_consistency"]["acknowledgment_note"] == "Client confirmed both roles."
+    # FUNC-024 (Batch C3): acknowledgment carry-over is restricted to
+    # previous runs with the SAME source fingerprint — under fp2 the
+    # identical role finding is born OPEN, not acknowledged. (The
+    # same-fingerprint carry case is covered by
+    # test_ack_carryover_within_same_fingerprint.)
+    assert second["role_consistency"]["disposition"] == "open"
+    assert second["role_consistency"]["acknowledgment_note"] is None
     old_name = _one(
         db, "SELECT disposition FROM attorney_review_findings WHERE id = %s",
         (first["name_consistency"]["id"],),
@@ -899,3 +904,88 @@ def test_payload_slot_keys_cover_identity_slots(db) -> None:
     keys = source["payload"]["slot_answer_keys"]
     assert "spouse_full_name" in keys["spouse_name"]
     assert "has_minor_children" in keys["children_list"]
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: FUNC-024 — ack carry-over is fingerprint- and evidence-scoped
+# ---------------------------------------------------------------------------
+
+
+def _seed_persistent_role_defect(db, w) -> dict:
+    ctx = dict(CONTEXT)
+    ctx["alternate_executor_name"] = "Amit Sharma"
+    _exec(db, "UPDATE attorney_review_snapshots SET context = %s::jsonb"
+              " WHERE matter_id = %s",
+          (json.dumps(ctx), w.matter_id))
+    return ctx
+
+
+def test_ack_carryover_within_same_fingerprint(api_client, db) -> None:
+    """An identical finding in a same-fingerprint re-run DOES inherit
+    the acknowledgment."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    _seed_persistent_role_defect(db, w)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    first = {f["check"]: f for f in resp.json()["findings"]}
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/findings/{first['role_consistency']['id']}/acknowledge",
+        headers=_headers(ADMIN), json={"note": "Client confirmed both roles."},
+    )
+    assert resp.status_code == 200
+
+    # Forced re-run under the SAME source fingerprint.
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run",
+        headers=_headers(ADMIN), json={"force": True},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["run"]["id"] != first["role_consistency"]["id"]
+    second = {f["check"]: f for f in resp.json()["findings"]}
+    assert second["role_consistency"]["disposition"] == "acknowledged"
+    assert second["role_consistency"]["acknowledgment_note"] == "Client confirmed both roles."
+
+
+def test_ack_not_carried_when_evidence_changes(api_client, db) -> None:
+    """A finding whose explanation changes (witness count 1 -> 0 of 2
+    required) must NOT inherit the ack — its hash covers the evidence."""
+    w = seed_reviewable_world(db)
+    enable_flag(db, w.firm_id)
+    one_witness = WILL_BODY.replace(
+        "Witness signature: ____________________\nWitness signature:",
+        "Witness signature:",
+    )
+    assert one_witness != WILL_BODY
+    _exec(db, "UPDATE attorney_review_snapshots SET body_text = %s"
+              " WHERE matter_id = %s AND template_type = 'will'",
+          (one_witness, w.matter_id))
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run", headers=_headers(CLIENT)
+    )
+    assert resp.status_code == 201, resp.text
+    first = {f["check"]: f for f in resp.json()["findings"]}
+    assert "va_execution_requirements" in first, first.keys()
+    assert "shows 1 witness" in first["va_execution_requirements"]["explanation"]
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/findings/{first['va_execution_requirements']['id']}/acknowledge",
+        headers=_headers(ADMIN), json={"note": "Attorney verified the witness block."},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Same fingerprint, but the draft now shows ZERO witness lines: the
+    # material evidence changed, so the finding is born open.
+    zero_witness = one_witness.replace(
+        "Witness signature: ____________________\n", ""
+    )
+    insert_snapshot(db, w, "will", zero_witness, fingerprint=FINGERPRINT, version=4)
+    resp = api_client.post(
+        f"/v1/matters/{w.matter_id}/attorney-review/run",
+        headers=_headers(ADMIN), json={"force": True},
+    )
+    assert resp.status_code == 201, resp.text
+    second = {f["check"]: f for f in resp.json()["findings"]}
+    assert "va_execution_requirements" in second
+    assert "shows 0 witness" in second["va_execution_requirements"]["explanation"]
+    assert second["va_execution_requirements"]["disposition"] == "open"

@@ -749,3 +749,96 @@ def test_childless_packet_children_list_blank_is_by_design() -> None:
     )
     flagged = _by_check(_run(snapshots=[will], source=source), "unfilled_placeholders")
     assert flagged == []
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: FUNC-025 — name_consistency downgrades legitimate outsiders
+# ---------------------------------------------------------------------------
+
+
+def test_consistent_non_household_name_is_a_question_not_should_fix() -> None:
+    """A beneficiary spelled consistently in that exact form across the
+    packet ('Arjun Sharm', a nephew — not the testator 'Arjun Sharma')
+    is a question for the attorney, not an instructed fix."""
+    will = (
+        "LAST WILL AND TESTAMENT OF Arjun Sharma\n"
+        "I give $10,000 to my nephew, Arjun Sharm.\n"
+        "Signature of Testator: ____________________\n"
+        "Witness signature: ____________________\n"
+        "Witness signature: ____________________\n"
+        "SELF-PROVING AFFIDAVIT under Va. Code § 64.2-403.\n"
+    )
+    poa = (
+        "DURABLE POWER OF ATTORNEY\n"
+        "I, Arjun Sharma, appoint Neha Kapoor as my agent. "
+        "My nephew Arjun Sharm may witness this document."
+    )
+    snaps = [_snapshot("will", will), _snapshot("poa", poa)] + _snapshots()[2:]
+    findings = _by_check(_run(snaps), "name_consistency")
+    sharm = [f for f in findings if "Arjun Sharm" == (f.excerpt or "")]
+    assert len(sharm) >= 1
+    for f in sharm:
+        assert f.severity == "question_for_attorney"
+        assert f.suggested_fix is None
+
+
+def test_one_off_typo_of_testator_name_stays_should_fix() -> None:
+    """A single inconsistent occurrence of a slotted household name
+    ('Arjun Sharmaa' in the will heading) is still a likely typo."""
+    will = (
+        "LAST WILL AND TESTAMENT OF Arjun Sharmaa\n"
+        "I am married to Neha Kapoor.\n"
+        "Signature of Testator: ____________________\n"
+        "Witness signature: ____________________\n"
+        "Witness signature: ____________________\n"
+        "SELF-PROVING AFFIDAVIT under Va. Code § 64.2-403.\n"
+    )
+    snaps = [_snapshot("will", will)] + _snapshots()[1:]
+    findings = _by_check(_run(snaps), "name_consistency")
+    typo = [f for f in findings if (f.excerpt or "") == "Arjun Sharmaa"]
+    assert len(typo) == 1
+    assert typo[0].severity == "should_fix"
+    assert "Arjun Sharma" in (typo[0].suggested_fix or "")
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: FUNC-024 — finding_hash covers severity + explanation
+# ---------------------------------------------------------------------------
+
+
+def test_finding_hash_changes_with_explanation_and_severity() -> None:
+    from app.domains.attorney_review.checks import Finding, finding_hash
+
+    base = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        explanation="The will draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 0 witness signature line(s).",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    changed_evidence = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        explanation="The will draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 1 witness signature line(s).",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    changed_severity = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="question_for_attorney", document="will", field="witness_block",
+        excerpt=None, explanation=base.explanation,
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    whitespace_only = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        explanation="  The will  draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 0 witness signature line(s).\n",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    assert finding_hash(base) != finding_hash(changed_evidence)
+    assert finding_hash(base) != finding_hash(changed_severity)
+    assert finding_hash(base) == finding_hash(whitespace_only)

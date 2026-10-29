@@ -612,9 +612,37 @@ def _persist_review(
         previous_run=previous_run,
         new_hashes=new_hashes,
     )
+    # FUNC-024(b): acknowledgment CARRY-OVER is restricted to previous
+    # runs with the SAME source_fingerprint as this run. Disposition
+    # transitions above still use the latest run (regeneration changes
+    # the fingerprint by definition, and fixed_by_regeneration must
+    # keep working across it) — but an ack given against one frozen
+    # source must never silently bless a finding produced from a
+    # different source.
+    if previous_run is not None and str(
+        previous_run.get("source_fingerprint")
+    ) == str(prepared.fingerprint):
+        ack_by_hash = previous_by_hash
+    elif prepared.fingerprint:
+        same_fp_run = repo.latest_completed_run(
+            conn,
+            matter_id=matter_id,
+            source_fingerprint=prepared.fingerprint,
+            exclude_run_id=run_id,
+        )
+        ack_by_hash = (
+            {
+                str(row["finding_hash"]): row
+                for row in repo.findings_for_run(conn, UUID(str(same_fp_run["id"])))
+            }
+            if same_fp_run is not None
+            else {}
+        )
+    else:
+        ack_by_hash = {}
     for finding in findings:
         digest = finding_hash(finding)
-        carried = previous_by_hash.get(digest)
+        carried = ack_by_hash.get(digest)
         disposition = "open"
         ack_fields: dict[str, Any] = {}
         if carried is not None and carried.get("disposition") == "acknowledged":
