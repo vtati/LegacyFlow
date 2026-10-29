@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Re-vendor content-packs/ from the repo root into services/api/content-packs/.
 # The Railway API service builds with root directory = services/api, so the
 # repo-root content-packs/ is outside the image build context. The vendored
@@ -20,14 +20,25 @@ fi
 mkdir -p "$DST"
 
 # Guard: refuse if any vendored file is absent from the root tree.
+# Space-safe (Batch C1 M-7): NUL-delimited find output read with
+# `read -d ''`, so filenames containing spaces are checked whole
+# instead of being word-split into fragments that can false-pass.
+# The list goes through a temp file with the loop's stdin redirected
+# from it, so `missing` is set in THIS shell (a pipeline would fork
+# the loop into a subshell and lose it).
 missing=0
 if [ -d "$DST" ]; then
-  for f in $(cd "$DST" && find . -type f | sort); do
+  guard_list="$(mktemp)"
+  trap 'rm -f "$guard_list"' EXIT
+  (cd "$DST" && find . -type f -print0 | sort -z) > "$guard_list"
+  while IFS= read -r -d '' f; do
     if [ ! -f "$SRC/$f" ]; then
       echo "sync-content-packs: vendored-only file would be orphaned: services/api/content-packs/$f" >&2
       missing=1
     fi
-  done
+  done < "$guard_list"
+  rm -f "$guard_list"
+  trap - EXIT
 fi
 if [ "$missing" -ne 0 ]; then
   echo "sync-content-packs: ABORTED - copy the files above UP to content-packs/ first; no files were changed." >&2

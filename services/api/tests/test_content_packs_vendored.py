@@ -10,6 +10,8 @@ reads the vendored copy. After changing any pack, re-run
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -36,3 +38,38 @@ def test_vendored_content_packs_in_sync() -> None:
         "services/api/content-packs has drifted from repo-root content-packs/; "
         "run services/api/sync-content-packs.sh and commit the result"
     )
+
+
+def test_sync_guard_aborts_on_vendored_only_file_with_spaces(tmp_path: Path) -> None:
+    """Batch C1 M-7: the vendored-only guard must be space-safe.
+
+    Discriminating case: the vendored tree holds ``orphan file.txt``
+    while the root tree holds the two files the OLD word-splitting loop
+    would have checked instead (``orphan`` and ``file.txt``). The old
+    guard therefore passed and silently kept the orphan; the new
+    ``find -print0`` guard must abort and name the real file.
+    """
+    api_dir = tmp_path / "services" / "api"
+    api_dir.mkdir(parents=True)
+    script_src = Path(__file__).resolve().parents[1] / "sync-content-packs.sh"
+    script = api_dir / "sync-content-packs.sh"
+    shutil.copy(script_src, script)
+
+    src = tmp_path / "content-packs"
+    src.mkdir()
+    (src / "orphan").write_text("fragment one")
+    (src / "file.txt").write_text("fragment two")
+
+    dst = api_dir / "content-packs"
+    dst.mkdir()
+    (dst / "orphan file.txt").write_text("vendored only")
+
+    result = subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "orphan file.txt" in result.stderr
+    assert "ABORTED" in result.stderr
+    # Nothing was synced over the orphan.
+    assert (dst / "orphan file.txt").read_text() == "vendored only"
+    assert not (dst / "orphan").exists()
