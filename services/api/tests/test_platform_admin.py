@@ -326,6 +326,62 @@ def test_platform_admin_import_pack_with_unquoted_effective_from(api_client, db,
     assert stored_manifest["pack"]["id"] == "us-zz-unquoted"
 
 
+def test_listed_platform_admin_can_import_and_transition_pack(api_client, db, tmp_path) -> None:
+    # L-3a: with the allowlist in force, the LISTED platform admin can
+    # both import a pack and transition it. The admin has no firm
+    # membership, so the transition also exercises the audit-context
+    # firm lookup's intended "platform admin has no firm" path.
+    _create_user(db, PLATFORM_ADMIN)
+    pack_dir = tmp_path / "listed-pack"
+    pack_dir.mkdir()
+    (pack_dir / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "pack:",
+                "  id: us-zw-listed",
+                "  country_code: US",
+                "  subdivision_code: ZW",
+                "  display_name: Zedwest (synthetic)",
+                "  semantic_version: 1.0.0",
+                "  status: draft",
+                "  effective_from: '2026-09-26'",
+                "capabilities: {}",
+                "requirements: {}",
+                "sources: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    imported = api_client.post(
+        "/v1/admin/packs/import",
+        data={"pack_dir": str(pack_dir)},
+        headers=_auth(PLATFORM_ADMIN),
+    )
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["status"] == "draft"
+
+    transitioned = api_client.post(
+        "/v1/admin/packs/us-zw-listed/transition",
+        json={"to_status": "internal_testing"},
+        headers=_auth(PLATFORM_ADMIN),
+    )
+    assert transitioned.status_code == 200, transitioned.text
+    body = transitioned.json()
+    assert body["pack_id"] == "us-zw-listed"
+    assert body["from_status"] == "draft"
+    assert body["to_status"] == "internal_testing"
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT jp.status FROM jurisdiction_packs jp"
+            " JOIN jurisdictions j ON j.id = jp.jurisdiction_id"
+            " WHERE j.country_code = 'US' AND j.subdivision_code = 'ZW'"
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["status"] == "internal_testing"
+
+
 def test_firm_admin_cannot_import_pack_with_allowlist_in_force(api_client, db) -> None:
     _create_user(db, FIRM_ADMIN)
     firm_id = str(uuid4())

@@ -886,7 +886,11 @@ def _write_pack_dir(tmp: pathlib.Path, version: str = "2.0.0") -> pathlib.Path:
                 "  subdivision_code: XY",
                 "  display_name: Xylonia (synthetic)",
                 "  semantic_version: " + version,
-                "  status: draft",
+                # L-3b: the fixture manifest deliberately claims
+                # 'approved' — never 'draft' — so the forced-draft
+                # assert in test_pack_import_authz_and_validation
+                # FAILS if manifest-status forcing is ever reverted.
+                "  status: approved",
                 "  effective_from: '2026-09-26'",
                 "capabilities: {}",
                 "requirements: {}",
