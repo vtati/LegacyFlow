@@ -113,8 +113,19 @@ def decide_gate(
 
 
 def next_packet_version(conn: Any, matter_id: UUID) -> int:
-    """Return the next snapshot version number for a matter (1-based)."""
+    """Return the next snapshot version number for a matter (1-based).
+
+    FUNC-006 sibling: SELECT MAX+1 raced under concurrency the same
+    way document versioning did — take a transaction-scoped advisory
+    lock keyed on the matter (the packets' parent scope) first; it is
+    held until the caller's transaction commits, spanning the compute
+    and the following insert_packet on the same connection.
+    """
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (str(matter_id),),
+        )
         cur.execute(
             "SELECT COALESCE(MAX(version), 0) AS max_version"
             " FROM review_packets WHERE matter_id = %s",

@@ -238,6 +238,22 @@ def test_next_version_number_takes_advisory_lock_first() -> None:
     assert "MAX(version)" in sqls[1]
 
 
+def test_next_packet_version_takes_advisory_lock_first() -> None:
+    """FUNC-006 sibling (Batch C2 follow-up): review packet versioning
+    had the same SELECT-MAX+1 race — the advisory lock keyed on the
+    matter (the packet's parent scope) must precede the MAX read."""
+    from app.domains.review import repository as review_repo
+
+    matter_id = uuid4()
+    conn = _FakeConn(next_row={"max_version": 4})
+    assert review_repo.next_packet_version(conn, matter_id) == 5
+    sqls = [sql for sql, _ in conn.statements]
+    assert len(sqls) == 2, sqls
+    assert "pg_advisory_xact_lock" in sqls[0] and "hashtext" in sqls[0]
+    assert str(matter_id) in conn.statements[0][1]
+    assert "MAX(version)" in sqls[1]
+
+
 # ---------------------------------------------------------------------------
 # PERF-009 — explicit column list, no extracted_text
 # ---------------------------------------------------------------------------
