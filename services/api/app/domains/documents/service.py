@@ -3079,6 +3079,12 @@ def generate_instruction_letter(
     if template is None:
         raise ValidationAppError("No instruction_letter template exists for this firm.")
     package = repo.find_package_for_template(conn, matter_id, UUID(str(template["id"])))
+    if package is not None and str(package.get("status")) == "released":
+        # FUNC-007 residual (Batch C2): the letter path reuses the
+        # package for its template — a released one must not be
+        # downgraded to demo_released or re-rendered, exactly the
+        # guard generate_demo carries.
+        raise PackageAlreadyReleasedError()
     if package is None:
         package = repo.insert_package(
             conn,

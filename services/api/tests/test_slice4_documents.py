@@ -1018,6 +1018,42 @@ def test_instruction_letter_flags_unfilled_placeholders(db, api_client):
     ]
 
 
+def test_instruction_letter_refuses_released_package(db, api_client):
+    """Batch C2 FUNC-007 residual: a RELEASED instruction-letter
+    package must not be downgraded to demo_released / re-rendered —
+    the same guard generate_demo carries (409 package_already_released),
+    with status and versions left untouched."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    create_template_via_api(api_client, ADMIN_B, INSTRUCTION_TEMPLATE)
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/instruction-letter",
+        json={"letter_text": "Dear family, this synthetic letter is a demo."},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 201, response.text
+    package_id = response.json()["package"]["id"]
+    version_count = len(response.json()["versions"])
+    _exec(db, "UPDATE document_packages SET status = 'released' WHERE id = %s", (package_id,))
+
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/instruction-letter",
+        json={"letter_text": "A second letter must not downgrade the release."},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "package_already_released"
+    db.rollback()
+    row = db.execute(
+        "SELECT status FROM document_packages WHERE id = %s", (package_id,)
+    ).fetchone()
+    assert row["status"] == "released"
+    count = db.execute(
+        "SELECT COUNT(*) AS n FROM document_versions WHERE package_id = %s",
+        (package_id,),
+    ).fetchone()
+    assert count["n"] == version_count
+
+
 def test_instruction_letter_requires_template(db, api_client):
     _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
     response = api_client.post(
