@@ -7,7 +7,11 @@ in Part 3). v1 is never edited.
 from __future__ import annotations
 
 from app.domains.intake import question_sets as qs
-from app.domains.intake.question_sets import _tokenize_applies, compute_progress
+from app.domains.intake.question_sets import (
+    _tokenize_applies,
+    compute_progress,
+    partition_questions,
+)
 from app.domains.interview.service import _ADDRESS_ROLE_KEYS
 from app.domains.legal_content.pack_loader import get_pack
 
@@ -95,7 +99,13 @@ def test_full_yes_profile_applicable_required_count():
     # fix added spouse_full_name (required, identity, gated on
     # marital_status): this profile leaves marital_status unanswered,
     # so the gate is PENDING — counted, never pruned -> 43.
-    assert _required_total(per_set) == 43
+    # FUNC-027 (Batch F2, f435d58): guardian_reason,
+    # healthcare_agent_limitations and poa_additional_powers are now
+    # required:false (their labels say "(optional)"), and this count is
+    # required-only by design (compute_progress counts applicable+
+    # pending REQUIRED questions), so all three leave the total even
+    # though they remain applicable questions -> 43 - 3 = 40.
+    assert _required_total(per_set) == 40
     assert pruned == []
 
 
@@ -114,11 +124,22 @@ def test_pruned_profile_denominator_and_pruned_keys():
     # 30 pre-Part-3 + testator_full_name (always applicable) = 31.
     # spouse_full_name's gate (marital_status) is unanswered here, so
     # it stays PENDING — counted, never pruned -> 32.
-    assert _required_total(per_set) == 32
+    # FUNC-027 (Batch F2, f435d58): healthcare_agent_limitations and
+    # poa_additional_powers are required:false now; their sections are
+    # PENDING here (gates unanswered), so they were counted in the 32
+    # and now leave the required-only denominator -> 30. (The third
+    # flipped question, guardian_reason, is pruned in this profile, so
+    # it never touched the denominator.)
+    assert _required_total(per_set) == 30
+    # ``pruned`` here is compute_progress's pruned-REQUIRED list (its
+    # documented contract, unchanged since the applicability engine
+    # landed). guardian_reason IS still pruned in the applicability
+    # sense — asserted via partition_questions below — but as an
+    # optional question it no longer appears in the required-only list
+    # (FUNC-027).
     assert sorted(pruned) == sorted(
         [
             "primary_guardian_person",
-            "guardian_reason",
             "backup_guardian_person",
             "primary_guardian_address",
             "successor_trustee_person",
@@ -130,6 +151,17 @@ def test_pruned_profile_denominator_and_pruned_keys():
             "life_insurance_beneficiaries_current",
         ]
     )
+    # Applicability pruning is required-agnostic: the optional
+    # guardian_reason still leaves the applicable set entirely when
+    # there are no minor children (partition_questions is the source
+    # of truth the interview's next-gap selection reads).
+    applicable, pending, partition_pruned = partition_questions(
+        pack.question_sets, answers
+    )
+    partition_pruned_keys = {q["key"] for _, _, q in partition_pruned}
+    live_keys = {q["key"] for _, _, q in [*applicable, *pending]}
+    assert "guardian_reason" in partition_pruned_keys
+    assert "guardian_reason" not in live_keys
 
 
 def test_poa_agent_address_question_agrees_with_address_guard():
@@ -170,16 +202,54 @@ def test_declining_documents_prunes_their_sections():
         "wants_healthcare_directive": False,
     }
     _per_set, _pct, _missing, pruned = compute_progress(pack.question_sets, answers)
+    # Required questions of the declined sections appear in
+    # compute_progress's pruned-required list.
     for key in (
         "poa_agent_person",
         "poa_agent_address",
         "successor_poa_agent_person",
-        "poa_additional_powers",
         "healthcare_agent_person",
         "healthcare_agent_phone",
         "successor_healthcare_agent_person",
         "living_will_directives",
-        "healthcare_agent_limitations",
         "organ_donation_wishes",
     ):
         assert key in pruned, key
+    # FUNC-027 (Batch F2, f435d58) made poa_additional_powers and
+    # healthcare_agent_limitations optional, so they correctly drop
+    # out of that required-only list — but declining the documents
+    # must still prune them from the APPLICABLE set (never asked,
+    # never counted). That invariant lives in partition_questions,
+    # which prunes irrespective of the required flag.
+    applicable, pending, partition_pruned = partition_questions(
+        pack.question_sets, answers
+    )
+    partition_pruned_keys = {q["key"] for _, _, q in partition_pruned}
+    live_keys = {q["key"] for _, _, q in [*applicable, *pending]}
+    for key in ("poa_additional_powers", "healthcare_agent_limitations"):
+        assert key in partition_pruned_keys, key
+        assert key not in live_keys, key
+
+
+def test_optional_questions_prune_with_their_declined_sections():
+    """FUNC-027 symmetry: all three '(optional)'-labelled questions
+    (guardian_reason, healthcare_agent_limitations,
+    poa_additional_powers) must leave the applicable set when their
+    gate/section is declined, exactly like the required questions
+    beside them — optional must never mean "asked anyway"."""
+    pack = _v2()
+    answers = {
+        "has_minor_children": False,
+        "wants_poa_document": False,
+        "wants_healthcare_directive": False,
+    }
+    applicable, pending, pruned = partition_questions(pack.question_sets, answers)
+    pruned_keys = {q["key"] for _, _, q in pruned}
+    live_keys = {q["key"] for _, _, q in [*applicable, *pending]}
+    for key in (
+        "guardian_reason",
+        "healthcare_agent_limitations",
+        "poa_additional_powers",
+    ):
+        assert key in pruned_keys, key
+        assert key not in live_keys, key
