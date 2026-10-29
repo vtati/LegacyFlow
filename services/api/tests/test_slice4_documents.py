@@ -5,8 +5,9 @@ Exercises the documents API surface:
 
 Demo files are synthetic and ALWAYS carry the visible banner
 ``DEMO ONLY — NOT LEGALLY VALID``; no test ever presents them as legally
-valid. ``POST /v1/packages/{id}/release-production`` always fails closed
-with HTTP 409 / ``production_release_unavailable``.
+valid. ``POST /v1/packages/{id}/release-production`` is a real gated
+operation: without an approved ``document_release`` gate it fails closed
+with HTTP 409.
 
 These tests run against the real Track A4 migration
 (``supabase/migrations/20260927030000_files_documents_slice4.sql``),
@@ -537,7 +538,12 @@ def test_package_requires_existing_template(db, api_client):
     assert response.status_code == 404
 
 
-def test_production_release_always_409(db, api_client):
+def test_production_release_requires_approved_document_release_gate(db, api_client):
+    """Current contract (FUNC-012 superseded the always-409 stub):
+    production release is a real, gated operation — without an approved
+    ``document_release`` gate on the matter it fails closed with a 409
+    problem response. If the gate check stops being enforced, this
+    test fails (the release would proceed past the gate)."""
     _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
     template = create_template_via_api(api_client, ADMIN_B, WILL_TEMPLATE)
     package = create_package_via_api(api_client, STAFF_A, matter_id, template["id"])
@@ -547,15 +553,15 @@ def test_production_release_always_409(db, api_client):
     )
     assert response.status_code == 409
     body = response.json()
-    assert body["code"] == "production_release_unavailable"
-    assert DEMO_TEXT in body["detail"]
+    assert body["code"] == "conflict"
+    assert "document release gate" in body["detail"]
 
-    # fails closed even for an unknown package id
+    # An unknown package id is a plain 404, not a gate conflict.
     response = api_client.post(
         f"/v1/packages/{uuid4()}/release-production", headers=auth(ATTORNEY_A)
     )
-    assert response.status_code == 409
-    assert response.json()["code"] == "production_release_unavailable"
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
 
 
 def test_renderers_watermark_unit():
@@ -969,6 +975,47 @@ def test_instruction_letter_generation(db, api_client):
     assert "NONBINDING" in text
     assert "Dear family" in text
     assert DEMO_TEXT in text
+
+
+def test_instruction_letter_flags_unfilled_placeholders(db, api_client):
+    """Batch C1 M-3: the instruction-letter merge must route through
+    the same capture+flag mechanism as other documents — an unfilled
+    letter token becomes ___ in the render AND escalates."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    create_template_via_api(
+        api_client,
+        ADMIN_B,
+        {
+            "name": "Synthetic Family Letter Template",
+            "template_type": "instruction_letter",
+            "pack_id": "us-va",
+            "version": "1.0.0",
+            "content": "Dear family,\n\n{{letter_text}}\n\nExecutor: {{executor_gap}}.\n",
+        },
+    )
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/instruction-letter",
+        json={"letter_text": "Dear family, this synthetic letter is a demo."},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 201, response.text
+    pdf_version = next(
+        v for v in response.json()["versions"] if v["file_format"] == "pdf"
+    )
+    response = api_client.get(pdf_version["download_url"], headers=auth(CLIENT_A))
+    assert response.status_code == 200
+    text = pdf_text(response.content)
+    assert "Executor: ___" in text
+    assert "{{" not in text
+    db.rollback()
+    rows = db.execute(
+        "SELECT rule_id FROM escalations WHERE matter_id = %s"
+        " AND rule_id LIKE %s ORDER BY rule_id",
+        (matter_id, "document_unmapped_placeholder:%"),
+    ).fetchall()
+    assert [row["rule_id"] for row in rows] == [
+        "document_unmapped_placeholder:Synthetic Family Letter Template:executor_gap"
+    ]
 
 
 def test_instruction_letter_requires_template(db, api_client):
