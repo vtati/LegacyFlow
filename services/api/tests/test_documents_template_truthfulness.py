@@ -274,7 +274,7 @@ def test_household_less_matter_leaves_composed_slots_absent(monkeypatch):
 
     matter_id = uuid4()
     conn = _Conn({"id": str(matter_id), "household_id": None})
-    monkeypatch.setattr(documents_service, "_render_context", lambda c, m: {})
+    monkeypatch.setattr(documents_service, "_render_context", lambda c, m, answers=None: {})
     monkeypatch.setattr(intake_repo, "list_answers", lambda c, mid: [])
     ctx = documents_service.build_template_context(conn, matter_id)
     assert "family_identification" not in ctx
@@ -549,3 +549,29 @@ def test_trust_single_with_children_omits_marital_clause(db):
     assert "Marital share" not in trust
     assert "Shares for children" in trust
     assert CHILD in trust
+
+
+# ---------------------------------------------------------------------------
+# PERF-008: build_template_context fetches intake answers exactly once
+# ---------------------------------------------------------------------------
+
+
+def test_build_template_context_fetches_answers_once(db, monkeypatch):
+    from app.domains.intake import repository as intake_repo
+
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True, with_child=True)
+    set_answer(db, matter_id, "marital_status", "married")
+    original = intake_repo.list_answers
+    calls = {"n": 0}
+
+    def counting(conn, mid):
+        calls["n"] += 1
+        return original(conn, mid)
+
+    monkeypatch.setattr(intake_repo, "list_answers", counting)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert calls["n"] == 1
+    # Behavior is unchanged: composed slots are all present.
+    assert ctx["spouse_name"] == SPOUSE
+    assert ctx["family_identification"].startswith(f"I am married to {SPOUSE}.")
+    assert CHILD in ctx["children_list"]

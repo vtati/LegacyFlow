@@ -36,7 +36,7 @@ def test_children_fallback_uses_interview_answer(monkeypatch):
     matter_id = uuid4()
     household_id = uuid4()
     conn = _Conn({"id": str(matter_id), "household_id": str(household_id)})
-    monkeypatch.setattr(service, "_render_context", lambda c, m: {})
+    monkeypatch.setattr(service, "_render_context", lambda c, m, answers=None: {})
     # Household has adults only — no minor-kind persons (the E2E #3 state).
     monkeypatch.setattr(
         household_repo,
@@ -59,7 +59,7 @@ def test_children_fallback_uses_interview_answer(monkeypatch):
 def test_children_fallback_blank_when_no_answer(monkeypatch):
     matter_id = uuid4()
     conn = _Conn({"id": str(matter_id), "household_id": str(uuid4())})
-    monkeypatch.setattr(service, "_render_context", lambda c, m: {})
+    monkeypatch.setattr(service, "_render_context", lambda c, m, answers=None: {})
     monkeypatch.setattr(household_repo, "list_persons_for_household", lambda c, hid: [])
     monkeypatch.setattr(intake_repo, "list_answers", lambda c, mid: [])
     ctx = service.build_template_context(conn, matter_id)

@@ -415,7 +415,7 @@ def test_context_spouse_from_household_member_role(monkeypatch):
         for name in PERSON_ORDER
     ]
     conn = _Conn({"id": str(matter_id), "household_id": str(household_id)})
-    monkeypatch.setattr(documents_service, "_render_context", lambda c, m: {})
+    monkeypatch.setattr(documents_service, "_render_context", lambda c, m, answers=None: {})
     monkeypatch.setattr(household_repo, "list_persons_for_household",
                         lambda c, hid: persons)
     monkeypatch.setattr(household_repo, "list_members_for_household",

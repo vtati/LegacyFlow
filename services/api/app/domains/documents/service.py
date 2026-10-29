@@ -1042,13 +1042,21 @@ def list_matter_document_versions(
 # ---------------------------------------------------------------------------
 
 
-def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
+def _render_context(
+    conn: Any,
+    matter: dict[str, Any],
+    answers: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
     """Build placeholder context from the matter's household/matter rows.
 
     Verified intake answers (confirmed interview replies and confirmed
     document extractions) are merged in as well, so ``{{question_key}}``
     placeholders in firm templates are pre-filled from verified facts.
     Curated keys above always win over answer keys on collision.
+
+    ``answers`` may carry a pre-fetched answer list (PERF-008: callers
+    that also need the answers fetch once and thread it through); when
+    omitted the answers are read here.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM households WHERE id = %s", (str(matter["household_id"]),))
@@ -1078,7 +1086,9 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
     }
     # Verified facts: only scalar answers become placeholders; complex values
     # are skipped rather than stringified into legal documents.
-    for row in intake_repo.list_answers(conn, UUID(str(matter["id"]))):
+    if answers is None:
+        answers = intake_repo.list_answers(conn, UUID(str(matter["id"])))
+    for row in answers:
         key = str(row["question_key"])
         if key in context:
             continue
@@ -1319,15 +1329,17 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
         raise NotFoundError("Matter not found.")
     matter = dict(matter_row)
 
-    context = _render_context(conn, matter)
+    # PERF-008: fetch the intake answers ONCE and thread the list
+    # through every consumer below (base context, fallbacks, slot table).
+    answer_rows = intake_repo.list_answers(conn, UUID(str(matter["id"])))
+    context = _render_context(conn, matter, answers=answer_rows)
 
     # Enhance with person data from the household.
     household_id = matter.get("household_id")
     if household_id:
         # Raw answers for fallbacks below (name -> JSON value).
         answers = {
-            str(row["question_key"]).lower(): row["answer"]
-            for row in intake_repo.list_answers(conn, UUID(str(matter["id"])))
+            str(row["question_key"]).lower(): row["answer"] for row in answer_rows
         }
         persons = household_repo.list_persons_for_household(conn, UUID(str(household_id)))
         # Person-id resolution (R1): a person answer stored as the person's
@@ -1512,7 +1524,7 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
         # the (unordered) answer rows cannot change the outcome.
         # Answers are keyed uniquely per matter, so assignment (not
         # setdefault racing) is the correct write.
-        for row in intake_repo.list_answers(conn, UUID(str(matter["id"]))):
+        for row in answer_rows:
             key = str(row["question_key"]).lower()
             ans = row["answer"]
             if not isinstance(ans, str) or not ans.strip():
