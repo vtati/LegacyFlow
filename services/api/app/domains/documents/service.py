@@ -1664,6 +1664,53 @@ def _flag_unfilled_placeholders(
         )
 
 
+def _insert_version_for_stored(
+    conn: Any,
+    *,
+    package_id: UUID,
+    matter: dict[str, Any],
+    created_by_user_id: UUID,
+    file_format: Literal["docx", "pdf"],
+    stored_path: str,
+    size_bytes: int,
+    title: str,
+    watermark_text: str | None,
+) -> dict[str, Any]:
+    """Append the file-upload + version rows for already-stored bytes.
+
+    DB-only (PERF-020): storage uploads happen in the render phase,
+    outside the write transaction; this runs in the short persist phase.
+    """
+    suffix = "FINAL" if watermark_text is None else "DRAFT"
+    scan_detail = (
+        "Server-generated final render; no user upload scanned."
+        if watermark_text is None
+        else "Server-generated demo render; no user upload scanned."
+    )
+    upload = repo.insert_file_upload(
+        conn,
+        firm_id=UUID(str(matter["firm_id"])),
+        household_id=UUID(str(matter["household_id"])),
+        matter_id=UUID(str(matter["id"])),
+        uploader_user_id=created_by_user_id,
+        original_filename=f"{title}-{suffix}.{SUFFIX_BY_FORMAT[file_format]}",
+        stored_path=stored_path,
+        mime_type=MIME_BY_FORMAT[file_format],
+        size_bytes=size_bytes,
+        scan_status="clean",
+        scan_detail=scan_detail,
+    )
+    version_number = repo.next_version_number(conn, package_id)
+    return repo.insert_version(
+        conn,
+        package_id=package_id,
+        version=version_number,
+        file_upload_id=upload["id"],
+        watermark_text=watermark_text,
+        created_by_user_id=created_by_user_id,
+    )
+
+
 def _create_version(
     conn: Any,
     *,
@@ -1676,34 +1723,17 @@ def _create_version(
     watermark_text: str | None,
 ) -> dict[str, Any]:
     """Store rendered bytes and append an immutable version row."""
-    suffix = "FINAL" if watermark_text is None else "DRAFT"
-    scan_detail = (
-        "Server-generated final render; no user upload scanned."
-        if watermark_text is None
-        else "Server-generated demo render; no user upload scanned."
-    )
     stored_path = _store_file(f"package-{package_id}", file_format, content)
-    upload = repo.insert_file_upload(
-        conn,
-        firm_id=UUID(str(matter["firm_id"])),
-        household_id=UUID(str(matter["household_id"])),
-        matter_id=UUID(str(matter["id"])),
-        uploader_user_id=created_by_user_id,
-        original_filename=f"{title}-{suffix}.{SUFFIX_BY_FORMAT[file_format]}",
-        stored_path=stored_path,
-        mime_type=MIME_BY_FORMAT[file_format],
-        size_bytes=len(content),
-        scan_status="clean",
-        scan_detail=scan_detail,
-    )
-    version_number = repo.next_version_number(conn, package_id)
-    return repo.insert_version(
+    return _insert_version_for_stored(
         conn,
         package_id=package_id,
-        version=version_number,
-        file_upload_id=upload["id"],
-        watermark_text=watermark_text,
+        matter=matter,
         created_by_user_id=created_by_user_id,
+        file_format=file_format,
+        stored_path=stored_path,
+        size_bytes=len(content),
+        title=title,
+        watermark_text=watermark_text,
     )
 
 
@@ -1743,44 +1773,91 @@ def _render_package_versions(
     return created
 
 
-def _render_demo_package(
-    conn: Any,
-    *,
-    package_row: dict[str, Any],
-    matter: dict[str, Any],
-    actor_id: UUID,
-) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
-    """Shared demo-render core (staff endpoint + family draft-set generate).
+@dataclass
+class _PreparedDemoRender:
+    """Frozen render inputs for one package (PERF-020 prepare phase).
 
-    Assumes authorization and the document-assembly gate already passed.
-    Enforces intake completeness, renders watermarked DOCX+PDF, marks the
-    package ``demo_released``, and stamps the source fingerprint (D4) so
-    the family draft-set state can detect later edits as staleness.
+    Assembled from DB reads only; the render/upload phase then runs
+    WITHOUT a database transaction, and the persist phase writes the
+    version rows in a short transaction — mirroring the attorney
+    reviewer's prepare/persist split.
     """
+
+    package_id: UUID
+    matter: dict[str, Any]
+    template: dict[str, Any]
+    context: dict[str, str]
+    body: str
+    unfilled: list[str]
+    title: str
+    fingerprint: str
+
+
+def _prepare_demo_render(
+    conn: Any, *, package_row: dict[str, Any], matter: dict[str, Any]
+) -> _PreparedDemoRender:
+    """Read phase of a demo render: completeness gate, template,
+    context, merged body, source fingerprint. No writes."""
     package_id = UUID(str(package_row["id"]))
     _require_intake_complete(conn, matter)
     template = repo.get_template(conn, UUID(str(package_row["template_id"])))
     if template is None:
         raise ConflictError("The package's template is missing.")
-
     context = build_template_context(conn, UUID(str(matter["id"])))
     body, unfilled = _merge_placeholders_with_unfilled(
         _template_content_body(template), context
     )
-    title = f"{template['name']} — Draft"
-    _flag_unfilled_placeholders(
-        conn, matter=matter, body=body, template_name=str(template["name"]), unfilled=unfilled
-    )
-    created = _render_package_versions(
-        conn,
+    return _PreparedDemoRender(
         package_id=package_id,
         matter=matter,
-        actor_id=actor_id,
-        template_name=str(template["name"]),
+        template=template,
+        context=context,
         body=body,
-        title=title,
+        unfilled=unfilled,
+        title=f"{template['name']} — Draft",
+        fingerprint=compute_source_fingerprint(conn, matter),
     )
-    fingerprint = compute_source_fingerprint(conn, matter)
+
+
+def _persist_demo_render(
+    conn: Any,
+    *,
+    prepared: _PreparedDemoRender,
+    actor_id: UUID,
+    stored: list[tuple[Literal["docx", "pdf"], str, int]],
+) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
+    """Write phase of a demo render: placeholder escalations, version
+    rows for the already-stored files, package status + fingerprint,
+    reviewer snapshot, audit. Runs in a short transaction."""
+    matter = prepared.matter
+    package_id = prepared.package_id
+    template = prepared.template
+    context = prepared.context
+    body = prepared.body
+    fingerprint = prepared.fingerprint
+    _flag_unfilled_placeholders(
+        conn,
+        matter=matter,
+        body=body,
+        template_name=str(template["name"]),
+        unfilled=prepared.unfilled,
+    )
+    created = []
+    for file_format, stored_path, size_bytes in stored:
+        row = _insert_version_for_stored(
+            conn,
+            package_id=package_id,
+            matter=matter,
+            created_by_user_id=actor_id,
+            file_format=file_format,
+            stored_path=stored_path,
+            size_bytes=size_bytes,
+            title=str(template["name"]),
+            watermark_text=DEMO_DISCLAIMER,
+        )
+        upload = repo.get_file_upload(conn, UUID(str(row["file_upload_id"])))
+        assert upload is not None
+        created.append({**upload, **row})
     package = repo.update_package_render(conn, package_id, "demo_released", fingerprint)
     # Attorney Reviewer (§9): persist the frozen artifact this render
     # produced — the pre-review analyses exactly these bytes and this
@@ -1835,6 +1912,44 @@ def _render_demo_package(
         after_summary={"formats": ["docx", "pdf"], "demo": True},
     )
     return _package_out(package), [_version_out(row) for row in created]
+
+
+def _render_and_store_demo(prepared: _PreparedDemoRender) -> list[tuple[Literal["docx", "pdf"], str, int]]:
+    """Render + upload phase: DOCX/PDF bytes and storage uploads.
+
+    No database access — safe to run outside any transaction
+    (PERF-020). Returns (format, stored_path, size_bytes) per file.
+    """
+    stored: list[tuple[Literal["docx", "pdf"], str, int]] = []
+    for file_format, content in (
+        ("docx", render_demo_docx(prepared.title, prepared.body, DEMO_DISCLAIMER)),
+        ("pdf", render_demo_pdf(prepared.title, prepared.body, DEMO_DISCLAIMER)),
+    ):
+        stored_path = _store_file(
+            f"package-{prepared.package_id}", file_format, content  # type: ignore[arg-type]
+        )
+        stored.append((file_format, stored_path, len(content)))  # type: ignore[arg-type]
+    return stored
+
+
+def _render_demo_package(
+    conn: Any,
+    *,
+    package_row: dict[str, Any],
+    matter: dict[str, Any],
+    actor_id: UUID,
+) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
+    """Shared demo-render core (staff endpoint + family draft-set generate).
+
+    Assumes authorization and the document-assembly gate already passed.
+    Composes the prepare → render/store → persist phases on the
+    caller's connection (the staff endpoint keeps its single
+    transaction; the family draft-set path runs the phases under
+    separate short transactions — see ``generate_draft_set``).
+    """
+    prepared = _prepare_demo_render(conn, package_row=package_row, matter=matter)
+    stored = _render_and_store_demo(prepared)
+    return _persist_demo_render(conn, prepared=prepared, actor_id=actor_id, stored=stored)
 
 
 def generate_demo(
@@ -3589,7 +3704,7 @@ def get_draft_set_state(
 
 
 def generate_draft_set(
-    conn: Any, *, actor_sub: str, matter_id: UUID
+    *, actor_sub: str, matter_id: UUID
 ) -> sch.DraftSetGenerateOut:
     """Generate (or regenerate) the matter's whole draft set (family path).
 
@@ -3598,57 +3713,82 @@ def generate_draft_set(
     fails the whole generate closed — never a silently skipped legal
     document), then find-or-creates one package per type and renders
     watermarked drafts through the shared render core.
+
+    PERF-020: manages its own transactions in three phases, mirroring
+    the attorney reviewer's prepare/persist split — (1) a short
+    transaction for authorization, gates, package find-or-create, and
+    freezing every render's inputs; (2) DOCX/PDF rendering + storage
+    uploads with NO transaction or pooled connection held; (3) a short
+    transaction persisting escalations, version rows, package status,
+    snapshots, and audit events. Previously the whole set rendered and
+    uploaded inside one router transaction.
     """
+    from ...core import db
     from ...domains.matters import service as matters_service
     from .draft_set import resolve_draft_set, resolve_set_templates
 
     actor_id = _actor_id(actor_sub)
-    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
-    matter = scope.matter
-    firm_id = UUID(str(matter["firm_id"]))
-    status = str(matter["status"])
-    if status in _POST_SUBMIT_STATUSES:
-        raise AlreadySubmittedError()
-    if status not in _GENERATABLE_STATUSES:
-        raise DraftInvalidStatusError(
-            f"Drafts cannot be generated while the matter is {status}."
+    # Phase 1 — short read/prepare transaction.
+    with db.transaction() as conn:
+        scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
+        matter = scope.matter
+        firm_id = UUID(str(matter["firm_id"]))
+        status = str(matter["status"])
+        if status in _POST_SUBMIT_STATUSES:
+            raise AlreadySubmittedError()
+        if status not in _GENERATABLE_STATUSES:
+            raise DraftInvalidStatusError(
+                f"Drafts cannot be generated while the matter is {status}."
+            )
+        pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
+        _require_document_assembly(
+            conn,
+            firm_id=firm_id,
+            pack_id=pack_id,
+            jurisdiction_code=jurisdiction_code,
+            semantic_version=semantic_version,
         )
-    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
-    _require_document_assembly(
-        conn,
-        firm_id=firm_id,
-        pack_id=pack_id,
-        jurisdiction_code=jurisdiction_code,
-        semantic_version=semantic_version,
-    )
-    answers = {
-        str(row["question_key"]): row["answer"]
-        for row in intake_repo.list_answers(conn, matter_id)
-    }
-    types = resolve_draft_set(answers)
-    templates = resolve_set_templates(conn, firm_id, pack_id, types)
+        answers = {
+            str(row["question_key"]): row["answer"]
+            for row in intake_repo.list_answers(conn, matter_id)
+        }
+        types = resolve_draft_set(answers)
+        templates = resolve_set_templates(conn, firm_id, pack_id, types)
 
+        prepared_set: list[_PreparedDemoRender] = []
+        for template_type in types:
+            template = templates[template_type]
+            package = repo.find_package_for_template(
+                conn, matter_id, UUID(str(template["id"]))
+            )
+            if package is None:
+                package = repo.insert_package(
+                    conn,
+                    firm_id=firm_id,
+                    matter_id=matter_id,
+                    template_id=UUID(str(template["id"])),
+                    created_by_user_id=actor_id,
+                )
+            prepared_set.append(
+                _prepare_demo_render(conn, package_row=package, matter=matter)
+            )
+        fingerprint = (
+            prepared_set[0].fingerprint
+            if prepared_set
+            else compute_source_fingerprint(conn, matter)
+        )
+    # Phase 2 — render + upload, no transaction held.
+    stored_set = [_render_and_store_demo(prepared) for prepared in prepared_set]
+    # Phase 3 — short persist transaction.
     packages: list[sch.DocumentPackageOut] = []
     versions: list[sch.DocumentVersionOut] = []
-    for template_type in types:
-        template = templates[template_type]
-        package = repo.find_package_for_template(
-            conn, matter_id, UUID(str(template["id"]))
-        )
-        if package is None:
-            package = repo.insert_package(
-                conn,
-                firm_id=firm_id,
-                matter_id=matter_id,
-                template_id=UUID(str(template["id"])),
-                created_by_user_id=actor_id,
+    with db.transaction() as conn:
+        for prepared, stored in zip(prepared_set, stored_set, strict=True):
+            package_out, version_outs = _persist_demo_render(
+                conn, prepared=prepared, actor_id=actor_id, stored=stored
             )
-        package_out, version_outs = _render_demo_package(
-            conn, package_row=package, matter=matter, actor_id=actor_id
-        )
-        packages.append(package_out)
-        versions.extend(version_outs)
-    fingerprint = compute_source_fingerprint(conn, matter)
+            packages.append(package_out)
+            versions.extend(version_outs)
     return sch.DraftSetGenerateOut(
         packages=packages, versions=versions, fingerprint=fingerprint
     )

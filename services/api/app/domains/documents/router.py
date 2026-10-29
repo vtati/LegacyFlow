@@ -232,9 +232,13 @@ def get_draft_documents_state(user: User, matter_id: UUID) -> sch.DraftSetStateO
     status_code=201,
 )
 def generate_draft_documents(user: User, matter_id: UUID) -> sch.DraftSetGenerateOut:
-    """Generate/regenerate the matter's watermarked draft set (family path)."""
-    with db.transaction() as conn:
-        result = service.generate_draft_set(conn, actor_sub=user.sub, matter_id=matter_id)
+    """Generate/regenerate the matter's watermarked draft set (family path).
+
+    The service manages its own short transactions (PERF-020):
+    rendering + storage uploads run between the prepare and persist
+    transactions, never inside one.
+    """
+    result = service.generate_draft_set(actor_sub=user.sub, matter_id=matter_id)
     _auto_run_attorney_review(matter_id, user.sub, deterministic_only=True)
     return result
 
