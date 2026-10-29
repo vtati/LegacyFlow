@@ -11,7 +11,10 @@ describe('LoginForm', () => {
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeDefined();
     expect(screen.getByRole('tab', { name: 'Password' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('Email address')).toBeDefined();
-    expect(screen.getByLabelText('Password')).toBeDefined();
+    // Scoped to the input: the tabpanel is also labelled "Password" via
+    // aria-labelledby (UI-017 pairing), which is correct but ambiguous
+    // for an unscoped label query.
+    expect(screen.getByLabelText('Password', { selector: 'input' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeDefined();
   });
 

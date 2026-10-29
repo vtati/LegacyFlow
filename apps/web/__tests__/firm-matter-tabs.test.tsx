@@ -5,6 +5,7 @@
  * ArrowLeft/ArrowRight/Home/End move selection and focus, with roving
  * tabindex.
  */
+import { Suspense } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -47,7 +48,11 @@ import FirmMatterDetailPage from '../app/(app)/firm/matters/[id]/page';
 describe('Firm matter tabs keyboard pattern (UI-017)', () => {
   it('moves selection and focus with arrows/Home/End and roves tabindex', async () => {
     const user = userEvent.setup();
-    render(<FirmMatterDetailPage params={Promise.resolve({ id: 'matter-1' })} />);
+    render(
+      <Suspense fallback={null}>
+        <FirmMatterDetailPage params={Promise.resolve({ id: 'matter-1' })} />
+      </Suspense>,
+    );
 
     const overview = await screen.findByRole('tab', { name: 'Overview' });
     const files = screen.getByRole('tab', { name: 'Files' });
