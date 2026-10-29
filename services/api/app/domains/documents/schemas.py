@@ -175,6 +175,11 @@ class AttestationIn(BaseModel):
             raise ValueError("requirement_id and statement_key must match when both are sent.")
         if self.requirement_id is None and self.statement_key is None:
             raise ValueError("requirement_id (or legacy statement_key) is required.")
+        if self.requirement_id is not None and not (self.acknowledgement or "").strip():
+            # Batch F review M1: the web shape attests True purely from
+            # the confirmed acknowledgement, so that text is mandatory —
+            # a bare {requirement_id} must never attest on its own.
+            raise ValueError("acknowledgement is required with the requirement_id shape.")
         if self.attested is None and self.requirement_id is None:
             raise ValueError("attested is required with the legacy statement_key shape.")
         return self

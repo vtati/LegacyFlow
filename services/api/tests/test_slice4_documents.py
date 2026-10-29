@@ -1324,6 +1324,57 @@ def test_attestation_accepts_family_web_payload(db, api_client):
     assert response.status_code == 422
 
 
+def test_attestation_web_shape_requires_acknowledgement(db, api_client):
+    """Batch F review M1: the web shape ({requirement_id, ...}) attests
+    True purely from the confirmed acknowledgement, so the
+    acknowledgement itself is mandatory — a bare {requirement_id}
+    (missing, empty, or whitespace-only) must 422 and store nothing.
+    The legacy {statement_key, attested} shape is unaffected."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    checklist = api_client.post(
+        f"/v1/matters/{matter_id}/signing-checklists", headers=auth(STAFF_A)
+    ).json()
+
+    for payload in (
+        {"requirement_id": "witness_signatures"},
+        {"requirement_id": "witness_signatures", "acknowledgement": ""},
+        {"requirement_id": "witness_signatures", "acknowledgement": "   "},
+    ):
+        response = api_client.post(
+            f"/v1/signing-checklists/{checklist['id']}/attest",
+            json=payload,
+            headers=auth(CLIENT_A),
+        )
+        assert response.status_code == 422, response.text
+
+    # Nothing was recorded by the rejected web-shape attempts.
+    response = api_client.get(
+        f"/v1/signing-checklists/{checklist['id']}", headers=auth(CLIENT_A)
+    )
+    assert response.json()["attestations"] == []
+
+    # Web shape WITH an acknowledgement still attests (201).
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={
+            "requirement_id": "witness_signatures",
+            "acknowledgement": "I have read this requirement and will follow it.",
+        },
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["attested"] is True
+
+    # Legacy shape keeps working unchanged (no acknowledgement field).
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={"statement_key": "witness_signatures", "attested": True},
+        headers=auth(COLLAB_A),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["attested"] is True
+
+
 def test_attestation_trusted_contact_forbidden(db, api_client):
     """FUNC-010: trusted_contact is a read-only household role → 403."""
     _firm_id, household_id, matter_id = setup_firm_household_matter(db)
