@@ -10,7 +10,9 @@ describe('SectionNav (family)', () => {
     const nav = screen.getByRole('navigation', { name: 'family navigation' });
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(FAMILY_NAV.length);
-    expect(FAMILY_NAV).toHaveLength(18);
+    // 12 is intentional: the nav dedup (daf83c8) removed duplicate
+    // entries — this count was the stale side of that change (UI-019).
+    expect(FAMILY_NAV).toHaveLength(12);
     for (const item of FAMILY_NAV) {
       expect(within(nav).getByRole('link', { name: item.label })).toBeDefined();
     }
