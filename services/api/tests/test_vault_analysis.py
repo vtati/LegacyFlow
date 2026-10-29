@@ -156,6 +156,31 @@ def test_trust_template_renders():
         "children_list": "Kid One, Kid Two",
         "distribution_age": "25",
         "today": "October 2, 2026",
+        # Batch C1 (FUNC-026): Article V is ONE composed slot now —
+        # build_template_context always sets it, composing the marital
+        # share, the children's shares, and the minors'/contingent
+        # tail with sequential numbering. This value mirrors what the
+        # builder emits for the facts above (married, two children,
+        # distribution age 25); without the slot the merge leaves
+        # {{trust_distribution_provisions}} behind.
+        "trust_distribution_provisions": (
+            "5.2 Marital share. One-half to spouse.\n\n"
+            "5.3 Shares for children. The remaining trust property "
+            "shall be divided into equal shares for my children:\n"
+            "Kid One, Kid Two\n\n"
+            "5.4 Minors' shares in continuing trust. The share of any "
+            "child who has not attained the age of 25 shall be held in "
+            "a separate continuing trust for that child. The Trustee "
+            "shall apply so much of the income and principal as the "
+            "Trustee deems advisable for the child's health, education, "
+            "maintenance, and support until the child attains the age "
+            "of 25, at which time the remaining balance shall be "
+            "distributed outright to the child, free of trust.\n\n"
+            "5.5 Contingent beneficiaries. If any child fails to "
+            "survive me, that child's share shall be distributed to "
+            "that child's then-living descendants, per stirpes, or if "
+            "none, to my remaining children in equal shares."
+        ),
     }
     merged = re.sub(r"\{\{(\w+)\}\}", lambda m: ctx.get(m.group(1), m.group(0)), body)
     assert not re.search(r"\{\{\w+\}\}", merged), "unfilled placeholders remain"
