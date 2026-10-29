@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { AlertTriangle, FlaskConical, Loader2, MailCheck } from 'lucide-react';
 import { LogoMark } from '@/components/logo-mark';
 import { getAuthAdapter, isMockAuth } from '@/lib/auth';
+import { safeNextPath } from '@/lib/auth/safe-next';
 import { useRovingTabs } from '@/lib/hooks/use-roving-tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,7 +51,9 @@ const LOGIN_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
 
 function nextPath(): string {
   if (typeof window === 'undefined') return '/family/home';
-  return new URLSearchParams(window.location.search).get('next') ?? '/family/home';
+  // SEC-010: same validation as the auth callback — never navigate
+  // off-origin on an attacker-supplied `next`.
+  return safeNextPath(new URLSearchParams(window.location.search).get('next'));
 }
 
 /**

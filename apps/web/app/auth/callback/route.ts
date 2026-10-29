@@ -1,12 +1,15 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeNextPath } from '@/lib/auth/safe-next';
 
 /** Supabase OAuth / magic-link callback: exchange the code, then continue. */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/family/home';
+  // SEC-010: never redirect off-origin — only same-origin relative
+  // paths are honored, everything else lands on /family/home.
+  const next = safeNextPath(searchParams.get('next'));
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

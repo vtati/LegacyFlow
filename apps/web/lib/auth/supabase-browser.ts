@@ -2,6 +2,7 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { AuthAdapter, AuthSession } from './adapter';
+import { safeNextPath } from './safe-next';
 
 function getBrowserSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,9 +20,11 @@ export function createSupabaseBrowserAdapter(): AuthAdapter {
   return {
     async signInWithGoogle(): Promise<void> {
       const supabase = getBrowserSupabase();
+      // SEC-010: validate `next` here too — it is forwarded into the
+      // callback URL, and the callback validates again (defense in depth).
       const next =
         typeof window !== 'undefined'
-          ? (new URLSearchParams(window.location.search).get('next') ?? '/family/home')
+          ? safeNextPath(new URLSearchParams(window.location.search).get('next'))
           : '/family/home';
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
