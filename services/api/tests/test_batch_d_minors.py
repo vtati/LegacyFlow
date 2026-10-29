@@ -10,7 +10,6 @@ from uuid import uuid4
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # M-2: import_pack must validate escalation-rule severities, not just
 # the manifest — an invalid severity must reject the import with 422
