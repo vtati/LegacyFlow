@@ -1,0 +1,71 @@
+DESIGNATION OF GUARDIAN FOR MINOR CHILDREN
+Commonwealth of Virginia
+
+I, {{parent_name}}, of {{parent_address}}, {{parent_city}}, Virginia, being of sound mind, make this designation regarding the guardianship of my minor children.
+
+MY MINOR CHILDREN:
+{{children_list}}
+
+DESIGNATION OF GUARDIAN:
+
+If at the time of my death, or in the event of my incapacity, the other parent of my minor children is deceased, incapacitated, or otherwise unable or unwilling to care for them, I nominate the following person as guardian of the persons of my minor children:
+
+Guardian: {{guardian_name}}
+Address: {{guardian_address}}
+Relationship to children: {{guardian_relationship}}
+
+SUCCESSOR GUARDIAN:
+
+If {{guardian_name}} is unable or unwilling to serve as guardian, I nominate as successor guardian:
+
+Successor Guardian: {{alternate_guardian_name}}
+Address: {{alternate_guardian_address}}
+Relationship to children: {{alternate_guardian_relationship}}
+
+WISHES REGARDING UPBRINGING:
+
+I express the following wishes regarding the upbringing, education, and welfare of my minor children:
+{{upbringing_wishes}}
+
+I request that the guardian:
+(a) Maintain the children's relationships with extended family members, including: {{extended_family}}
+(b) Continue the children's education at: {{education_wishes}}
+(c) Raise the children in accordance with the following religious or moral traditions: {{religious_wishes}}
+
+FINANCIAL PROVISIONS:
+
+I have made financial provisions for my minor children as follows:
+{{financial_provisions}}
+
+This designation is made pursuant to Va. Code §§ 64.2-1701 et seq. I understand that the circuit court has final authority over guardianship appointments and will consider this designation as evidence of my wishes.
+
+I revoke all prior guardian designations made by me.
+
+IN WITNESS WHEREOF, I have signed this Designation on {{today}}.
+
+________________________________________
+{{parent_name}}
+
+Date: {{today}}
+
+
+WITNESS ATTESTATION
+
+We, the undersigned witnesses, certify that {{parent_name}} signed this Designation in our presence.
+
+Witness 1:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name
+
+
+Witness 2:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name

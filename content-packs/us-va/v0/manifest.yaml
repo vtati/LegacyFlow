@@ -19,7 +19,7 @@ capabilities:
   education: true
   eligibility_triage: true
   attorney_review: true
-  document_assembly: false
+  document_assembly: true
   execution_guidance: attorney_pending
   funding_guidance: true
 

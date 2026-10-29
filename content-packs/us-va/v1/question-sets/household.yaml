@@ -1,0 +1,76 @@
+# Household question set (pack-backed guided intake; FR-MAT-002, FR-PLAN-001).
+# `maps_to` binds answers to facts/persons/decisions without code changes.
+question_set:
+  id: household
+  version: 1.0.0
+  title: 'Household profile'
+sections:
+  - id: basics
+    title: 'About your household'
+    questions:
+      - key: marital_status
+        type: single_select
+        label: 'What best describes your household?'
+        help: 'Why we ask: the people legally tied to you shape which plan options your attorney can use.'
+        required: true
+        options:
+          - value: married
+            label: 'Married'
+          - value: partnered
+            label: 'Partnered (not married)'
+          - value: single
+            label: 'Single'
+          - value: widowed
+            label: 'Widowed'
+        maps_to: facts.marital_status
+      - key: primary_residence_state
+        type: text
+        label: 'What state is your primary residence in?'
+        help: 'Why we ask: estate rules differ by state, so your plan follows the pack for this jurisdiction.'
+        required: true
+        maps_to: facts.primary_residence_state
+      - key: has_minor_children
+        type: boolean
+        label: 'Do you have minor children or dependents who need care?'
+        help: 'Why we ask: guardian nominations protect children if neither parent can care for them.'
+        required: true
+        maps_to: facts.has_minor_children
+      - key: minor_children_details
+        type: text
+        label: 'Please list each minor child by name and age.'
+        help: 'Why we ask: your will names each child individually.'
+        required: false
+        maps_to: facts.minor_children_details
+  - id: triage
+    title: 'Quick check'
+    questions:
+      - key: has_child_with_special_needs
+        type: boolean
+        label: 'Does any child have special needs requiring ongoing support?'
+        help: 'Why we ask: special-needs planning has dedicated tools your attorney should evaluate.'
+        required: true
+        maps_to: facts.has_child_with_special_needs
+      - key: has_prior_marriage_or_children_outside_current_relationship
+        type: boolean
+        label: 'Have you had a prior marriage, or do you have children outside your current relationship?'
+        help: "Why we ask: blended-family situations need attorney review to keep everyone's interests clear."
+        required: true
+        maps_to: facts.has_prior_marriage_or_children_outside_current_relationship
+      - key: owns_real_estate_outside_primary_jurisdiction
+        type: boolean
+        label: 'Do you own real estate outside your primary state?'
+        help: 'Why we ask: property in another state can trigger separate proceedings your attorney must plan for.'
+        required: true
+        maps_to: facts.owns_real_estate_outside_primary_jurisdiction
+      - key: owns_or_controls_business_interest
+        type: boolean
+        label: 'Do you own or control a business interest?'
+        help: 'Why we ask: business interests often carry transfer restrictions an attorney should review.'
+        required: true
+        maps_to: facts.owns_or_controls_business_interest
+      - key: expects_family_conflict
+        type: boolean
+        label: 'Do you expect disagreement among family members about your plan?'
+        help: 'Why we ask: flagging this early lets your attorney design a plan that reduces conflict.'
+        required: true
+        maps_to: facts.expects_family_conflict

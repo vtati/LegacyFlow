@@ -1,0 +1,40 @@
+# Asset inventory question set (FR-ASSET-001/002/003).
+question_set:
+  id: assets
+  version: 1.0.0
+  title: 'Assets and accounts'
+sections:
+  - id: overview
+    title: 'What do you own?'
+    questions:
+      - key: asset_categories_present
+        type: multi_select
+        label: 'Which of these do you have? (select all that apply)'
+        help: 'Why we ask: each category creates follow-up tasks, like confirming beneficiaries or reviewing titles.'
+        required: true
+        options:
+          - value: bank
+            label: 'Bank accounts'
+          - value: brokerage
+            label: 'Brokerage / investment accounts'
+          - value: retirement
+            label: 'Retirement accounts (401k, IRA)'
+          - value: insurance
+            label: 'Life insurance'
+          - value: real_property
+            label: 'Real estate'
+          - value: business
+            label: 'Business interest'
+          - value: vehicle
+            label: 'Vehicles'
+          - value: '529'
+            label: '529 education accounts'
+          - value: digital
+            label: 'Digital assets'
+        maps_to: facts.asset_categories_present
+      - key: has_debts
+        type: boolean
+        label: 'Do you have significant debts (mortgage, loans, credit balances)?'
+        help: 'Why we ask: debts affect the overall picture your attorney reviews.'
+        required: true
+        maps_to: facts.has_debts

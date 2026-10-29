@@ -1,0 +1,34 @@
+# Durable power of attorney question set (v1).
+# Who handles your finances if you become incapacitated.
+question_set:
+  id: poa
+  version: 1.0.0
+  title: 'Financial power of attorney'
+sections:
+  - id: agent
+    title: 'Your financial agent'
+    questions:
+      - key: poa_agent_person
+        type: person
+        label: 'Who should handle your financial affairs — bank accounts, property, taxes — if you become unable to do so yourself?'
+        help: 'Why we ask: your agent can pay bills, manage accounts, and protect your assets during incapacity. This power ends at death.'
+        required: true
+        maps_to: nominations.financial_agent.1
+      - key: poa_agent_address
+        type: text
+        label: 'What is your financial agent''s full address — street address, city, and state?'
+        help: 'Why we ask: the document identifies your agent by their full address.'
+        required: true
+        maps_to: facts.poa_agent_address
+      - key: successor_poa_agent_person
+        type: person
+        label: 'Who should serve if your first choice cannot?'
+        help: 'Why we ask: a backup keeps your finances covered if circumstances change.'
+        required: true
+        maps_to: nominations.financial_agent.2
+      - key: poa_additional_powers
+        type: notes
+        label: 'Are there any specific financial powers you want to grant or withhold? (optional)'
+        help: 'Why we ask: you can tailor the standard powers to your situation.'
+        required: true
+        maps_to: facts.poa_additional_powers

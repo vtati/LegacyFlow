@@ -1,0 +1,38 @@
+# Bequests and residuary question set (v1).
+# Collects who inherits what — the dispositive core the v0 pack omitted.
+question_set:
+  id: bequests
+  version: 2.0.0
+  title: Gifts and residuary beneficiaries
+sections:
+- id: specific
+  title: Specific bequests
+  questions:
+  - key: has_specific_bequests
+    type: boolean
+    label: Are there specific items or amounts you want to leave to particular people or charities?
+    help: 'Why we ask: specific gifts (an heirloom, a sum of money, a charitable donation) are listed
+      individually in the will.'
+    required: true
+    maps_to: facts.has_specific_bequests
+    cluster: wishes
+  - key: specific_bequests
+    type: notes
+    label: 'Describe each specific gift: what it is and who should receive it.'
+    help: 'Why we ask: your attorney turns these into the specific-bequest article of the will.'
+    required: true
+    maps_to: facts.specific_bequests
+    cluster: wishes
+    applies_if: has_specific_bequests == true
+- id: residuary
+  title: Residuary estate
+  questions:
+  - key: residuary_beneficiaries
+    type: notes
+    label: Who should receive everything else — the rest of your estate after debts, expenses, and specific
+      gifts are handled?
+    help: 'Why we ask: the residuary clause is the heart of the will. Most people name their spouse first,
+      then their children.'
+    required: true
+    maps_to: facts.residuary_beneficiaries
+    cluster: wishes

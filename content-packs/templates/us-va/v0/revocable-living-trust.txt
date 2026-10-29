@@ -1,0 +1,104 @@
+DRAFT — requires licensed attorney review before use. Not legal advice.
+
+DECLARATION OF REVOCABLE LIVING TRUST
+{{trust_name}}
+
+I, {{grantor_name}}, of {{grantor_address}}, {{grantor_city}}, Virginia, as Grantor, hereby declare that I have assigned, transferred, and delivered to {{trustee_name}}, as Trustee, the property described in Schedule A attached hereto, to be held, administered, and distributed as provided in this Trust Agreement.
+
+ARTICLE I — ESTABLISHMENT AND NAME
+
+1.1 Name. This trust shall be known as the {{trust_name}}.
+
+1.2 Declaration. I declare that all property now or hereafter transferred to the Trustee is held in trust for the uses and purposes set forth herein.
+
+1.3 Revocability. This trust is REVOCABLE. I, as Grantor, retain the absolute and unqualified right to revoke this trust in whole or in part at any time, as provided in Article VIII.
+
+1.4 Grantor as initial Trustee. {{grantor_name}} shall serve as the initial Trustee of this trust.
+
+ARTICLE II — TRUST PROPERTY
+
+2.1 Initial funding. The initial trust property consists of:
+{{initial_property}}
+
+2.2 Schedule A. A complete inventory of trust property is maintained in Schedule A, as amended from time to time. Additional property may be added to this trust by deed, assignment, beneficiary designation, or other written instrument referencing this trust.
+
+2.3 Pour-over. It is my intent that any property passing under my Last Will and Testament that pours over to this trust shall be administered according to its terms.
+
+ARTICLE III — TRUSTEE
+
+3.1 Trustee. {{trustee_name}} shall serve as Trustee.
+
+3.2 Successor Trustee. If {{trustee_name}} fails to qualify, resigns, becomes incapacitated, or ceases to act for any reason, {{successor_trustee_name}} shall serve as successor Trustee. If the successor fails to qualify or ceases to act, a successor shall be appointed by a court of competent jurisdiction.
+
+3.3 Resignation and removal. A Trustee may resign by delivering written notice to the Grantor, or if the Grantor is deceased or incapacitated, to all qualified beneficiaries. During my lifetime, I may remove any Trustee and appoint a successor at any time, with or without cause.
+
+3.4 Compensation. A Trustee who is not the Grantor shall receive reasonable compensation for services rendered, as permitted under Va. Code § 64.2-710.
+
+3.5 No bond. No bond shall be required of any Trustee serving hereunder, to the fullest extent permitted by law.
+
+ARTICLE IV — DISTRIBUTIONS DURING THE GRANTOR'S LIFETIME
+
+4.1 Grantor's unrestricted rights. During my lifetime and so long as I am not incapacitated, the Trustee shall distribute to me or for my benefit so much of the income and principal of the trust as I may direct, including the entire trust estate. I may withdraw any part or all of the trust property free of trust at any time.
+
+4.2 Incapacity of Grantor. If I become incapacitated, the Trustee shall apply the income and principal for my health, support, maintenance, and education, and for the health, support, and maintenance of my dependents, in the Trustee's discretion.
+
+ARTICLE V — DISTRIBUTIONS AFTER THE GRANTOR'S DEATH
+
+5.1 Payment of expenses. Upon my death, the Trustee shall pay from the trust estate my legally enforceable debts, funeral expenses, administration expenses, and death taxes attributable to the trust property.
+
+5.2 Marital share. {{marital_share}}
+
+5.3 Shares for children. The remaining trust property shall be divided into equal shares for my children:
+{{children_list}}
+
+5.4 Minors' shares in continuing trust. The share of any child who has not attained the age of {{distribution_age}} shall be held in a separate continuing trust for that child. The Trustee shall apply so much of the income and principal as the Trustee deems advisable for the child's health, education, maintenance, and support until the child attains the age of {{distribution_age}}, at which time the remaining balance shall be distributed outright to the child, free of trust.
+
+5.5 Contingent beneficiaries. If any child fails to survive me, that child's share shall be distributed to that child's then-living descendants, per stirpes, or if none, to my remaining children in equal shares.
+
+ARTICLE VI — TRUSTEE POWERS
+
+The Trustee shall have all powers granted to trustees under the Virginia Uniform Trust Code, Va. Code §§ 64.2-700 et seq., including without limitation the power to: buy, sell, lease, and encumber real and personal property; invest and reinvest trust assets under the prudent investor standard; open and maintain bank, brokerage, and investment accounts; employ agents, accountants, and attorneys; litigate and settle claims; distribute property in cash or in kind; and divide or consolidate trusts for administrative convenience.
+
+ARTICLE VII — SPENDTHRIFT PROVISION
+
+To the fullest extent permitted by Va. Code § 64.2-742, the interest of each beneficiary in the income and principal of this trust is subject to a spendthrift restriction: no beneficiary may assign, encumber, or transfer any interest herein, and no such interest shall be subject to the claims of any beneficiary's creditors, whether by attachment, garnishment, or other legal process, until actually distributed to the beneficiary.
+
+ARTICLE VIII — REVOCATION AND AMENDMENT
+
+8.1 Retained power. I reserve the right, at any time during my lifetime and so long as I am competent, to amend or revoke this trust in whole or in part by a written instrument signed by me and delivered to the Trustee.
+
+8.2 Irrevocability after death. Upon my death, this trust shall become irrevocable except as otherwise provided herein for the administration of continuing trusts for minors.
+
+ARTICLE IX — GENERAL PROVISIONS
+
+9.1 Governing law. This trust shall be governed by and construed in accordance with the laws of the Commonwealth of Virginia.
+
+9.2 Severability. The invalidity of any provision of this Trust Agreement shall not affect the validity of the remaining provisions.
+
+9.3 No-contest. If any beneficiary contests this trust or any of its provisions, that beneficiary shall forfeit any interest herein.
+
+9.4 Definitions. References to a child or children include adopted children and children born after the execution of this instrument. "Education" includes primary, secondary, undergraduate, graduate, and professional education.
+
+IN WITNESS WHEREOF, I have signed this Declaration of Trust on {{today}}.
+
+________________________________________
+{{grantor_name}}, Grantor and Trustee
+
+
+NOTARY ACKNOWLEDGMENT
+
+STATE OF VIRGINIA
+CITY/COUNTY OF _____________________
+
+The foregoing instrument was acknowledged before me on {{today}} by {{grantor_name}}, who is personally known to me or who produced ______________________ as identification.
+
+________________________________________
+Notary Public
+My commission expires: __________________
+[NOTARY SEAL]
+
+
+SCHEDULE A — TRUST PROPERTY
+(To be completed and updated as property is transferred to the trust)
+
+{{initial_property}}

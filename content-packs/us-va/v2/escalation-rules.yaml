@@ -1,0 +1,53 @@
+# Virginia starter escalation rules (artifact §9.4).
+# Declarative; evaluated by app/domains/legal_content/pack_loader.py.
+# Severity: blocking stops intake progress until attorney disposition;
+# review routes the matter to attorney review; info is advisory.
+rules:
+  - id: VA-ESC-001
+    version: 0.1.0
+    when: has_child_with_special_needs == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'
+
+  - id: VA-ESC-002
+    version: 0.1.0
+    when: has_prior_marriage_or_children_outside_current_relationship == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'
+
+  - id: VA-ESC-003
+    version: 0.1.0
+    when: owns_real_estate_outside_primary_jurisdiction == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'
+
+  - id: VA-ESC-004
+    version: 0.1.0
+    when: has_foreign_assets_or_non_us_citizenship_considerations == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'
+
+  - id: VA-ESC-005
+    version: 0.1.0
+    when: owns_or_controls_business_interest == true
+    severity: review
+    outcome: attorney_review_required
+    user_message: 'An attorney should review this part of your plan.'
+
+  - id: VA-ESC-006
+    version: 0.1.0
+    when: expects_family_conflict == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'
+
+  - id: VA-ESC-007
+    version: 0.1.0
+    when: requests_tax_or_asset_protection_strategy == true
+    severity: blocking
+    outcome: attorney_review_required
+    user_message: 'Your plan needs attorney review before it can continue.'

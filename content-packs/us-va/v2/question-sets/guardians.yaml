@@ -1,0 +1,37 @@
+# Guardian nomination question set (FR-PLAN-002).
+question_set:
+  id: guardians
+  version: 2.0.0
+  title: Guardians for minor children
+sections:
+- id: primary
+  title: Primary guardian
+  questions:
+  - key: primary_guardian_person
+    type: person
+    label: Who should care for your minor children if neither parent can?
+    help: 'Why we ask: naming a guardian gives the court a clear statement of your wishes. Your attorney
+      finalizes the legal nomination.'
+    required: true
+    maps_to: nominations.guardian.1
+    cluster: people
+    applies_if: has_minor_children == true
+  - key: guardian_reason
+    type: notes
+    label: Why is this person a good fit? (optional)
+    help: 'Why we ask: your reasoning helps your attorney understand your priorities.'
+    required: true
+    maps_to: nominations.guardian.1.notes
+    cluster: people
+    applies_if: has_minor_children == true
+- id: backups
+  title: Backup guardians
+  questions:
+  - key: backup_guardian_person
+    type: person
+    label: Who should serve if your first choice cannot?
+    help: 'Why we ask: a backup keeps your wishes covered if circumstances change.'
+    required: true
+    maps_to: nominations.guardian.2
+    cluster: people
+    applies_if: has_minor_children == true

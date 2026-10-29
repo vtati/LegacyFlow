@@ -1,0 +1,64 @@
+# Final wishes question set (v1).
+# Funeral preferences, digital assets, and detailed guardianship wishes.
+question_set:
+  id: final_wishes
+  version: 1.0.0
+  title: 'Final wishes'
+sections:
+  - id: funeral
+    title: 'Funeral and burial'
+    questions:
+      - key: funeral_wishes
+        type: notes
+        label: 'Do you have wishes for your funeral, burial, or cremation?'
+        help: 'Why we ask: writing these down spares your family difficult guesses during grief.'
+        required: false
+        maps_to: facts.funeral_wishes
+  - id: digital
+    title: 'Digital assets'
+    questions:
+      - key: digital_asset_wishes
+        type: notes
+        label: 'How should your digital accounts, files, and online presence be handled? Who should have access?'
+        help: 'Why we ask: Virginia law lets you grant a fiduciary access to digital assets — but only if you say so.'
+        required: false
+        maps_to: facts.digital_asset_wishes
+  - id: guardianship_detail
+    title: 'Wishes for your children'
+    questions:
+      - key: guardian_relationship
+        type: text
+        label: 'What is your nominated guardian''s relationship to your children? (for example: maternal aunt)'
+        help: 'Why we ask: the guardianship designation records this.'
+        required: false
+        maps_to: facts.guardian_relationship
+      - key: children_upbringing_wishes
+        type: notes
+        label: 'Are there wishes about how your children should be raised — values, traditions, or guidance you want the guardian to follow?'
+        help: 'Why we ask: these wishes guide your guardian and show the court your priorities.'
+        required: false
+        maps_to: facts.upbringing_wishes
+      - key: children_education_wishes
+        type: notes
+        label: 'Do you have wishes about your children''s education — schools to continue, college expectations?'
+        help: 'Why we ask: recorded education wishes help your guardian keep stability for the kids.'
+        required: false
+        maps_to: facts.education_wishes
+      - key: children_religious_wishes
+        type: notes
+        label: 'Do you have religious or moral traditions you want your children raised in?'
+        help: 'Why we ask: the court considers your wishes on religious upbringing.'
+        required: false
+        maps_to: facts.religious_wishes
+      - key: children_financial_provisions
+        type: notes
+        label: 'Have you made financial provisions for your children — life insurance, trust shares, education funds?'
+        help: 'Why we ask: the guardianship designation records how the children will be supported.'
+        required: false
+        maps_to: facts.financial_provisions
+      - key: children_extended_family
+        type: notes
+        label: 'Are there extended family members you want the guardian to keep the children connected with?'
+        help: 'Why we ask: maintaining family relationships is in the children''s best interest.'
+        required: false
+        maps_to: facts.extended_family

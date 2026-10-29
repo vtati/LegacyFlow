@@ -1,0 +1,49 @@
+CODICIL TO LAST WILL AND TESTAMENT
+OF
+{{testator_name}}
+
+I, {{testator_name}}, of {{testator_address}}, {{testator_city}}, Virginia, being of sound mind and memory, do make, publish, and declare this Codicil to my Last Will and Testament dated {{original_will_date}} (the "Will").
+
+ARTICLE I — CONFIRMATION OF WILL
+
+Except as expressly modified by this Codicil, I confirm and republish my Will in all respects.
+
+ARTICLE II — AMENDMENTS
+
+{{amendment_provisions}}
+
+ARTICLE III — GENERAL PROVISIONS
+
+3.1 Governing law. This Codicil shall be governed by and construed in accordance with the laws of the Commonwealth of Virginia, including Va. Code §§ 64.2-400 et seq.
+
+3.2 Severability. If any provision of this Codicil is held invalid, the remaining provisions shall continue in full force and effect.
+
+3.3 Counterparts. This Codicil may be executed in counterparts, each of which shall be deemed an original.
+
+IN WITNESS WHEREOF, I have signed this Codicil on {{execution_date}}.
+
+________________________________________
+{{testator_name}}, Testator
+
+WITNESSES
+
+We, the undersigned witnesses, certify that the Testator signed this Codicil in our presence and in the presence of each other, and that the Testator appeared to be of sound mind and under no duress.
+
+________________________________________
+Witness 1: {{witness1_name}}
+Address: {{witness1_address}}
+
+________________________________________
+Witness 2: {{witness2_name}}
+Address: {{witness2_address}}
+
+[NOTARY ACKNOWLEDGMENT]
+
+Commonwealth of Virginia, {{notary_county}} to wit:
+
+The foregoing Codicil was acknowledged before me on {{notary_date}} by {{testator_name}}, who is personally known to me or who produced ______________________ as identification.
+
+________________________________________
+Notary Public
+My commission expires: ________________
+[NOTARY SEAL]

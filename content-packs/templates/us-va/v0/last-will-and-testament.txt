@@ -1,0 +1,101 @@
+LAST WILL AND TESTAMENT
+OF
+{{testator_name}}
+
+I, {{testator_name}}, of {{testator_address}}, {{testator_city}}, Virginia, being of sound mind and memory, do make, publish, and declare this to be my Last Will and Testament, hereby revoking all wills and codicils previously made by me.
+
+ARTICLE I — IDENTIFICATION AND FAMILY
+
+{{family_identification}}
+
+ARTICLE II — EXECUTOR
+
+I appoint {{executor_name}}, of {{executor_address}}, as Executor of this Will. If {{executor_name}} fails to qualify or ceases to act, I appoint {{alternate_executor_name}} as successor Executor.
+
+My Executor shall have all powers granted under Virginia law, including the power to sell real and personal property without court approval, to the extent permitted by Va. Code §§ 64.2-500 et seq.
+
+I direct that no surety be required on my Executor's bond, to the fullest extent permitted by law.
+
+ARTICLE III — GUARDIAN FOR MINOR CHILDREN
+
+If at the time of my death I have minor children and the other parent is not available to care for them, I nominate {{guardian_name}}, of {{guardian_address}}, as guardian of the persons of my minor children. If {{guardian_name}} fails to qualify or ceases to act, I nominate {{alternate_guardian_name}} as successor guardian.
+
+ARTICLE IV — SPECIFIC BEQUESTS
+
+I make the following specific bequests:
+{{specific_bequests}}
+
+ARTICLE V — RESIDUARY ESTATE
+
+I give all the rest, residue, and remainder of my estate, both real and personal, of whatever kind and wherever situated, to:
+{{residuary_beneficiaries}}
+
+ARTICLE VI — TAXES AND DEBTS
+
+I direct that all my legally enforceable debts, funeral expenses, and administration expenses be paid out of my estate without apportionment. All estate, inheritance, and transfer taxes shall be paid from my residuary estate.
+
+ARTICLE VII — GENERAL PROVISIONS
+
+If any beneficiary under this Will contests this Will or any of its provisions, that beneficiary shall forfeit any interest herein.
+
+The invalidity of any provision of this Will shall not affect the validity of the remaining provisions.
+
+This Will shall be governed by the laws of the Commonwealth of Virginia.
+
+IN WITNESS WHEREOF, I have signed this Will on {{today}}.
+
+________________________________________
+{{testator_name}}, Testator
+
+
+WITNESS ATTESTATION
+
+We, the undersigned witnesses, certify that the Testator signed this Will in our presence, that we were present at the same time, and that we subscribed our names as witnesses in the presence of the Testator, all in accordance with Va. Code § 64.2-403.
+
+Witness 1:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name
+
+________________________________________
+Address
+
+
+Witness 2:
+
+________________________________________
+Signature
+
+________________________________________
+Printed Name
+
+________________________________________
+Address
+
+
+SELF-PROVING AFFIDAVIT
+(Va. Code § 64.2-453)
+
+STATE OF VIRGINIA
+CITY/COUNTY OF _____________________
+
+Before me, the undersigned authority, on this date personally appeared {{testator_name}}, Witness 1, and Witness 2, known to me to be the Testator and the witnesses, respectively, of the foregoing Will, and being duly sworn, the Testator declared to me and to the witnesses in my presence that the Will was signed and executed as the Testator's free and voluntary act for the purposes therein expressed, and each witness stated before me that the Will was executed and acknowledged by the Testator as the Testator's Will in the presence of the witnesses.
+
+________________________________________
+{{testator_name}}, Testator
+
+________________________________________
+Witness 1
+
+________________________________________
+Witness 2
+
+Subscribed, sworn to, and acknowledged before me on {{today}}.
+
+________________________________________
+Notary Public
+My commission expires: __________________
+[NOTARY SEAL]

@@ -1,0 +1,37 @@
+AMENDMENT TO REVOCABLE LIVING TRUST
+{{trust_name}}
+
+This Amendment to Revocable Living Trust (this "Amendment") is made on {{execution_date}} by {{grantor_name}}, as Grantor and Trustee of the {{trust_name}} dated {{original_trust_date}} (the "Trust").
+
+RECITALS
+
+A. Section {{amendment_power_section}} of the Trust reserves to the Grantor the power to amend the Trust.
+B. The Grantor desires to amend the Trust as set forth below.
+
+AMENDMENTS
+
+{{amendment_provisions}}
+
+CONFIRMATION
+
+Except as expressly modified by this Amendment, the Grantor confirms and republishes the Trust in all respects. All provisions of the Trust not inconsistent with this Amendment remain in full force and effect.
+
+GOVERNING LAW
+
+This Amendment shall be governed by and construed in accordance with the Virginia Uniform Trust Code, Va. Code §§ 64.2-700 et seq.
+
+IN WITNESS WHEREOF, the Grantor has signed this Amendment on {{execution_date}}.
+
+________________________________________
+{{grantor_name}}, Grantor and Trustee
+
+[NOTARY ACKNOWLEDGMENT]
+
+Commonwealth of Virginia, {{notary_county}} to wit:
+
+The foregoing Amendment was acknowledged before me on {{notary_date}} by {{grantor_name}}, who is personally known to me or who produced ______________________ as identification.
+
+________________________________________
+Notary Public
+My commission expires: ________________
+[NOTARY SEAL]

@@ -1,0 +1,31 @@
+# Executor nomination question set (v1).
+# Collects who will administer the estate — a required role the v0 pack omitted.
+question_set:
+  id: executors
+  version: 1.0.0
+  title: 'Executor nomination'
+sections:
+  - id: primary
+    title: 'Primary executor'
+    questions:
+      - key: primary_executor_person
+        type: person
+        label: 'Who should serve as the executor of your will — the person who will carry out its instructions and handle your estate?'
+        help: 'Why we ask: the executor pays debts, files paperwork, and distributes assets. Your attorney confirms the choice is legally valid.'
+        required: true
+        maps_to: nominations.executor.1
+      - key: primary_executor_address
+        type: text
+        label: 'What is the city and state where your executor lives?'
+        help: 'Why we ask: the will identifies the executor by residence.'
+        required: true
+        maps_to: facts.executor_address
+  - id: backups
+    title: 'Backup executor'
+    questions:
+      - key: backup_executor_person
+        type: person
+        label: 'Who should serve as executor if your first choice cannot?'
+        help: 'Why we ask: a backup keeps your plan working if circumstances change.'
+        required: true
+        maps_to: nominations.executor.2
