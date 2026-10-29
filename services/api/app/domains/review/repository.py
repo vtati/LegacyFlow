@@ -333,6 +333,50 @@ def enqueue_notification(
         return dict(cur.fetchone())
 
 
+def enqueue_notifications(
+    conn: Any,
+    *,
+    firm_id: UUID,
+    matter_id: UUID | None,
+    template_key: str,
+    payload: dict[str, Any],
+    recipients: list[tuple[UUID | None, str | None]],
+) -> int:
+    """Queue one notification row per recipient in a single INSERT (PERF-011).
+
+    ``recipients`` is an ordered list of ``(recipient_user_id,
+    recipient_email)`` pairs; row order in the outbox matches the list
+    order, exactly as if :func:`enqueue_notification` had been called
+    once per recipient. Returns the number of rows inserted (0 — with no
+    query issued — for an empty list).
+    """
+    if not recipients:
+        return 0
+    row_sql = "(%s, %s, %s, %s, %s, %s::jsonb, 'pending', 0)"
+    params: list[Any] = []
+    payload_json = json.dumps(payload, default=str)
+    for user_id, email in recipients:
+        params.extend(
+            [
+                str(firm_id),
+                str(matter_id) if matter_id else None,
+                str(user_id) if user_id else None,
+                email,
+                template_key,
+                payload_json,
+            ]
+        )
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO notification_outbox"
+            " (firm_id, matter_id, recipient_user_id, recipient_email,"
+            " template_key, payload, status, attempts) VALUES "
+            + ", ".join([row_sql] * len(recipients)),
+            params,
+        )
+    return len(recipients)
+
+
 def dequeue_pending(conn: Any, limit: int) -> list[dict[str, Any]]:
     """Lock and return up to ``limit`` pending outbox rows (oldest first)."""
     with conn.cursor() as cur:

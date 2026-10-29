@@ -165,27 +165,29 @@ def notify_recipients(
     """Enqueue one outbox row per recipient; return the row count.
 
     Recipients carry ``user_id`` and ``email`` keys. Duplicates by user id
-    are collapsed to a single row.
+    are collapsed to a single row. All rows are written with one bulk
+    INSERT (PERF-011); ordering and dedupe semantics are unchanged from
+    the former per-row loop.
     """
     seen: set[str] = set()
-    count = 0
+    rows: list[tuple[UUID | None, str | None]] = []
     for recipient in recipients:
         user_id = UUID(str(recipient["user_id"])) if recipient.get("user_id") else None
         dedupe_key = str(user_id) if user_id else f"email:{recipient.get('email')}"
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
-        repo.enqueue_notification(
-            conn,
-            firm_id=firm_id,
-            matter_id=matter_id,
-            template_key=template_key,
-            payload=payload,
-            recipient_user_id=user_id,
-            recipient_email=str(recipient["email"]) if recipient.get("email") else None,
+        rows.append(
+            (user_id, str(recipient["email"]) if recipient.get("email") else None)
         )
-        count += 1
-    return count
+    return repo.enqueue_notifications(
+        conn,
+        firm_id=firm_id,
+        matter_id=matter_id,
+        template_key=template_key,
+        payload=payload,
+        recipients=rows,
+    )
 
 
 # ---------------------------------------------------------------------------
