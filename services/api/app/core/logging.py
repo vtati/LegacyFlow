@@ -25,6 +25,17 @@ _request_id: ContextVar[str | None] = ContextVar("legacyflow_request_id", defaul
 _configured = False
 
 
+# Standard LogRecord attributes — never treated as extras.
+_RESERVED_RECORD_ATTRS = frozenset(
+    {
+        "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+        "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+        "created", "msecs", "relativeCreated", "thread", "threadName",
+        "processName", "process", "message", "asctime", "taskName",
+    }
+)
+
+
 class JSONFormatter(logging.Formatter):
     """Render log records as single-line JSON objects."""
 
@@ -37,6 +48,14 @@ class JSONFormatter(logging.Formatter):
             "request_id": _request_id.get(),
             "service": SERVICE_NAME,
         }
+        # ERR-018: merge extra={} fields (e.g. the unhandled handler's
+        # `path`, escalation's `rule_id`) into the payload — they were
+        # silently dropped, so alerts keyed on them never fired. Core
+        # fields are never overwritten by an extra.
+        for key, value in record.__dict__.items():
+            if key in _RESERVED_RECORD_ATTRS or key in payload:
+                continue
+            payload[key] = value
         if record.exc_info and record.exc_info[0] is not None:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
