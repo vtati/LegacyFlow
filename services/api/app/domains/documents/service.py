@@ -1602,6 +1602,13 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
         # that don't exist. Omit each clause when its facts are absent;
         # sections are renumbered sequentially from 5.2 so the married-
         # with-children rendering is identical in substance to before.
+        # The slot carries the FULL Article V tail (Batch C1 I-1): the
+        # minors'-shares and contingent-beneficiaries sections used to
+        # be static 5.4/5.5 in the template, which left three of four
+        # fact patterns with incoherent numbering (5.1 → 5.4 → 5.5).
+        # Their wording is conditionally-phrased boilerplate and is
+        # preserved verbatim — only the numbers are assigned here,
+        # sequentially after whichever clauses are present.
         provisions: list[str] = []
         section = 2
         if spouse_name or marital_status in ("married", "partnered"):
@@ -1615,6 +1622,30 @@ def build_template_context(conn: Any, matter_id: UUID) -> dict[str, str]:
                 f"children:\n{context['children_list']}"
             )
             section += 1
+        # ``distribution_age`` is resolved here (not left as a token):
+        # the composed slot is substituted into the template as a VALUE,
+        # so a token embedded in it would never be re-scanned by the
+        # merge. An uncaptured age renders as the attorney-fill blank,
+        # exactly what the old static section's blanking produced.
+        distribution_age = context.get("distribution_age") or "___"
+        provisions.append(
+            f"5.{section} Minors' shares in continuing trust. The share "
+            f"of any child who has not attained the age of "
+            f"{distribution_age} shall be held in a separate continuing "
+            "trust for that child. The Trustee shall apply so much of "
+            "the income and principal as the Trustee deems advisable "
+            "for the child's health, education, maintenance, and support "
+            f"until the child attains the age of {distribution_age}, at "
+            "which time the remaining balance shall be distributed "
+            "outright to the child, free of trust."
+        )
+        section += 1
+        provisions.append(
+            f"5.{section} Contingent beneficiaries. If any child fails "
+            "to survive me, that child's share shall be distributed to "
+            "that child's then-living descendants, per stirpes, or if "
+            "none, to my remaining children in equal shares."
+        )
         context["trust_distribution_provisions"] = "\n\n".join(provisions)
 
         if donation_declined:

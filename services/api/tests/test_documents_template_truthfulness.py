@@ -511,7 +511,13 @@ def test_trust_single_childless_grantor_has_no_marital_or_children_clauses(db):
     set_answer(db, matter_id, "marital_status", "single")
     set_answer(db, matter_id, "has_minor_children", False)
     ctx = documents_service.build_template_context(db, UUID(matter_id))
-    assert ctx["trust_distribution_provisions"] == ""
+    # The composed slot now carries the FULL Article V tail: with no
+    # marital/children clauses, the conditionally-phrased minors' and
+    # contingent sections renumber down to 5.2 / 5.3 (Batch C1 I-1).
+    assert ctx["trust_distribution_provisions"].startswith(
+        "5.2 Minors' shares in continuing trust."
+    )
+    assert "5.3 Contingent beneficiaries." in ctx["trust_distribution_provisions"]
     trust = render(db, matter_id, "revocable-living-trust.txt")
     assert "Marital share" not in trust
     assert "Shares for children" not in trust
@@ -549,6 +555,110 @@ def test_trust_single_with_children_omits_marital_clause(db):
     assert "Marital share" not in trust
     assert "Shares for children" in trust
     assert CHILD in trust
+
+
+def _article_v_numbers(rendered: str) -> list[int]:
+    import re
+
+    return [int(n) for n in re.findall(r"(?m)^5\.(\d+) ", rendered)]
+
+
+@pytest.mark.parametrize(
+    "with_spouse_row, with_child, marital_status, expected",
+    [
+        # married + children: the historically coherent case — its
+        # rendering must stay byte-identical (5.1 … 5.5 in order).
+        (True, True, "married", [1, 2, 3, 4, 5]),
+        (True, False, "married", [1, 2, 3, 4]),
+        (False, True, "single", [1, 2, 3, 4]),
+        (False, False, "single", [1, 2, 3]),
+    ],
+)
+def test_trust_article_v_numbering_is_sequential_for_all_patterns(
+    db, with_spouse_row, with_child, marital_status, expected
+):
+    """Batch C1 I-1: the minors'/contingent tail used to be static
+    5.4/5.5 in the template, so three of four fact patterns rendered
+    incoherent numbering (5.1 → 5.4 → 5.5 etc.). The tail is now part
+    of the composed slot and renumbers sequentially."""
+    _h, matter_id, _ids = build_world(
+        db, with_spouse_row=with_spouse_row, with_child=with_child
+    )
+    set_answer(db, matter_id, "marital_status", marital_status)
+    set_answer(db, matter_id, "has_minor_children", with_child)
+    set_answer(db, matter_id, "trust_distribution_age", "25")
+    if with_spouse_row:
+        set_answer(db, matter_id, "trust_marital_share", "one-half of the trust estate")
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert _article_v_numbers(trust) == expected
+    # The tail's wording is preserved verbatim; only numbers move.
+    minors_no = expected[-2]
+    contingent_no = expected[-1]
+    assert (
+        f"5.{minors_no} Minors' shares in continuing trust. The share of any "
+        "child who has not attained the age of 25 shall be held in a separate "
+        "continuing trust for that child."
+    ) in trust
+    assert "until the child attains the age of 25" in trust
+    assert (
+        f"5.{contingent_no} Contingent beneficiaries. If any child fails to "
+        "survive me, that child's share shall be distributed to that child's "
+        "then-living descendants, per stirpes, or if none, to my remaining "
+        "children in equal shares."
+    ) in trust
+
+
+def test_trust_married_with_children_rendering_unchanged_in_substance(db):
+    """Byte-level pin of the coherent case: 5.2 marital, 5.3 children,
+    5.4 minors, 5.5 contingent — exactly as before the tail moved into
+    the composed slot."""
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True, with_child=True)
+    set_answer(db, matter_id, "marital_status", "married")
+    set_answer(db, matter_id, "has_minor_children", True)
+    set_answer(db, matter_id, "trust_marital_share", "one-half of the trust estate")
+    set_answer(db, matter_id, "trust_distribution_age", "25")
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    article_v = trust.split("ARTICLE V")[1].split("ARTICLE VI")[0]
+    assert "5.2 Marital share. one-half of the trust estate" in article_v
+    assert "5.3 Shares for children." in article_v
+    assert "5.4 Minors' shares in continuing trust." in article_v
+    assert "age of 25" in article_v
+    assert "5.5 Contingent beneficiaries." in article_v
+
+
+# ---------------------------------------------------------------------------
+# (d) Widowed grantor trust (M-8): no marital article asserting a living
+# spouse unless the spouse signal itself resolves one — spouse-first
+# precedence mirrors the Will recital exactly.
+# ---------------------------------------------------------------------------
+
+
+def test_trust_widowed_without_spouse_row_has_no_marital_clause(db):
+    _h, matter_id, _ids = build_world(db, with_spouse_row=False, with_child=False)
+    set_answer(db, matter_id, "marital_status", "widowed")
+    set_answer(db, matter_id, "has_minor_children", False)
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert "spouse_name" not in ctx
+    assert ctx["family_identification"] == "I am widowed."
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "Marital share" not in trust
+    assert _article_v_numbers(trust) == [1, 2, 3]
+
+
+def test_trust_widowed_with_resolved_spouse_row_uses_spouse_first_precedence(db):
+    """A resolved spouse row wins over the widowed status answer — the
+    SAME precedence the Will recital applies (spouse signal first).
+    Pin it: the trust then carries the marital clause, numbered 5.2."""
+    _h, matter_id, _ids = build_world(db, with_spouse_row=True, with_child=False)
+    set_answer(db, matter_id, "marital_status", "widowed")
+    set_answer(db, matter_id, "has_minor_children", False)
+    set_answer(db, matter_id, "trust_marital_share", "one-half of the trust estate")
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx["spouse_name"] == SPOUSE
+    assert ctx["family_identification"].startswith(f"I am married to {SPOUSE}.")
+    trust = render(db, matter_id, "revocable-living-trust.txt")
+    assert "5.2 Marital share. one-half of the trust estate" in trust
+    assert _article_v_numbers(trust) == [1, 2, 3, 4]
 
 
 # ---------------------------------------------------------------------------

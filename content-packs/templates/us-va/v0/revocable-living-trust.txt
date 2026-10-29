@@ -48,10 +48,6 @@ ARTICLE V — DISTRIBUTIONS AFTER THE GRANTOR'S DEATH
 
 {{trust_distribution_provisions}}
 
-5.4 Minors' shares in continuing trust. The share of any child who has not attained the age of {{distribution_age}} shall be held in a separate continuing trust for that child. The Trustee shall apply so much of the income and principal as the Trustee deems advisable for the child's health, education, maintenance, and support until the child attains the age of {{distribution_age}}, at which time the remaining balance shall be distributed outright to the child, free of trust.
-
-5.5 Contingent beneficiaries. If any child fails to survive me, that child's share shall be distributed to that child's then-living descendants, per stirpes, or if none, to my remaining children in equal shares.
-
 ARTICLE VI — TRUSTEE POWERS
 
 The Trustee shall have all powers granted to trustees under the Virginia Uniform Trust Code, Va. Code §§ 64.2-700 et seq., including without limitation the power to: buy, sell, lease, and encumber real and personal property; invest and reinvest trust assets under the prudent investor standard; open and maintain bank, brokerage, and investment accounts; employ agents, accountants, and attorneys; litigate and settle claims; distribute property in cash or in kind; and divide or consolidate trusts for administrative convenience.
