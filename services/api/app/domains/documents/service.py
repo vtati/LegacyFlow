@@ -890,6 +890,11 @@ def compute_source_fingerprint(conn: Any, matter: dict[str, Any]) -> str:
             "SELECT display_name FROM households WHERE id = %s", (str(household_id),)
         )
         household = cur.fetchone()
+    # NOTE (FUNC-022 / Batch C1 M-5): adding a field to this payload
+    # invalidates every existing draft's stored fingerprint ONCE at
+    # deploy — all drafts read stale and must regenerate before submit.
+    # That one-time mass staleness is by design (a stale read is safe;
+    # a fingerprint that misses a rendered input is not).
     payload = {
         "matter_title": str(matter.get("title") or ""),
         "household_name": str(household["display_name"]) if household else "",
