@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Info } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
@@ -51,6 +51,12 @@ function withDetailHousehold(detail: MatterDetail): MatterSummary {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
+/** Smooth scrolling unless the user prefers reduced motion. */
+function motionBehavior(): ScrollBehavior {
+  if (typeof window === 'undefined') return 'auto';
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth';
+}
+
 function flattenSections(
   sets: { household: QuestionSet } & Record<string, QuestionSet>,
 ): WizardSection[] {
@@ -81,6 +87,10 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   const [loading, setLoading] = useState(true);
 
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const stripRef = useRef<HTMLOListElement>(null);
+  const cardTopRef = useRef<HTMLDivElement>(null);
+  const [fadeLeft, setFadeLeft] = useState(false);
+  const [fadeRight, setFadeRight] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(false);
   const answersRef = useRef<AnswerMap>({});
@@ -141,8 +151,87 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
 
   const goToSection = useCallback((index: number) => {
     setActiveIndex(index);
-    requestAnimationFrame(() => headingRef.current?.focus());
+    requestAnimationFrame(() => {
+      // Move focus for assistive tech without letting the browser's
+      // focus-scroll fight the explicit card scroll below.
+      headingRef.current?.focus({ preventScroll: true });
+      // Land the question card right below the app header + sticky
+      // tab strip (the wrapper carries the matching scroll-margin).
+      cardTopRef.current?.scrollIntoView?.({ block: 'start', behavior: motionBehavior() });
+    });
   }, []);
+
+  // Edge fades on the mobile tab strip: a trailing/leading mask while
+  // more chips sit off that edge — the scroll affordance for a strip
+  // whose scrollbar is hidden.
+  const updateFades = useCallback(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    setFadeLeft(strip.scrollLeft > 4);
+    setFadeRight(strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 4);
+  }, []);
+
+  // Keep the active chip visible: scroll the STRIP ITSELF (never the
+  // page) so the active chip lands centered. The <ol> is positioned,
+  // so a chip's offsetLeft is its content coordinate inside the strip.
+  // No horizontal overflow (desktop sidebar, or few sections) → no-op.
+  const centerActiveChip = useCallback(() => {
+    const strip = stripRef.current;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+    const chip = strip.querySelectorAll('button')[activeIndex];
+    if (!chip) return;
+    const target = chip.offsetLeft - (strip.clientWidth - chip.offsetWidth) / 2;
+    const max = Math.max(strip.scrollWidth - strip.clientWidth, 0);
+    strip.scrollTo?.({
+      left: Math.min(Math.max(target, 0), max),
+      behavior: motionBehavior(),
+    });
+  }, [activeIndex]);
+
+  // Signature of everything that can change a chip's WIDTH: each
+  // section's floored percent plus its complete flag (which swaps
+  // the figure for a check icon). Autosave replaces the progress
+  // OBJECT after every save, even when no percent moved — depending
+  // on the object would re-center (and visibly yank) the strip after
+  // every typing pause. The signature re-centers only when a chip
+  // label actually changed.
+  const progressSignature = useMemo(
+    () =>
+      sections
+        .map((entry) => {
+          const p =
+            progress?.sections?.[entry.setId]?.[entry.section.id] ??
+            progress?.sets[entry.setId];
+          if (!p) return '-';
+          return `${Math.floor(p.percent_complete)}${p.percent_complete >= 100 ? '✓' : ''}`;
+        })
+        .join('|'),
+    [sections, progress],
+  );
+
+  useEffect(() => {
+    centerActiveChip();
+    updateFades();
+    // Smooth strip scrolling settles after the fade check above.
+    const settle = setTimeout(updateFades, 400);
+    return () => clearTimeout(settle);
+  }, [centerActiveChip, updateFades, sections.length, progressSignature]);
+
+  useEffect(() => {
+    const onResize = () => {
+      centerActiveChip();
+      updateFades();
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [centerActiveChip, updateFades]);
+
+  const stripMask =
+    fadeLeft || fadeRight
+      ? `linear-gradient(to right, ${fadeLeft ? 'transparent 0, black 20px' : 'black 0'}, ${
+          fadeRight ? 'black calc(100% - 20px), transparent 100%' : 'black 100%'
+        })`
+      : undefined;
 
   const handleEvaluate = useCallback(() => {
     setEvaluating(true);
@@ -311,13 +400,27 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
         </Card>
       )}
 
-      {/* minmax(0, …) tracks + min-w-0 panes: a grid item's automatic
-          minimum size is its min-content, so one wide child (the old
-          horizontal section-nav row) used to inflate the single mobile
-          column to ~3,900px and push the question card off-screen. */}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <nav aria-label="Intake sections" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-          <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-col">
+      {/* Section navigation. Below lg this is a sticky horizontal tab
+          strip (the standard pattern for long multi-section forms):
+          chips scroll sideways INSIDE the strip only. The wrapper is a
+          flex column there — a sticky element cannot travel inside a
+          grid row the height of itself — and becomes the two-pane grid
+          at lg, where the same list renders as the vertical sidebar.
+          Overflow stays impossible by construction: min-w-0 panes, and
+          the strip is a scroll container, so chip min-content can
+          never widen the page (the pre-strip bug inflated the single
+          mobile column to ~3,900px and pushed the card off-screen). */}
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
+        <nav
+          aria-label="Intake sections"
+          className="sticky top-16 z-30 -mx-4 min-w-0 border-b border-lf-border bg-lf-canvas px-4 py-2 lg:mx-0 lg:top-24 lg:z-auto lg:self-start lg:border-b-0 lg:bg-transparent lg:px-0 lg:py-0"
+        >
+          <ol
+            ref={stripRef}
+            onScroll={updateFades}
+            style={{ maskImage: stripMask, WebkitMaskImage: stripMask }}
+            className="relative flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex-col lg:items-stretch lg:overflow-x-visible lg:px-0 lg:py-0"
+          >
             {sections.map((entry, index) => {
               // Per-SECTION progress: the set-level figure repeated under
               // every section misleads (one answer in section 1 made
@@ -327,15 +430,17 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                 progress?.sections?.[entry.setId]?.[entry.section.id] ??
                 progress?.sets[entry.setId];
               const isActive = index === activeIndex;
+              const isComplete = setProgress != null && setProgress.percent_complete >= 100;
               return (
-                <li key={entry.section.id} className="min-w-0">
+                <li key={entry.section.id} className="min-w-0 shrink-0">
                   <button
                     type="button"
                     onClick={() => goToSection(index)}
                     aria-current={isActive ? 'step' : undefined}
                     className={cn(
-                      'flex h-full w-full items-center gap-3 rounded-lf-control border px-3 py-2.5 text-left text-sm transition-colors',
+                      'flex min-h-11 w-full items-center gap-2 rounded-full border px-3.5 py-2 text-left text-sm transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',
+                      'lg:h-full lg:gap-3 lg:rounded-lf-control lg:px-3 lg:py-2.5',
                       isActive
                         ? 'border-lf-primary-700 bg-lf-primary-50 font-semibold text-lf-primary-800'
                         : 'border-lf-border bg-lf-canvas-elevated text-lf-text-muted hover:bg-lf-canvas-subtle',
@@ -352,12 +457,46 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                     >
                       {index + 1}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{entry.section.title}</span>
+                    <span className="flex min-w-0 items-center gap-1.5 lg:block lg:flex-1">
+                      <span className="block whitespace-nowrap lg:truncate">
+                        {entry.section.title}
+                      </span>
+                      {/* Chip completion (below lg): a check at 100%,
+                          otherwise a compact percent. The sidebar keeps
+                          the full "% complete" line + progress bar. */}
+                      {setProgress &&
+                        (isComplete ? (
+                          <>
+                            <Check
+                              className="size-4 shrink-0 text-lf-success-600 lg:hidden"
+                              aria-hidden="true"
+                            />
+                            <span className="sr-only lg:hidden">complete</span>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className={cn(
+                                'shrink-0 text-xs font-normal lg:hidden',
+                                // Active chip sits on bg-lf-primary-50:
+                                // text-lf-text-subtle is only 4.25:1 there,
+                                // below the 4.5:1 WCAG AA bar — use the
+                                // darker muted tone on the tint.
+                                isActive ? 'text-lf-text-muted' : 'text-lf-text-subtle',
+                              )}
+                            >
+                              {/* Floor, never round: a chip reading
+                                  "100%" is reserved for the check icon
+                                  (a 99.6% section is not complete). */}
+                              {Math.floor(setProgress.percent_complete)}%
+                            </span>
+                            <span className="sr-only lg:hidden">complete</span>
+                          </>
+                        ))}
                       {setProgress && (
                         <span
                           className={cn(
-                            'block text-xs font-normal',
+                            'hidden text-xs font-normal lg:block',
                             // Active step sits on bg-lf-primary-50 (#EEF2FF):
                             // text-lf-text-subtle (#64748B) is only 4.25:1
                             // there, below the 4.5:1 WCAG AA bar. Use the
@@ -370,7 +509,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                       )}
                       {setProgress && (
                         <span
-                          className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-lf-accent-100"
+                          className="mt-1.5 hidden h-1 w-full overflow-hidden rounded-full bg-lf-accent-100 lg:block"
                           aria-hidden="true"
                         >
                           <span
@@ -389,52 +528,64 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
 
         <div className="min-w-0 space-y-6">
           {activeSection && (
-            <Card key={activeSection.section.id} className="lf-gradient-ring shadow-lf-card">
-              <CardHeader>
-                <CardDescription>{activeSection.setTitle}</CardDescription>
-                <h2
-                  ref={headingRef}
-                  tabIndex={-1}
-                  className="text-xl font-semibold tracking-tight text-lf-text outline-none"
-                >
-                  {activeSection.section.title}
-                </h2>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {activeSection.section.questions.map((question) => (
-                  <QuestionField
-                    key={question.key}
-                    question={question}
-                    value={answers[question.key] ?? null}
-                    onChange={(value) => handleAnswerChange(question.key, value)}
-                    persons={persons}
-                  />
-                ))}
-                <div className="flex items-center justify-between border-t border-lf-border pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => goToSection(activeIndex - 1)}
-                    disabled={activeIndex === 0}
+            <div
+              key={activeSection.section.id}
+              ref={cardTopRef}
+              className="scroll-mt-[8.5rem] lg:scroll-mt-28"
+            >
+              <Card className="lf-gradient-ring shadow-lf-card">
+                <CardHeader>
+                  <CardDescription>{activeSection.setTitle}</CardDescription>
+                  <h2
+                    ref={headingRef}
+                    tabIndex={-1}
+                    // Fallback scroll offset for the focus() call in
+                    // goToSection, if a browser ignores preventScroll:
+                    // ≈ the card wrapper's scroll-mt plus the heading's
+                    // offset inside the card (border + CardHeader
+                    // padding + description), so both scroll paths
+                    // land the card in the same place.
+                    className="scroll-mt-[11.5rem] text-xl font-semibold tracking-tight text-lf-text outline-none lg:scroll-mt-40"
                   >
-                    <ArrowLeft className="size-4" aria-hidden="true" />
-                    Previous
-                  </Button>
-                  <span className="text-xs text-lf-text-subtle" aria-hidden="true">
-                    Section {activeIndex + 1} of {sections.length}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => goToSection(activeIndex + 1)}
-                    disabled={activeIndex === sections.length - 1}
-                  >
-                    Next
-                    <ArrowRight className="size-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                    {activeSection.section.title}
+                  </h2>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {activeSection.section.questions.map((question) => (
+                    <QuestionField
+                      key={question.key}
+                      question={question}
+                      value={answers[question.key] ?? null}
+                      onChange={(value) => handleAnswerChange(question.key, value)}
+                      persons={persons}
+                    />
+                  ))}
+                  <div className="flex items-center justify-between border-t border-lf-border pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => goToSection(activeIndex - 1)}
+                      disabled={activeIndex === 0}
+                    >
+                      <ArrowLeft className="size-4" aria-hidden="true" />
+                      Previous
+                    </Button>
+                    <span className="text-xs text-lf-text-subtle" aria-hidden="true">
+                      Section {activeIndex + 1} of {sections.length}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => goToSection(activeIndex + 1)}
+                      disabled={activeIndex === sections.length - 1}
+                    >
+                      Next
+                      <ArrowRight className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           <Card>
