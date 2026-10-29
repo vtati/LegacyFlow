@@ -15,6 +15,12 @@ class ProfileRepository:
     connection handshake on a hot single-row lookup and bypassing the
     pooled infrastructure every other domain uses. The repository
     boundary (services never touch SQL) is unchanged.
+
+    Caller requirement: the connection MUST yield dict rows
+    (``row_factory=dict_row``), as the core pool's connections do —
+    :meth:`get_profile` returns ``fetchone()`` verbatim and its result
+    is consumed as a mapping, so a tuple-row connection would break
+    callers.
     """
 
     def get_profile(self, conn: Any, user_id: UUID) -> dict[str, Any] | None:
