@@ -20,7 +20,7 @@ function toLogin(request: NextRequest, error?: string): NextResponse {
 }
 
 /**
- * Protects /family/*, /firm/* and /admin/*. Works with both auth adapters:
+ * Protects /family/*, /firm/*, /admin/* and /attorney/*. Works with both auth adapters:
  * mock mode checks the lf_mock_session cookie; real mode validates the
  * Supabase session (and refreshes it).
  */
@@ -80,5 +80,5 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ['/family/:path*', '/firm/:path*', '/admin/:path*'],
+  matcher: ['/family/:path*', '/firm/:path*', '/admin/:path*', '/attorney/:path*'],
 };

@@ -8,6 +8,18 @@
  */
 import { describe, expect, it } from 'vitest';
 import { mockAuthDecision, parseMockSessionCookie } from '../lib/auth/mock-session';
+import { config } from '../middleware';
+
+describe('middleware matcher (SEC-001 residual)', () => {
+  it('covers every authenticated section, including /attorney', () => {
+    // app/(app)/attorney/* sits under the authenticated layout; without
+    // a matcher entry the middleware never ran for those routes.
+    expect(config.matcher).toContain('/attorney/:path*');
+    expect(config.matcher).toContain('/family/:path*');
+    expect(config.matcher).toContain('/firm/:path*');
+    expect(config.matcher).toContain('/admin/:path*');
+  });
+});
 
 const NOW = new Date('2026-10-29T12:00:00Z').getTime();
 
