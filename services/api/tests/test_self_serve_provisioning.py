@@ -495,6 +495,54 @@ def test_find_or_create_heals_self_serve_household_without_member_row(db):
     assert row["n"] == 1
 
 
+def test_find_or_create_heals_wrong_role_member_row(db):
+    # L-1 correction branch: the caller's member row in their own
+    # self-serve household pre-exists in a WRONG role/status
+    # (collaborator + invited). The fast-path SELECT misses it (it joins
+    # on primary_client + active), the household insert conflicts, and
+    # _ensure_self_serve_member must CORRECT the row in place to
+    # primary_client + active — not insert a duplicate, not strand the
+    # caller. Neutering the UPDATE branch must make this test fail.
+    from uuid import UUID as _UUID
+
+    from app.domains.household import repository as household_repo
+
+    firm_id = setup_default_firm(db)
+    household_id = str(uuid4())
+    _exec(
+        db,
+        "INSERT INTO households (id, firm_id, display_name, created_by_user_id, origin)"
+        " VALUES (%s, %s, %s, %s, 'self_serve')",
+        (household_id, firm_id, "Wrong-Role Household", FIRMLESS),
+    )
+    _exec(
+        db,
+        "INSERT INTO household_members (household_id, user_id, relationship_role, access_status)"
+        " VALUES (%s, %s, 'collaborator', 'invited')",
+        (household_id, FIRMLESS),
+    )
+
+    result = household_repo.find_or_create_self_serve_household(
+        db, user_id=_UUID(FIRMLESS), firm_id=_UUID(firm_id), display_name="Wrong-Role Household"
+    )
+    db.commit()
+    assert str(result["id"]) == household_id
+    member = _one(
+        db,
+        "SELECT * FROM household_members WHERE household_id = %s AND user_id = %s",
+        (household_id, FIRMLESS),
+    )
+    assert member is not None
+    assert member["relationship_role"] == "primary_client"
+    assert member["access_status"] == "active"
+    row = _one(
+        db,
+        "SELECT count(*) AS n FROM household_members WHERE household_id = %s AND user_id = %s",
+        (household_id, FIRMLESS),
+    )
+    assert row["n"] == 1
+
+
 def test_find_or_create_concurrent_calls_return_one_household(db, pg_uri):
     # FUNC-020: the double-submit / two-tabs race, interleaved
     # deterministically — connection A provisions a household and holds
