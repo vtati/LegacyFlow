@@ -608,10 +608,14 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const done = session.status === 'completed' || session.status === 'abandoned';
   // Phase 4 (P4): parked items are neither missing nor answered — the
   // "still needed" count and the checklist show them distinctly.
-  const requiredMissing = session.checklist.filter(
-    (c) => c.required && !c.answered && !c.parked,
-  );
-  const parkedRequired = session.checklist.filter((c) => c.required && c.parked);
+  // UI-015: derive both counts from the session's applicable-only key
+  // lists, NOT from the raw checklist — the checklist is built from all
+  // declared pack questions (including ones pruned for this family), so
+  // at true completion it still held an unanswered "required" item and
+  // the panel contradicted its own 100% bar. The checklist remains the
+  // display source for answered/parked items below.
+  const missingCount = session.missing_required_keys.length;
+  const parkedCount = session.parked_required_keys.length;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 px-4 lg:px-0">
@@ -848,16 +852,16 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
             <CardContent className="space-y-2">
               <ProgressBar value={session.completeness_pct} label="Interview completeness" />
               <p className="text-xs text-lf-text-muted">
-                {requiredMissing.length > 0
-                  ? `${requiredMissing.length} required item${requiredMissing.length === 1 ? '' : 's'} still needed.`
-                  : parkedRequired.length > 0
+                {missingCount > 0
+                  ? `${missingCount} required item${missingCount === 1 ? '' : 's'} still needed.`
+                  : parkedCount > 0
                     ? 'Everything else is collected — just the saved-for-later items below still need your answers.'
                     : 'All required items are collected.'}
               </p>
-              {parkedRequired.length > 0 && (
+              {parkedCount > 0 && (
                 <p className="text-xs text-lf-text-muted">
-                  {parkedRequired.length} item{parkedRequired.length === 1 ? '' : 's'} saved for
-                  later — you will finish {parkedRequired.length === 1 ? 'it' : 'them'} before your
+                  {parkedCount} item{parkedCount === 1 ? '' : 's'} saved for
+                  later — you will finish {parkedCount === 1 ? 'it' : 'them'} before your
                   documents are prepared.
                 </p>
               )}
