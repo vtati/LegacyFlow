@@ -1010,3 +1010,72 @@ def test_pack_import_zip_bundle(client: TestClient) -> None:
     assert resp.status_code == 201, resp.text
     assert resp.json()["version"] == "3.0.0"
     assert resp.json()["jurisdiction_code"] == "US-XY"
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: SEC-012 — clarification responses require WRITE scope
+# ---------------------------------------------------------------------------
+
+
+def test_respond_clarification_requires_write_scope(client: TestClient) -> None:
+    matter_id = make_matter(status="ATTORNEY_REVIEW")
+    created = client.post(
+        f"/v1/matters/{matter_id}/clarifications",
+        json={"question": "Who is the backup guardian?"},
+        headers=_headers(ATTORNEY_SUB),
+    )
+    assert created.status_code == 201, created.text
+    clarification_id = created.json()["id"]
+
+    # A trusted_contact household member (read-only role), created ad hoc.
+    trusted_sub = str(uuid.uuid4())
+    _db_exec("INSERT INTO auth.users (id) VALUES (%s)", (trusted_sub,))
+    _db_exec(
+        "INSERT INTO profiles (id, display_name, email) VALUES (%s, %s, %s)",
+        (trusted_sub, "Synthetic Trusted", "synthetic-trusted@example.com"),
+    )
+    _db_exec(
+        "INSERT INTO household_members (household_id, user_id, relationship_role, access_status)"
+        " VALUES (%s, %s, 'trusted_contact', 'active')",
+        (str(HOUSEHOLD_ID), trusted_sub),
+    )
+
+    # Read-only household roles cannot answer: answering is a
+    # state-changing write (SEC-012).
+    for sub in (DEPENDENT_SUB, trusted_sub):
+        resp = client.post(
+            f"/v1/clarifications/{clarification_id}/respond",
+            json={"response": "I should not be able to answer."},
+            headers=_headers(sub),
+        )
+        assert resp.status_code == 403, resp.text
+
+    # The matter is untouched by the rejected answers.
+    matter = client.get(f"/v1/matters/{matter_id}", headers=_headers(ATTORNEY_SUB))
+    assert matter.json()["matter"]["status"] == "CLARIFICATION_REQUESTED"
+
+    # A collaborator (household writer) can answer, and the matter
+    # transitions back to ATTORNEY_REVIEW.
+    answered = client.post(
+        f"/v1/clarifications/{clarification_id}/respond",
+        json={"response": "My sister, Synthetic Guardian."},
+        headers=_headers(COLLAB_SUB),
+    )
+    assert answered.status_code == 200, answered.text
+    assert answered.json()["status"] == "answered"
+    matter = client.get(f"/v1/matters/{matter_id}", headers=_headers(ATTORNEY_SUB))
+    assert matter.json()["matter"]["status"] == "ATTORNEY_REVIEW"
+
+    # Firm staff can also answer a fresh clarification.
+    created2 = client.post(
+        f"/v1/matters/{matter_id}/clarifications",
+        json={"question": "And the successor?"},
+        headers=_headers(ATTORNEY_SUB),
+    )
+    assert created2.status_code == 201, created2.text
+    answered2 = client.post(
+        f"/v1/clarifications/{created2.json()['id']}/respond",
+        json={"response": "Confirmed with the family."},
+        headers=_headers(STAFF_SUB),
+    )
+    assert answered2.status_code == 200, answered2.text

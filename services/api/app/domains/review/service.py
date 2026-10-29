@@ -302,7 +302,14 @@ def get_packet(
 
 
 def create_comment(conn: Any, *, actor_sub: str, matter_id: UUID, body: str) -> CommentOut:
-    """Post a matter comment (firm staff or any active household member)."""
+    """Post a matter comment (firm staff or any active household member).
+
+    Deliberate distinction (SEC-012): comments use READ scope because a
+    comment is a non-state-changing annotation — it never moves the
+    matter. Clarification RESPONSES, by contrast, transition the matter
+    back to ATTORNEY_REVIEW and therefore require WRITE scope (see
+    :func:`respond_clarification`).
+    """
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
     matter = scope.matter
@@ -425,7 +432,11 @@ def respond_clarification(
     if str(row["status"]) != "open":
         raise ConflictError("This clarification has already been answered.")
     matter_id = UUID(str(row["matter_id"]))
-    scope = matters_service.require_matter_read_scope(conn, matter_id, actor_id)
+    # SEC-012: answering a clarification is a state-changing WRITE (it
+    # moves the matter CLARIFICATION_REQUESTED -> ATTORNEY_REVIEW), so
+    # it requires write scope — read-only household roles (dependent /
+    # trusted_contact) get 403, not read scope.
+    scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
     matter = scope.matter
     firm_id = UUID(str(matter["firm_id"]))
     from_status = str(matter["status"])
