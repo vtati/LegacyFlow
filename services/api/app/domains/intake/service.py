@@ -596,6 +596,80 @@ def _resolve_testator_person_id(
     return None
 
 
+#: Keys whose change can alter the spouse reconcile's outcome; a
+#: save touching none of them may take the PERF-018 cheap path.
+_SPOUSE_RELEVANT_KEYS = frozenset(
+    {"marital_status", "spouse_full_name", "testator_full_name"}
+)
+
+
+def _spouse_graph_already_synced(
+    conn: Any,
+    *,
+    household_id: UUID,
+    stored: dict[str, Any],
+    desired_type: str,
+) -> bool:
+    """PERF-018 watermark check (ONE query): True when the household's
+    spouse/partner graph already exactly matches the stored answers,
+    so the full reconcile would be a no-op.
+
+    Matches only the unambiguous state: the recorded spouse value is
+    a name (not an ID), the recorded testator name is present, each
+    name resolves to exactly one household person, and the ONLY
+    spouse/partner row involving either person is a single row of the
+    desired type joining exactly those two people. Anything else
+    returns False and the full reconcile runs — the cheap path can
+    only ever skip work that provably changes nothing.
+    """
+    spouse_raw = stored.get("spouse_full_name")
+    testator_raw = stored.get("testator_full_name")
+    if not isinstance(spouse_raw, str) or not isinstance(testator_raw, str):
+        return False
+    spouse_name = spouse_raw.strip().lower()
+    testator_name = testator_raw.strip().lower()
+    if not spouse_name or not testator_name or spouse_name == testator_name:
+        return False
+    if _UUID_SHAPED.fullmatch(spouse_raw.strip()):
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT r.relationship_type AS relationship_type,
+                   lower(btrim(pf.full_name)) AS from_name,
+                   lower(btrim(pt.full_name)) AS to_name,
+                   (SELECT COUNT(*) FROM persons px
+                     WHERE px.household_id = r.household_id
+                       AND lower(btrim(px.full_name)) = %s) AS testator_name_count,
+                   (SELECT COUNT(*) FROM persons py
+                     WHERE py.household_id = r.household_id
+                       AND lower(btrim(py.full_name)) = %s) AS spouse_name_count
+              FROM relationships r
+              JOIN persons pf ON pf.id = r.from_person_id
+              JOIN persons pt ON pt.id = r.to_person_id
+             WHERE r.household_id = %s
+               AND lower(r.relationship_type) IN ('spouse', 'partner')
+            """,
+            (testator_name, spouse_name, str(household_id)),
+        )
+        rows = cur.fetchall()
+    involved = [
+        row
+        for row in rows
+        if testator_name in (row["from_name"], row["to_name"])
+        or spouse_name in (row["from_name"], row["to_name"])
+    ]
+    if len(involved) != 1:
+        return False
+    row = involved[0]
+    if int(row["testator_name_count"]) != 1 or int(row["spouse_name_count"]) != 1:
+        return False
+    return (
+        str(row["relationship_type"]).strip().lower() == desired_type
+        and {row["from_name"], row["to_name"]} == {testator_name, spouse_name}
+    )
+
+
 def _sync_spouse_relationship(
     conn: Any,
     *,
@@ -604,6 +678,7 @@ def _sync_spouse_relationship(
     firm_id: UUID,
     actor_id: UUID,
     capture_enabled: bool,
+    spouse_keys_touched: bool = True,
 ) -> None:
     """Reconcile the testator's spouse/partner relationships row with
     the stored answers (capture fix, 2026-10-27).
@@ -667,6 +742,7 @@ def _sync_spouse_relationship(
                 household_id=household_id,
                 firm_id=firm_id,
                 actor_id=actor_id,
+                allow_early_exit=not spouse_keys_touched,
             )
         except Exception:
             with conn.cursor() as cur:
@@ -686,6 +762,7 @@ def _reconcile_spouse_relationship(
     household_id: UUID,
     firm_id: UUID,
     actor_id: UUID,
+    allow_early_exit: bool = False,
 ) -> None:
     """The spouse-sync reconciliation itself; runs inside the
     caller's SAVEPOINT (see _sync_spouse_relationship)."""
@@ -708,6 +785,17 @@ def _reconcile_spouse_relationship(
         raw_name = stored.get("spouse_full_name")
         if not isinstance(raw_name, str) or not raw_name.strip():
             return  # status says married/partnered; name not captured yet
+        if allow_early_exit and _spouse_graph_already_synced(
+            conn,
+            household_id=household_id,
+            stored=stored,
+            desired_type=desired_type,
+        ):
+            # PERF-018: this save touched no spouse-relevant key and
+            # the graph already matches the stored answers — the full
+            # walk below would read the whole household graph just to
+            # change nothing.
+            return
         text = raw_name.strip()
         person = _person_for_id_value(conn, household_id, text)
         if person is None:
@@ -731,6 +819,14 @@ def _reconcile_spouse_relationship(
         desired_person_id = str(person["id"])
     testator_id = _resolve_testator_person_id(conn, household_id, stored)
     if testator_id is None:
+        # Never silent (error-handling review): without a testator
+        # anchor the reconcile can neither create nor correct the
+        # spouse row, and the Will's spouse slot will render blank.
+        logger.warning(
+            "Spouse sync: no testator person could be resolved; "
+            "spouse relationship reconcile skipped (household %s)",
+            household_id,
+        )
         return
     if desired_person_id is not None and desired_person_id == testator_id:
         logger.warning(
@@ -1059,6 +1155,9 @@ def save_answers(
         firm_id=UUID(str(scope.matter["firm_id"])),
         actor_id=actor_id,
         capture_enabled="spouse_full_name" in known_keys,
+        # PERF-018: only saves touching a spouse-relevant key need the
+        # full reconcile; others take the watermark early-exit.
+        spouse_keys_touched=bool(set(answers) & _SPOUSE_RELEVANT_KEYS),
     )
     _sync_assets_from_answers(
         conn,

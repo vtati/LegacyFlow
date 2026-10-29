@@ -664,3 +664,76 @@ def test_widowed_status_removes_relationship(db):
     save(db, matter_id, MARRIED_ANSWERS)
     save(db, matter_id, {"marital_status": "widowed"})
     assert spouse_rows(db, household_id) == []
+
+
+# ---------------------------------------------------------------------------
+# PERF-018: saves that touch no spouse-relevant key must not re-run the
+# full household-graph reconcile when the graph already matches the
+# stored answers (cheap watermark check instead of the ~8-12 query
+# walk), and an unresolvable testator must log a warning, not vanish.
+# ---------------------------------------------------------------------------
+
+
+def test_unrelated_save_skips_full_reconcile(db, monkeypatch):
+    household_id, matter_id = build_world(db)
+    save(db, matter_id, MARRIED_ANSWERS)
+    rows_before = spouse_rows(db, household_id)
+    assert len(rows_before) == 1
+
+    from app.domains.household import repository as household_repo
+
+    original = household_repo.list_persons_for_household
+    calls = {"n": 0}
+
+    def counting(conn, hid):
+        calls["n"] += 1
+        return original(conn, hid)
+
+    monkeypatch.setattr(
+        household_repo, "list_persons_for_household", counting
+    )
+    # An unrelated autosave (the wizard saves constantly): the spouse
+    # reconcile must take the cheap path — the full graph walk reads
+    # the persons list repeatedly, the watermark check never does.
+    save(db, matter_id, {"primary_residence_state": "Virginia"})
+    assert calls["n"] == 0, (
+        "unrelated save ran the full spouse reconcile "
+        f"(list_persons called {calls['n']}x)"
+    )
+    rows_after = spouse_rows(db, household_id)
+    assert [str(r["id"]) for r in rows_after] == [str(rows_before[0]["id"])]
+
+    # And the early exit must not wedge the sync: a spouse-touching
+    # save still re-points the row.
+    monkeypatch.setattr(
+        household_repo, "list_persons_for_household", original
+    )
+    save(db, matter_id, {"spouse_full_name": SPOUSE_RENAMED})
+    rows = spouse_rows(db, household_id)
+    assert len(rows) == 1
+    renamed = person_by_name(db, household_id, SPOUSE_RENAMED)
+    assert renamed is not None
+    assert str(rows[0]["to_person_id"]) == str(renamed["id"])
+
+
+def test_unresolvable_testator_logs_warning(db, caplog):
+    import logging
+
+    household_id, matter_id = build_world(db)
+    # An adult person exists (so the testator-name sync does not
+    # create one), but the recorded testator name matches nobody:
+    # the renderer-anchoring chain resolves no testator, and the
+    # reconcile must say so at WARNING with the household id instead
+    # of returning silently.
+    insert_person(db, household_id, TESTATOR)
+    answers = dict(MARRIED_ANSWERS, testator_full_name="Rohan Sharma")
+    with caplog.at_level(logging.WARNING, logger="app.domains.intake.service"):
+        save(db, matter_id, answers)
+    assert spouse_rows(db, household_id) == []
+    warnings = [
+        r for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "testator" in r.getMessage().lower() and household_id in r.getMessage()
+        for r in warnings
+    ), [r.getMessage() for r in warnings]
