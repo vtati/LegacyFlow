@@ -1,9 +1,12 @@
 """Slice 2 Track C tests: guided intake, decisions, escalation, submission.
 
 Runs against a local pgserver instance (never ``DATABASE_URL`` or live
-Supabase). Applies the Slice-1 migration plus the Slice-2 migration when
-its file exists, otherwise a fallback DDL block that mirrors the
-migration contract (Track A lands the real file in parallel).
+Supabase). Applies the FULL migration chain (every file in
+``supabase/migrations``, sorted) — the post-F1 sibling pattern. The
+Slice-1+Slice-2 subset this file originally applied predates the
+assets table (Slice 3), and the submit flow now materializes assets
+from intake answers, so the subset schema 500'd every submit test
+with ``relation "assets" does not exist`` (Phase-3 final sweep).
 
 The app under test is ``create_app()`` plus the four Track C routers
 mounted under ``/v1`` — exactly the wiring the coordinator will add to
@@ -28,58 +31,34 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent
-SLICE1_MIGRATION = REPO_ROOT / "supabase" / "migrations" / "20260926220000_foundation_slice1.sql"
-SLICE2_MIGRATION = (
-    REPO_ROOT / "supabase" / "migrations" / "20260927010000_household_intake_slice2.sql"
+from tests.conftest import (
+    STORAGE_BUCKETS_STUB,
+    TEST_AUDIENCE,
+    TEST_ISSUER,
+    TEST_SECRET,
+    mint_token,
 )
 
-# Fallback DDL used when the Slice-2 migration file is absent (Track A
-# writes it in parallel). Mirrors the contract this track builds against:
-# new columns on matters + intake_answers / planning_decisions / escalations.
-SLICE2_FALLBACK_DDL = """
-ALTER TABLE matters ADD COLUMN IF NOT EXISTS title text;
-ALTER TABLE matters ADD COLUMN IF NOT EXISTS jurisdiction_snapshot jsonb;
-ALTER TABLE matters ADD COLUMN IF NOT EXISTS completeness_pct numeric;
-ALTER TABLE matters ADD COLUMN IF NOT EXISTS current_step text;
-ALTER TABLE matters ADD COLUMN IF NOT EXISTS submitted_at timestamptz;
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+MIGRATIONS_DIR = REPO_ROOT / "supabase" / "migrations"
 
-CREATE TABLE IF NOT EXISTS intake_answers (
-  matter_id uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
-  question_key text NOT NULL,
-  answer jsonb,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (matter_id, question_key)
+# Canonical auth stub (F1 sweep): email + raw_user_meta_data /
+# raw_app_meta_data mirror the real auth.users shape — the
+# handle_new_user trigger migration (20261001130000) reads them.
+# STORAGE_BUCKETS_STUB (tests.conftest) covers the storage-buckets
+# migration's INSERT into storage.buckets on bare pgserver.
+AUTH_STUB = (
+    """
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
 );
-CREATE INDEX IF NOT EXISTS idx_intake_answers_matter_id ON intake_answers (matter_id);
-
-CREATE TABLE IF NOT EXISTS planning_decisions (
-  matter_id uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
-  decision_key text NOT NULL,
-  value jsonb,
-  decided_by uuid REFERENCES profiles(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (matter_id, decision_key)
-);
-CREATE INDEX IF NOT EXISTS idx_planning_decisions_matter_id ON planning_decisions (matter_id);
-
-CREATE TABLE IF NOT EXISTS escalations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  matter_id uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
-  rule_id text NOT NULL,
-  severity text NOT NULL CHECK (severity IN ('info', 'review', 'blocking')),
-  outcome text NOT NULL,
-  facts_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_escalations_matter_id ON escalations (matter_id);
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
 """
+    + STORAGE_BUCKETS_STUB
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic identities (module scope; uuid4 = synthetic by construction)
@@ -142,17 +121,9 @@ def _apply_schema(dsn: str) -> None:
 
     with psycopg.connect(dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS auth")
-            cur.execute("CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY)")
-            cur.execute(
-                "CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid"
-                " LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$"
-            )
-            cur.execute(SLICE1_MIGRATION.read_text())
-            if SLICE2_MIGRATION.exists():
-                cur.execute(SLICE2_MIGRATION.read_text())
-            else:
-                cur.execute(SLICE2_FALLBACK_DDL)
+            cur.execute(AUTH_STUB)
+            for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                cur.execute(migration.read_text())
 
 
 def _seed_core() -> None:
@@ -171,9 +142,18 @@ def _seed_core() -> None:
                 OUTSIDER_SUB,
             ]
             for sub in subs:
-                cur.execute("INSERT INTO auth.users (id) VALUES (%s)", (sub,))
                 cur.execute(
-                    "INSERT INTO profiles (id, display_name) VALUES (%s, %s)",
+                    "INSERT INTO auth.users (id, email) VALUES (%s, %s)",
+                    (sub, f"synthetic-{sub[:8]}@example.test"),
+                )
+                # The handle_new_user trigger already created the
+                # profile row on the auth.users insert; upsert the
+                # synthetic display name onto it (canonical seed
+                # pattern, cf. test_slice2_access.create_user).
+                cur.execute(
+                    "INSERT INTO profiles (id, display_name) VALUES (%s, %s)"
+                    " ON CONFLICT (id) DO UPDATE"
+                    " SET display_name = EXCLUDED.display_name",
                     (sub, f"Synthetic User {sub[:8]}"),
                 )
             cur.execute(
@@ -235,7 +215,7 @@ def _seed_core() -> None:
 
 @pytest.fixture(scope="module")
 def pg_dsn() -> Iterator[str]:
-    """Throwaway pgserver instance with Slice-1 (+Slice-2) schema applied."""
+    """Throwaway pgserver instance with the full migration chain applied."""
     try:
         import pgserver
     except ImportError:
