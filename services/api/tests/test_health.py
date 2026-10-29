@@ -3,13 +3,38 @@
 from fastapi.testclient import TestClient
 
 
-def test_healthz_returns_ok(client: TestClient) -> None:
+def test_healthz_returns_ok(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # SEC-006: public body is exactly {"status": "ok"}; mock the DB check
+    # so the ok path is deterministic without a live database.
+    import contextlib
+
+    class _Cursor:
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *exc):  # type: ignore[no-untyped-def]
+            return False
+
+        def execute(self, *args):  # type: ignore[no-untyped-def]
+            return None
+
+        def fetchone(self):  # type: ignore[no-untyped-def]
+            return (1,)
+
+    class _Conn:
+        def cursor(self):  # type: ignore[no-untyped-def]
+            return _Cursor()
+
+    @contextlib.contextmanager
+    def _fake_transaction():  # type: ignore[no-untyped-def]
+        yield _Conn()
+
+    from app.core import db as db_module
+
+    monkeypatch.setattr(db_module, "transaction", _fake_transaction)
     response = client.get("/healthz")
     assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
-    assert body["service"] == "legacyflow-api"
-    assert body["version"] == "0.1.0"
+    assert response.json() == {"status": "ok"}
     assert "X-Request-ID" in response.headers
 
 

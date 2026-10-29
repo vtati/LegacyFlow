@@ -77,16 +77,23 @@ def _init_sentry() -> None:
         logging.getLogger(__name__).warning("Sentry init failed; continuing without it: %s", exc)
 
 
+def _is_production(settings: Any) -> bool:
+    return settings.API_ENV == "production" or settings.ENVIRONMENT == "production"
+
+
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     settings = get_settings()
     configure_logging(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
     _init_sentry()
+    # SEC-004: interactive docs / OpenAPI schema are disabled in production.
+    production = _is_production(settings)
     application = FastAPI(
         title="LegacyFlow API",
         version=SERVICE_VERSION,
-        docs_url="/docs",
-        openapi_url="/openapi.json",
+        docs_url=None if production else "/docs",
+        openapi_url=None if production else "/openapi.json",
+        redoc_url=None if production else "/redoc",
     )
 
     @application.middleware("http")
@@ -179,40 +186,37 @@ def create_app() -> FastAPI:
         """
         from app.core import db as db_module
 
-        db_status = "ok"
         try:
             with db_module.transaction() as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.fetchone()
         except Exception as exc:  # noqa: BLE001 — health must never raise
-            db_status = f"unreachable: {type(exc).__name__}"
+            # SEC-006: detail (service/version/env/db error) stays in
+            # server logs only; the public body is just the status.
+            logging.getLogger(__name__).warning(
+                "healthz db check failed: service=legacyflow-api version=%s "
+                "env=%s db=unreachable: %s",
+                SERVICE_VERSION,
+                settings.API_ENV,
+                type(exc).__name__,
+            )
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={
-                    "status": "degraded",
-                    "service": "legacyflow-api",
-                    "version": SERVICE_VERSION,
-                    "env": settings.API_ENV,
-                    "db": db_status,
-                },
+                content={"status": "degraded"},
             )
-        return {
-            "status": "ok",
-            "service": "legacyflow-api",
-            "version": SERVICE_VERSION,
-            "env": settings.API_ENV,
-            "db": db_status,
-        }
+        return {"status": "ok"}
 
     @application.get("/", tags=["ops"])
     def root() -> dict[str, str]:
-        return {
+        body: dict[str, str] = {
             "service": "legacyflow-api",
             "version": SERVICE_VERSION,
-            "docs": "/docs",
             "health": "/healthz",
         }
+        if not production:
+            body["docs"] = "/docs"
+        return body
 
     return application
 
