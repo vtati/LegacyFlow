@@ -81,8 +81,14 @@ def insert_file_upload(
     size_bytes: int,
     scan_status: str = "clean",
     scan_detail: str | None = None,
+    sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Insert a file_uploads row; return it."""
+    """Insert a file_uploads row; return it.
+
+    ``sha256`` is the hex digest of the stored bytes, computed by the
+    caller from the bytes already in hand (PERF-003) — never re-derived
+    by downloading the file back.
+    """
     row = _insert(
         conn,
         "file_uploads",
@@ -97,10 +103,21 @@ def insert_file_upload(
             "size_bytes": size_bytes,
             "scan_status": scan_status,
             "scan_detail": scan_detail,
+            "sha256": sha256,
         },
     )
     assert row is not None
     return row
+
+
+#: Columns of file_uploads this domain's callers actually use. The
+#: extracted_text blob (~20KB) and the vault-analysis columns are
+#: deliberately excluded (PERF-009); the files domain owns those reads.
+FILE_UPLOAD_COLUMNS = (
+    "id, firm_id, household_id, matter_id, uploader_user_id,"
+    " original_filename, stored_path, mime_type, size_bytes,"
+    " scan_status, scan_detail, sha256, created_at, updated_at"
+)
 
 
 def get_file_upload(conn: Any, upload_id: UUID) -> dict[str, Any] | None:
@@ -109,6 +126,25 @@ def get_file_upload(conn: Any, upload_id: UUID) -> dict[str, Any] | None:
         cur.execute("SELECT * FROM file_uploads WHERE id = %s", (str(upload_id),))
         row = cur.fetchone()
     return dict(row) if row else None
+
+
+def get_file_uploads_by_ids(
+    conn: Any, upload_ids: list[UUID]
+) -> dict[UUID, dict[str, Any]]:
+    """Batch-fetch file_uploads rows by id in ONE query (PERF-003).
+
+    Returns ``{upload_id: row}`` for the ids that exist. Uses the
+    explicit column list (no extracted_text blob).
+    """
+    if not upload_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {FILE_UPLOAD_COLUMNS} FROM file_uploads WHERE id = ANY(%s)",
+            ([str(upload_id) for upload_id in upload_ids],),
+        )
+        rows = cur.fetchall()
+    return {UUID(str(row["id"])): dict(row) for row in rows}
 
 
 # ---------------------------------------------------------------------------

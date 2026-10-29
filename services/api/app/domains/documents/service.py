@@ -282,23 +282,20 @@ def _checklist_out(row: dict[str, Any]) -> sch.SigningChecklistOut:
     )
 
 
-def _evidence_out(conn: Any, evidence_file_id: Any) -> sch.FundingEvidenceOut | None:
-    """Build evidence metadata from the linked file_upload row (if any)."""
-    if evidence_file_id is None:
-        return None
-    upload = repo.get_file_upload(conn, UUID(str(evidence_file_id)))
+def _evidence_out(upload: dict[str, Any] | None) -> sch.FundingEvidenceOut | None:
+    """Build evidence metadata from a file_upload row (if any).
+
+    PERF-003: the sha256 comes from the digest stored on the row at
+    upload-completion time — this path NEVER downloads the file bytes.
+    Legacy rows with a NULL digest surface ``sha256=None`` (the field
+    is display-only).
+    """
     if upload is None:
         return None
-    from app.domains.files import service as files_service
-
-    try:
-        digest = hashlib.sha256(files_service.download_bytes(str(upload["stored_path"]))).hexdigest()
-    except FileNotFoundError:
-        digest = None
     return sch.FundingEvidenceOut(
         file_name=str(upload["original_filename"]),
         size_bytes=int(upload["size_bytes"]),
-        sha256=digest,
+        sha256=upload.get("sha256"),
     )
 
 
@@ -1675,11 +1672,14 @@ def _insert_version_for_stored(
     size_bytes: int,
     title: str,
     watermark_text: str | None,
+    sha256: str | None = None,
 ) -> dict[str, Any]:
     """Append the file-upload + version rows for already-stored bytes.
 
     DB-only (PERF-020): storage uploads happen in the render phase,
     outside the write transaction; this runs in the short persist phase.
+    ``sha256`` is the digest of the rendered bytes, computed by the
+    render phase from the bytes in hand (PERF-003).
     """
     suffix = "FINAL" if watermark_text is None else "DRAFT"
     scan_detail = (
@@ -1699,6 +1699,7 @@ def _insert_version_for_stored(
         size_bytes=size_bytes,
         scan_status="clean",
         scan_detail=scan_detail,
+        sha256=sha256,
     )
     version_number = repo.next_version_number(conn, package_id)
     return repo.insert_version(
@@ -1734,6 +1735,7 @@ def _create_version(
         size_bytes=len(content),
         title=title,
         watermark_text=watermark_text,
+        sha256=hashlib.sha256(content).hexdigest(),
     )
 
 
@@ -1824,7 +1826,7 @@ def _persist_demo_render(
     *,
     prepared: _PreparedDemoRender,
     actor_id: UUID,
-    stored: list[tuple[Literal["docx", "pdf"], str, int]],
+    stored: list[tuple[Literal["docx", "pdf"], str, int, str]],
 ) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
     """Write phase of a demo render: placeholder escalations, version
     rows for the already-stored files, package status + fingerprint,
@@ -1843,7 +1845,7 @@ def _persist_demo_render(
         unfilled=prepared.unfilled,
     )
     created = []
-    for file_format, stored_path, size_bytes in stored:
+    for file_format, stored_path, size_bytes, digest in stored:
         row = _insert_version_for_stored(
             conn,
             package_id=package_id,
@@ -1854,6 +1856,7 @@ def _persist_demo_render(
             size_bytes=size_bytes,
             title=str(template["name"]),
             watermark_text=DEMO_DISCLAIMER,
+            sha256=digest,
         )
         upload = repo.get_file_upload(conn, UUID(str(row["file_upload_id"])))
         assert upload is not None
@@ -1914,13 +1917,17 @@ def _persist_demo_render(
     return _package_out(package), [_version_out(row) for row in created]
 
 
-def _render_and_store_demo(prepared: _PreparedDemoRender) -> list[tuple[Literal["docx", "pdf"], str, int]]:
+def _render_and_store_demo(
+    prepared: _PreparedDemoRender,
+) -> list[tuple[Literal["docx", "pdf"], str, int, str]]:
     """Render + upload phase: DOCX/PDF bytes and storage uploads.
 
     No database access — safe to run outside any transaction
-    (PERF-020). Returns (format, stored_path, size_bytes) per file.
+    (PERF-020). Returns (format, stored_path, size_bytes, sha256) per
+    file; the digest is computed from the rendered bytes in hand
+    (PERF-003) so it can be stored on the file_uploads row.
     """
-    stored: list[tuple[Literal["docx", "pdf"], str, int]] = []
+    stored: list[tuple[Literal["docx", "pdf"], str, int, str]] = []
     for file_format, content in (
         ("docx", render_demo_docx(prepared.title, prepared.body, DEMO_DISCLAIMER)),
         ("pdf", render_demo_pdf(prepared.title, prepared.body, DEMO_DISCLAIMER)),
@@ -1928,7 +1935,9 @@ def _render_and_store_demo(prepared: _PreparedDemoRender) -> list[tuple[Literal[
         stored_path = _store_file(
             f"package-{prepared.package_id}", file_format, content  # type: ignore[arg-type]
         )
-        stored.append((file_format, stored_path, len(content)))  # type: ignore[arg-type]
+        stored.append(
+            (file_format, stored_path, len(content), hashlib.sha256(content).hexdigest())  # type: ignore[arg-type]
+        )
     return stored
 
 
@@ -2592,17 +2601,33 @@ def generate_funding_tasks(
 
 
 def list_funding_tasks(conn: Any, *, actor_sub: str, matter_id: UUID) -> list[sch.FundingTaskOut]:
-    """List a matter's funding tasks (firm staff or household member)."""
+    """List a matter's funding tasks (firm staff or household member).
+
+    PERF-003: evidence uploads are batch-fetched in ONE ``id = ANY(...)``
+    query and the evidence digest is the one stored on the upload row —
+    this path never downloads file bytes.
+    """
     actor_id = _actor_id(actor_sub)
     scope = authz.get_matter_scope(conn, matter_id, actor_id)
     playbooks = _funding_playbooks_by_id(scope.matter)
+    rows = repo.list_funding_tasks_for_matter(conn, matter_id)
+    evidence_ids = [
+        UUID(str(row["evidence_file_id"]))
+        for row in rows
+        if row.get("evidence_file_id") is not None
+    ]
+    uploads = repo.get_file_uploads_by_ids(conn, evidence_ids)
     return [
         _funding_out(
             row,
-            _evidence_out(conn, row.get("evidence_file_id")),
+            _evidence_out(
+                uploads.get(UUID(str(row["evidence_file_id"])))
+                if row.get("evidence_file_id") is not None
+                else None
+            ),
             playbook=playbooks.get(str(row["task_type"])),
         )
-        for row in repo.list_funding_tasks_for_matter(conn, matter_id)
+        for row in rows
     ]
 
 
@@ -2655,6 +2680,7 @@ def update_funding_task(
             size_bytes=len(content),
             scan_status="clean",
             scan_detail="Household-supplied evidence file.",
+            sha256=uploaded_digest,
         )
         evidence_file_id = UUID(str(upload["id"]))
     elif evidence_file_id is not None:
@@ -2682,9 +2708,14 @@ def update_funding_task(
             "evidence_sha256": uploaded_digest,
         },
     )
+    evidence_upload_row = (
+        repo.get_file_upload(conn, UUID(str(row["evidence_file_id"])))
+        if row.get("evidence_file_id") is not None
+        else None
+    )
     return _funding_out(
         row,
-        _evidence_out(conn, row.get("evidence_file_id")),
+        _evidence_out(evidence_upload_row),
         playbook=playbooks.get(str(row["task_type"])),
     )
 

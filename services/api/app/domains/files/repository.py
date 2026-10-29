@@ -103,19 +103,41 @@ def update_scan_status(
 
 
 def update_extraction(
-    conn: Any, upload_id: UUID, *, extracted_text: str | None, extraction_status: str
+    conn: Any,
+    upload_id: UUID,
+    *,
+    extracted_text: str | None,
+    extraction_status: str,
+    sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Store extracted text and its status; return the updated row."""
+    """Store extracted text and its status; return the updated row.
+
+    ``sha256`` (PERF-003): when given, also persist the hex digest of
+    the uploaded bytes — computed by the caller from the bytes already
+    in hand at completion, so list paths never download to re-derive it.
+    """
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE file_uploads
-            SET extracted_text = %s, extraction_status = %s, updated_at = now()
-            WHERE id = %s
-            RETURNING *
-            """,
-            (extracted_text, extraction_status, str(upload_id)),
-        )
+        if sha256 is not None:
+            cur.execute(
+                """
+                UPDATE file_uploads
+                SET extracted_text = %s, extraction_status = %s, sha256 = %s,
+                    updated_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (extracted_text, extraction_status, sha256, str(upload_id)),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE file_uploads
+                SET extracted_text = %s, extraction_status = %s, updated_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (extracted_text, extraction_status, str(upload_id)),
+            )
         return dict(cur.fetchone())
 
 

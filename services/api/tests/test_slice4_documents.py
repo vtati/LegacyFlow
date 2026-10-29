@@ -1012,3 +1012,43 @@ def test_send_reminders_worker(db):
     # second run is a no-op (already sent)
     result = documents_service.send_reminders(db)
     assert result == {"processed": 0, "queued": 0}
+
+
+# ---------------------------------------------------------------------------
+# Batch C2 regressions (deep-review 2026-10-29)
+# ---------------------------------------------------------------------------
+
+
+def test_funding_task_list_returns_stored_digest(db, api_client):
+    """PERF-003: the evidence digest on the list path comes from the
+    stored file_uploads.sha256 — set when the evidence was uploaded."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    tasks = api_client.post(
+        f"/v1/matters/{matter_id}/funding-tasks/generate", headers=auth(ATTORNEY_A)
+    ).json()
+    task_id = tasks[0]["id"]
+
+    deed_bytes = b"%PDF-1.4 synthetic deed copy for digest"
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        data={"status": "in_progress"},
+        files={"evidence_file": ("deed-copy.pdf", deed_bytes, "application/pdf")},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 200, response.text
+    expected = hashlib.sha256(deed_bytes).hexdigest()
+
+    # the digest is persisted on the upload row at upload time
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT sha256 FROM file_uploads WHERE id = %s",
+            (response.json()["evidence_file_id"],),
+        )
+        assert cur.fetchone()["sha256"] == expected
+
+    # and the list endpoint serves it from storage of the digest itself
+    response = api_client.get(f"/v1/matters/{matter_id}/funding-tasks", headers=auth(CLIENT_A))
+    assert response.status_code == 200, response.text
+    listed = response.json()
+    assert listed[0]["evidence"]["sha256"] == expected

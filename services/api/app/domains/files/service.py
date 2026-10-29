@@ -371,6 +371,9 @@ def complete_upload(
         upload_id,
         extracted_text=extracted,
         extraction_status=extraction_status,
+        # PERF-003: persist the digest of the bytes already in hand so
+        # list paths (funding-task evidence) never download to re-derive it.
+        sha256=hashlib.sha256(content).hexdigest(),
     )
 
     record_audit_event(
