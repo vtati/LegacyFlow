@@ -1371,3 +1371,99 @@ def test_vault_share_service_rejects_naive_and_overlong(db):
             db, actor_sub=ATTORNEY_A, matter_id=matter_id, payload=far_payload
         )
     db.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Batch C3: SEC-011 — funding-task evidence role model + scan pipeline
+# ---------------------------------------------------------------------------
+
+
+def _make_funding_task(db, api_client, matter_id):
+    tasks = api_client.post(
+        f"/v1/matters/{matter_id}/funding-tasks/generate", headers=auth(ATTORNEY_A)
+    ).json()
+    return tasks[0]["id"]
+
+
+def test_funding_task_update_auditor_forbidden(db, api_client):
+    """SEC-011(a): a read-only firm auditor must not write funding tasks."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    task_id = _make_funding_task(db, api_client, matter_id)
+
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        json={"status": "in_progress"},
+        headers=auth(AUDITOR_A),
+    )
+    assert response.status_code == 403, response.text
+
+    # firm staff still can
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        json={"status": "in_progress"},
+        headers=auth(STAFF_A),
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_funding_evidence_pending_scan_and_sniffed_mime(db, api_client):
+    """SEC-011(b/c): evidence enters the scan pipeline as 'pending'
+    (never hardcoded 'clean'), its MIME is derived from magic bytes
+    (not the client's claim), and the PERF-003 digest is recorded."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    task_id = _make_funding_task(db, api_client, matter_id)
+
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"synthetic-png-evidence" * 4
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        data={"status": "in_progress"},
+        # spoofed: PNG bytes claiming to be a PDF
+        files={"evidence_file": ("deed-copy.pdf", png_bytes, "application/pdf")},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 200, response.text
+    evidence_id = response.json()["evidence_file_id"]
+    assert response.json()["evidence"]["sha256"] == hashlib.sha256(png_bytes).hexdigest()
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT scan_status, mime_type, sha256 FROM file_uploads WHERE id = %s",
+            (evidence_id,),
+        )
+        row = cur.fetchone()
+    assert row["scan_status"] == "pending"
+    assert row["mime_type"] == "image/png"
+    assert row["sha256"] == hashlib.sha256(png_bytes).hexdigest()
+
+
+def test_funding_evidence_oversize_rejected(db, api_client):
+    """SEC-011(c): the files-domain 25 MB cap applies to evidence."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    task_id = _make_funding_task(db, api_client, matter_id)
+
+    oversize = b"%PDF" + b"x" * (25 * 1024 * 1024)
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        data={"status": "in_progress"},
+        files={"evidence_file": ("big.pdf", oversize, "application/pdf")},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_funding_evidence_unknown_magic_rejected(db, api_client):
+    """SEC-011(c): bytes the scanner cannot identify fail closed (422)."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    task_id = _make_funding_task(db, api_client, matter_id)
+
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        data={"status": "in_progress"},
+        files={"evidence_file": ("mystery.pdf", b"not-a-real-file-at-all", "application/pdf")},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 422, response.text

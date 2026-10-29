@@ -257,6 +257,21 @@ def _store_file(filename_stem: str, file_format: str, content: bytes) -> str:
     return get_storage_backend().upload(PLAN_DOCUMENTS_BUCKET, key, content, mime_type)
 
 
+def _store_evidence_file(
+    filename_stem: str, suffix: str, mime_type: str, content: bytes
+) -> str:
+    """Write evidence bytes via the storage backend; return the stored path.
+
+    Like :func:`_store_file` but for the wider evidence suffix/MIME set
+    (pdf/docx/png/jpg) that magic-byte sniffing can produce (SEC-011).
+    Stored as ``plan-documents/<stem>-<uuid>.<suffix>``.
+    """
+    from app.domains.files.storage_backend import PLAN_DOCUMENTS_BUCKET, get_storage_backend
+
+    key = f"{filename_stem}-{uuid.uuid4().hex}.{suffix}"
+    return get_storage_backend().upload(PLAN_DOCUMENTS_BUCKET, key, content, mime_type)
+
+
 def _file_format_from_upload(row: dict[str, Any]) -> Literal["docx", "pdf"]:
     """Derive the file format from an upload row's mime/filename."""
     mime = str(row.get("mime_type") or "")
@@ -2829,6 +2844,11 @@ def update_funding_task(
     if task is None:
         raise NotFoundError("Funding task not found.")
     scope = authz.get_matter_scope(conn, UUID(str(task["matter_id"])), actor_id)
+    # SEC-011(a): the firm side must hold a STAFF role — a read-only
+    # auditor may not write funding tasks or attach evidence. The
+    # household side keeps its attestation roles.
+    if scope.via == "firm" and scope.firm_role not in authz.STAFF_ROLES:
+        raise AuthorizationError("Not authorized to update this funding task.")
     if scope.via == "household" and scope.household_role not in HOUSEHOLD_ATTEST_ROLES:
         raise AuthorizationError("Not authorized to update this funding task.")
     if status is not None and status not in ("pending", "in_progress", "completed"):
@@ -2840,12 +2860,27 @@ def update_funding_task(
     uploaded_name: str | None = None
     uploaded_digest: str | None = None
     if evidence_upload is not None:
-        uploaded_name, content, content_type = evidence_upload
+        uploaded_name, content, _claimed_content_type = evidence_upload
+        # SEC-011(b/c): evidence enters the SAME pipeline as files-domain
+        # uploads — the files-domain size cap applies, the MIME type is
+        # DERIVED from magic bytes (the client's claim is never trusted),
+        # unidentifiable bytes fail closed, and the row is created with
+        # scan_status='pending' so the worker scanner's verdict gates
+        # downloads exactly like files-domain files (authorize_download
+        # requires 'clean').
+        from ...domains.files.magic import SUFFIX_BY_MIME, sniff_mime_type
+        from ...domains.files.schemas import MAX_UPLOAD_BYTES
+
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValidationAppError("Evidence file exceeds the 25 MB limit.")
+        sniffed_mime = sniff_mime_type(content)
+        if sniffed_mime is None:
+            raise ValidationAppError(
+                "Evidence file type could not be identified from its contents."
+            )
         uploaded_digest = hashlib.sha256(content).hexdigest()
-        stored_path = _store_file(
-            f"evidence-{task_id}",
-            "pdf" if content_type == PDF_MIME else "docx",
-            content,
+        stored_path = _store_evidence_file(
+            f"evidence-{task_id}", SUFFIX_BY_MIME[sniffed_mime], sniffed_mime, content
         )
         upload = repo.insert_file_upload(
             conn,
@@ -2855,10 +2890,10 @@ def update_funding_task(
             uploader_user_id=actor_id,
             original_filename=uploaded_name,
             stored_path=stored_path,
-            mime_type=content_type,
+            mime_type=sniffed_mime,
             size_bytes=len(content),
-            scan_status="clean",
-            scan_detail="Household-supplied evidence file.",
+            scan_status="pending",
+            scan_detail="Awaiting file scan.",
             sha256=uploaded_digest,
         )
         evidence_file_id = UUID(str(upload["id"]))
