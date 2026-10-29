@@ -19,7 +19,8 @@ const buttonVariants = cva(
       },
       size: {
         default: 'h-10 px-4 py-2',
-        sm: 'h-8 px-3 text-xs',
+        // UI-020: 44px touch target on mobile, compact on desktop.
+        sm: 'h-11 px-3 text-xs sm:h-8',
         lg: 'h-12 px-6 text-base',
         icon: 'size-10',
       },

@@ -903,7 +903,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                       {!done && !item.answered && !item.parked && (
                         <button
                           type="button"
-                          className="ml-auto shrink-0 text-xs text-lf-text-muted underline underline-offset-2 hover:text-lf-text"
+                          className="ml-auto inline-flex min-h-11 shrink-0 items-center px-2 py-2 -my-2 text-xs text-lf-text-muted underline underline-offset-2 hover:text-lf-text"
                           onClick={() => void togglePark(item.question_key, true)}
                         >
                           Don&rsquo;t know yet
@@ -912,7 +912,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                       {!done && item.parked && (
                         <button
                           type="button"
-                          className="ml-auto shrink-0 text-xs text-lf-primary-700 underline underline-offset-2 hover:text-lf-text"
+                          className="ml-auto inline-flex min-h-11 shrink-0 items-center px-2 py-2 -my-2 text-xs text-lf-primary-700 underline underline-offset-2 hover:text-lf-text"
                           onClick={() => void togglePark(item.question_key, false)}
                         >
                           Answer now
