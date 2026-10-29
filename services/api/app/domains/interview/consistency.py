@@ -44,6 +44,15 @@ from app.domains.matters import service as matters_service
 logger = logging.getLogger(__name__)
 
 FLAG_KEY = "ai_interviewer"
+#: Persisted model_id for a provider-failure / unparseable degraded
+#: run (M-2). Distinct from ``deterministic_dev`` — a legitimate
+#: never-configured deterministic run — so the two are
+#: distinguishable in interview_consistency_reviews / ai_traces.
+#: Nothing may claim the real model ran for a degraded run. The one
+#: in-repo switch on the exact ``deterministic_dev`` string (the
+#: ai_trace provider derivation in _persist_consistency_review)
+#: treats this marker the same way, so trace consumers keep working.
+DEGRADED_MODEL_ID = "provider_degraded"
 CONSISTENCY_PROMPT_VERSION = "consistency-v1"
 CONSISTENCY_RULE_PREFIX = "interview_consistency"
 
@@ -249,6 +258,7 @@ def _compute_consistency_findings(
             prepared.matter_id,
         )
         computed.degraded = True
+        computed.model_id = DEGRADED_MODEL_ID
         return computed
     computed.model_id = settings.OPENAI_CONSISTENCY_MODEL
     computed.usage = usage
@@ -332,7 +342,13 @@ def _persist_consistency_review(
         firm_id=firm_id,
         matter_id=matter_id,
         turn_id=None,
-        provider="openai" if model_id != "deterministic_dev" else "deterministic_dev",
+        # Both non-model markers (never-configured deterministic and
+        # provider-degraded) mean no real provider produced this run.
+        provider=(
+            "openai"
+            if model_id not in ("deterministic_dev", DEGRADED_MODEL_ID)
+            else "deterministic_dev"
+        ),
         model_id=model_id,
         model_version=None,
         prompt_template="interview_consistency_review",

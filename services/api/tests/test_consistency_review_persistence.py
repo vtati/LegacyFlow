@@ -288,7 +288,9 @@ def test_provider_failure_persists_degraded_review(db, openai_env, monkeypatch):
     assert reviews[0]["findings_count"] == 0
     assert reviews[0]["facts_considered"] == 4
     assert reviews[0]["model_id"] != "gpt-4o-mini"  # never the configured model
-    assert reviews[0]["model_id"] == "deterministic_dev"
+    # M-2: a provider-failure degraded run must be distinguishable in
+    # the DB from a legitimate never-configured deterministic run.
+    assert reviews[0]["model_id"] == "provider_degraded"
 
 
 def test_unparseable_provider_output_persists_degraded_review(db, openai_env, monkeypatch):
@@ -304,6 +306,36 @@ def test_unparseable_provider_output_persists_degraded_review(db, openai_env, mo
     db.commit()
 
     assert result.degraded is True
+    assert result.findings == []
+    reviews = _all(
+        db,
+        "SELECT model_id FROM interview_consistency_reviews WHERE session_id = %s",
+        (session_id,),
+    )
+    assert len(reviews) == 1
+    assert reviews[0]["model_id"] == "provider_degraded"
+
+
+def test_never_configured_deterministic_run_keeps_deterministic_dev(db, monkeypatch):
+    """M-2 counterpart: when no provider was ever configured (the
+    deterministic default), the persisted marker stays
+    ``deterministic_dev`` and the run is NOT degraded — only
+    provider-failure / unparseable runs wear ``provider_degraded``."""
+    monkeypatch.setenv("AI_LLM_PROVIDER", "deterministic_dev")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        matter_id, session_id = build_world(db)
+        result = consistency.run_consistency_review(
+            db, actor_sub=CLIENT, matter_id=UUID(matter_id), session_id=UUID(session_id)
+        )
+        db.commit()
+    finally:
+        get_settings.cache_clear()
+
+    assert result.degraded is False
     assert result.findings == []
     reviews = _all(
         db,
