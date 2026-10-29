@@ -142,10 +142,21 @@ def _build_snapshot(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
     household_id = UUID(str(matter["household_id"]))
     jurisdiction_snapshot = matter.get("jurisdiction_snapshot") or {}
 
+    # PERF-004: resolve nomination names from the household persons
+    # list this snapshot already fetches — one in-memory map, no
+    # per-nomination query. A nomination whose person is NOT in the
+    # household list keeps the previous behavior: a single direct
+    # lookup (and None when that misses too).
+    person_rows = household_repo.list_persons_for_household(conn, household_id)
+    person_names = {str(row["id"]): str(row["full_name"]) for row in person_rows}
+
     def _nomination_person_name(nomination: dict[str, Any]) -> str | None:
         person_id = nomination.get("person_id")
         if person_id is None:
             return None
+        name = person_names.get(str(person_id))
+        if name is not None:
+            return name
         person = nominations_repo.get_person(conn, UUID(str(person_id)))
         return str(person["full_name"]) if person else None
 
@@ -172,7 +183,7 @@ def _build_snapshot(conn: Any, matter: dict[str, Any]) -> dict[str, Any]:
                 "full_name": str(row["full_name"]),
                 "kind": row.get("kind"),
             }
-            for row in household_repo.list_persons_for_household(conn, household_id)
+            for row in person_rows
         ],
         "relationships": [
             {
