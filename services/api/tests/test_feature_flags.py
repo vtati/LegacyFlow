@@ -654,7 +654,7 @@ def test_pack_transition_ordering_enforced(db, api_client, monkeypatch):
     assert _transition(api_client, pack_uuid, ADMIN_A, "approved").status_code == 409
 
 
-def test_pack_approval_requires_attorney_or_admin(db, api_client, monkeypatch):
+def test_pack_approval_requires_platform_admin(db, api_client, monkeypatch):
     # SEC-009 superseded this test's original contract: approval is no
     # longer granted by firm roles at all (attorney / firm_admin) —
     # pack transitions, including the approved step, are platform-admin
