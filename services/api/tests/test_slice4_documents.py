@@ -1043,6 +1043,19 @@ def test_generate_demo_on_released_package_is_409(db, api_client):
         assert cur.fetchone()["n"] == 0
 
 
+def test_funding_tasks_unique_index_present(db):
+    """FUNC-013: the (matter_id, asset_id, task_type) uniqueness guard
+    exists in the schema the migrations build."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes"
+            " WHERE tablename = 'funding_tasks' AND indexname = 'uq_funding_tasks_matter_asset_type'"
+        )
+        row = cur.fetchone()
+    assert row is not None, "funding_tasks unique index missing"
+    assert "UNIQUE" in row["indexdef"]
+
+
 def test_funding_task_list_returns_stored_digest(db, api_client):
     """PERF-003: the evidence digest on the list path comes from the
     stored file_uploads.sha256 — set when the evidence was uploaded."""

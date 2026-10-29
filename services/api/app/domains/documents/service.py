@@ -2611,6 +2611,11 @@ def generate_funding_tasks(
                 task_type=playbook["playbook_id"],
                 title=f"{playbook['title']} — {_asset_label(asset)}",
             )
+            if row is None:
+                # FUNC-013: a concurrent generation inserted this task
+                # between the existence check and the insert; the
+                # ON CONFLICT guard skipped ours — not an error.
+                continue
             created.append((row, playbook))
     for row, _playbook in created:
         record_audit_event(

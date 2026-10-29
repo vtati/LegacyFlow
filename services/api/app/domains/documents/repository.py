@@ -530,21 +530,33 @@ def insert_funding_task(
     asset_id: UUID | None,
     task_type: str,
     title: str,
-) -> dict[str, Any]:
-    """Insert a funding task; return the row."""
-    row = _insert(
-        conn,
-        "funding_tasks",
-        {
-            "firm_id": str(firm_id),
-            "matter_id": str(matter_id),
-            "asset_id": str(asset_id) if asset_id else None,
-            "task_type": task_type,
-            "title": title,
-        },
-    )
-    assert row is not None
-    return row
+) -> dict[str, Any] | None:
+    """Insert a funding task; return the row, or ``None`` when skipped.
+
+    FUNC-013: the insert is guarded by the
+    ``uq_funding_tasks_matter_asset_type`` unique index (NULLS NOT
+    DISTINCT, so NULL-asset tasks dedupe too) with ON CONFLICT DO
+    NOTHING — a concurrent generation that won the race turns this
+    insert into a no-op instead of a duplicate or a 500.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO funding_tasks (firm_id, matter_id, asset_id, task_type, title)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            RETURNING *
+            """,
+            (
+                str(firm_id),
+                str(matter_id),
+                str(asset_id) if asset_id else None,
+                task_type,
+                title,
+            ),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def funding_task_exists(conn: Any, matter_id: UUID, asset_id: UUID | None, task_type: str) -> bool:
