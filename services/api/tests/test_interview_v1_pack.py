@@ -46,22 +46,90 @@ class TestV1PackQuestionSets:
         assert "primary_executor_address" in keys
 
 
+def _build_context(monkeypatch, answers: dict):
+    """Exercise the real context builder with representative facts.
+
+    Replaces the original source-text scrape (which asserted each
+    token string appeared in ``build_template_context``'s source):
+    the tokens are now assembled via the ``_ANSWER_SLOT_TABLE``
+    mapping inside that builder, so the strings no longer literally
+    appear in its source even though every token IS produced at
+    runtime. The honest assertion is on the produced context itself
+    — base render and household reads are stubbed, the slot-table
+    path under test runs for real. (The full DB-backed render test
+    lives in test_documents_person_render.py.)
+    """
+    from contextlib import contextmanager
+    from uuid import uuid4
+
+    from app.domains.documents import service as doc_service
+    from app.domains.household import repository as household_repo
+    from app.domains.intake import repository as intake_repo
+
+    class _Cursor:
+        def __init__(self, row):
+            self._row = row
+
+        def execute(self, *_a, **_k):
+            pass
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def __init__(self, row):
+            self._row = row
+
+        @contextmanager
+        def cursor(self):
+            yield _Cursor(self._row)
+
+    matter_id = uuid4()
+    household_id = uuid4()
+    persons = [
+        {"id": str(uuid4()), "kind": "adult", "full_name": name}
+        for name in ["Raj Sharma", "Priya Nair", "Neha Kapoor"]
+    ]
+    conn = _Conn({
+        "id": str(matter_id), "household_id": str(household_id),
+        "title": "Synthetic Matter",
+    })
+    monkeypatch.setattr(
+        doc_service, "_render_context", lambda c, m, answers=None: {})
+    monkeypatch.setattr(
+        household_repo, "list_persons_for_household",
+        lambda c, hid: persons)
+    monkeypatch.setattr(
+        household_repo, "list_members_for_household",
+        lambda c, hid: [{
+            "relationship_role": "primary_client",
+            "person_id": persons[0]["id"],
+        }])
+    monkeypatch.setattr(
+        household_repo, "list_relationships_for_household",
+        lambda c, hid: [])
+    monkeypatch.setattr(
+        intake_repo, "list_answers",
+        lambda c, mid: [
+            {"question_key": k, "answer": v} for k, v in answers.items()
+        ])
+    return doc_service.build_template_context(conn, matter_id)
+
+
 class TestTemplateContextMapping:
-    def test_executor_answers_map_to_tokens(self) -> None:
-        # New answer keys must flow into the will template placeholders.
-        from app.domains.documents.service import build_template_context
-
-        # This is a unit-level check on the mapping logic; the full DB-backed
-        # test lives in test_documents.py. Here we verify the key mapping
-        # exists by checking the token list the context builder handles.
-        import inspect
-
-        from app.domains.documents import service as doc_service
-
-        source = inspect.getsource(doc_service.build_template_context)
-        assert "executor_name" in source
-        assert "residuary_beneficiaries" in source
-        assert "specific_bequests" in source
+    def test_executor_answers_map_to_tokens(self, monkeypatch) -> None:
+        # New answer keys must flow into the will template placeholders:
+        # build the context from the facts and assert the produced
+        # token keys/values, not the builder's source text.
+        ctx = _build_context(monkeypatch, {
+            "testator_full_name": "Raj Sharma",
+            "primary_executor_person": "Priya Nair",
+            "residuary_beneficiaries": "Neha Kapoor",
+            "specific_bequests": "Watch to Priya Nair",
+        })
+        assert ctx.get("executor_name") == "Priya Nair"
+        assert ctx.get("residuary_beneficiaries") == "Neha Kapoor"
+        assert ctx.get("specific_bequests") == "Watch to Priya Nair"
 
 
 class TestAdaptiveFollowUp:

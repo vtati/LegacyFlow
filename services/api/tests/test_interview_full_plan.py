@@ -68,24 +68,107 @@ class TestFinalWishesQuestions:
         assert "children_education_wishes" in keys
 
 
+def _build_context(monkeypatch, answers: dict):
+    """Exercise the real context builder with representative facts.
+
+    Replaces the original source-text scrape (which asserted each
+    token string appeared in ``build_template_context``'s source):
+    the tokens are now assembled via the ``_ANSWER_SLOT_TABLE``
+    mapping plus composed slots inside that builder, so the strings
+    no longer literally appear in its source even though every token
+    IS produced at runtime. The honest assertion is on the produced
+    context itself — base render and household reads are stubbed,
+    the slot-table/composition path under test runs for real.
+    """
+    from contextlib import contextmanager
+    from uuid import uuid4
+
+    from app.domains.documents import service as doc_service
+    from app.domains.household import repository as household_repo
+    from app.domains.intake import repository as intake_repo
+
+    class _Cursor:
+        def __init__(self, row):
+            self._row = row
+
+        def execute(self, *_a, **_k):
+            pass
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def __init__(self, row):
+            self._row = row
+
+        @contextmanager
+        def cursor(self):
+            yield _Cursor(self._row)
+
+    matter_id = uuid4()
+    household_id = uuid4()
+    roster = [
+        "Raj Sharma", "Neha Kapoor", "Tom Becker", "Laura Chen",
+        "George Osei",
+    ]
+    persons = [
+        {"id": str(uuid4()), "kind": "adult", "full_name": name}
+        for name in roster
+    ]
+    conn = _Conn({
+        "id": str(matter_id), "household_id": str(household_id),
+        "title": "Synthetic Matter",
+    })
+    monkeypatch.setattr(
+        doc_service, "_render_context", lambda c, m, answers=None: {})
+    monkeypatch.setattr(
+        household_repo, "list_persons_for_household",
+        lambda c, hid: persons)
+    monkeypatch.setattr(
+        household_repo, "list_members_for_household",
+        lambda c, hid: [{
+            "relationship_role": "primary_client",
+            "person_id": persons[0]["id"],
+        }])
+    monkeypatch.setattr(
+        household_repo, "list_relationships_for_household",
+        lambda c, hid: [])
+    monkeypatch.setattr(
+        intake_repo, "list_answers",
+        lambda c, mid: [
+            {"question_key": k, "answer": v} for k, v in answers.items()
+        ])
+    return doc_service.build_template_context(conn, matter_id)
+
+
 class TestFullTemplateMapping:
-    def test_all_new_tokens_mapped(self) -> None:
-        import inspect
-
-        from app.domains.documents import service as doc_service
-
-        source = inspect.getsource(doc_service.build_template_context)
-        for token in [
-            "healthcare_agent_name",
-            "successor_healthcare_agent_name",
-            "agent_name",  # POA agent
-            "successor_agent_name",
-            "successor_trustee_name",
-            "trust_name",
-            "distribution_age",
-            "organ_donation_agent",
-        ]:
-            assert token in source, f"token {token} not mapped"
+    def test_all_new_tokens_mapped(self, monkeypatch) -> None:
+        # Every declared token must be produced, with the value its
+        # source fact carries, by the current context-building path.
+        ctx = _build_context(monkeypatch, {
+            "testator_full_name": "Raj Sharma",
+            "healthcare_agent_person": "Neha Kapoor",
+            "successor_healthcare_agent_person": "Tom Becker",
+            "poa_agent_person": "Laura Chen",
+            "successor_poa_agent_person": "Tom Becker",
+            "successor_trustee_person": "George Osei",
+            "trust_distribution_age": "25",
+            "organ_donation_wishes": "Donate any needed organs",
+        })
+        expected = {
+            "healthcare_agent_name": "Neha Kapoor",
+            "successor_healthcare_agent_name": "Tom Becker",
+            "agent_name": "Laura Chen",  # POA agent
+            "successor_agent_name": "Tom Becker",
+            "successor_trustee_name": "George Osei",
+            "trust_name": "The Sharma Family Revocable Trust",
+            "distribution_age": "25",
+            "organ_donation_agent": "Neha Kapoor",
+        }
+        for token, value in expected.items():
+            assert ctx.get(token) == value, (
+                f"token {token} not mapped: {ctx.get(token)!r} != {value!r}"
+            )
 
 
 class TestAdaptiveFollowUpExtended:
