@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import re
 import secrets
 import uuid
@@ -77,6 +78,8 @@ from ...domains.legal_content import pack_loader
 from ...domains.nominations import repository as nominations_repo
 from . import repository as repo
 from . import schemas as sch
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1966,7 +1969,18 @@ def _content_pack_files(
     pack_root = pack_root / "content-packs" / pack_id
     if not pack_root.is_dir():
         return None
-    version_dirs = sorted(d for d in pack_root.iterdir() if d.is_dir() and d.name.startswith("v"))
+    # Numeric-aware sort: lexicographic ordering puts v10 before v2
+    # (FUNC-009).
+    def _version_dir_key(d: Path) -> tuple[int, ...]:
+        return tuple(
+            int(part) if part.isdigit() else 0
+            for part in d.name.lstrip("v").split(".")
+        )
+
+    version_dirs = sorted(
+        (d for d in pack_root.iterdir() if d.is_dir() and d.name.startswith("v")),
+        key=_version_dir_key,
+    )
     if not version_dirs:
         return None
     try:
@@ -1985,7 +1999,12 @@ def _content_pack_files(
                 continue
             try:
                 manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8")) or {}
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "documents: unreadable manifest for pack %s in %s (%s: %s); "
+                    "skipping that version directory",
+                    pack_id, candidate, type(exc).__name__, exc,
+                )
                 continue
             if str(manifest.get("semantic_version")) == version:
                 chosen = candidate
@@ -1993,6 +2012,11 @@ def _content_pack_files(
     profiles_file = chosen / "execution-profiles.yaml"
     playbooks_file = chosen / "funding-playbooks.yaml"
     if not profiles_file.is_file() or not playbooks_file.is_file():
+        logger.warning(
+            "documents: pack %s version dir %s is missing execution-profiles.yaml "
+            "or funding-playbooks.yaml; callers will fall back",
+            pack_id, chosen,
+        )
         return None
     try:
         import yaml
@@ -2001,7 +2025,12 @@ def _content_pack_files(
     try:
         profiles_doc = yaml.safe_load(profiles_file.read_text(encoding="utf-8")) or {}
         playbooks_doc = yaml.safe_load(playbooks_file.read_text(encoding="utf-8")) or {}
-    except Exception:  # corrupt pack on disk — never crash the API
+    except Exception as exc:  # corrupt pack on disk — never crash the API
+        logger.warning(
+            "documents: corrupt pack %s in %s (%s: %s); callers will fall back "
+            "to built-in starter data",
+            pack_id, chosen, type(exc).__name__, exc,
+        )
         return None
     return profiles_doc, playbooks_doc.get("playbooks", [])
 
@@ -2151,28 +2180,46 @@ _ASSET_TYPE_TO_PACK_VOCAB: dict[str, str] = {
 def _load_execution_profile(conn: Any, matter: dict[str, Any]) -> ExecutionProfile:
     """Resolve the matter's pack → execution profile + funding playbooks.
 
-    The pack is chosen from the matter's ``jurisdiction_snapshot``
-    (``pack_id``), defaulting to the ``us-va`` starter pack. Pack YAML is
-    loaded from ``content-packs/`` when present; the built-in starter
-    data above is used otherwise. The profile is the pack profile whose
-    ``document_type`` matches the matter's plan, else the first profile.
+    The pack is resolved through ``pack_loader.get_pack`` at the matter's
+    PINNED version (jurisdiction + semantic version from the matter's
+    ``jurisdiction_snapshot``) — never the newest version on disk
+    (FUNC-009). When the pinned pack cannot be loaded, wills fall back
+    to the built-in starter data (with a warning log, ERR-005); any
+    other plan type fails closed with a clear error, because serving it
+    the will profile would produce a wrong signing checklist.
+    The profile is the pack profile whose ``document_type`` matches the
+    matter's plan, else the first profile.
     """
-    snapshot = matter.get("jurisdiction_snapshot") or {}
-    if isinstance(snapshot, str):
-        try:
-            snapshot = json.loads(snapshot)
-        except json.JSONDecodeError:
-            snapshot = {}
-    pack_id = str(snapshot.get("pack_id") or "us-va")
+    pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
     plan_type = str(matter.get("plan_type") or "will")
 
-    loaded = _content_pack_files(pack_id)
-    if loaded is None:
+    pack = None
+    try:
+        pack = pack_loader.get_pack(jurisdiction_code, semantic_version)
+    except FileNotFoundError:
+        logger.warning(
+            "documents: content pack %s version %s not found on disk; "
+            "falling back for plan_type=%s",
+            pack_id, semantic_version, plan_type,
+        )
+    except Exception as exc:  # corrupt pack — never crash, but never silent
+        logger.warning(
+            "documents: content pack %s version %s failed to load (%s: %s); "
+            "falling back for plan_type=%s",
+            pack_id, semantic_version, type(exc).__name__, exc, plan_type,
+        )
+    if pack is None:
+        if plan_type != "will":
+            raise ValidationAppError(
+                f"Cannot resolve an execution profile for plan type "
+                f"{plan_type!r}: content pack {pack_id} version "
+                f"{semantic_version} is not available. Refusing to serve "
+                f"the will starter profile for a {plan_type} matter."
+            )
         profile_doc: dict[str, Any] = _FALLBACK_EXECUTION_PROFILE
         playbooks: list[dict[str, Any]] = _FALLBACK_FUNDING_PLAYBOOKS
     else:
-        profiles_doc, raw_playbooks = loaded
-        profiles = profiles_doc.get("execution_profiles", []) or []
+        profiles = pack.execution_profiles or []
         profile_doc = next(
             (p for p in profiles if p.get("document_type") == plan_type),
             profiles[0] if profiles else {},
@@ -2186,7 +2233,7 @@ def _load_execution_profile(conn: Any, matter: dict[str, Any]) -> ExecutionProfi
                 "evidence_type": str(pb.get("evidence_type", "review_checklist")),
                 "attorney_review_recommended": bool(pb.get("attorney_review_recommended", False)),
             }
-            for pb in raw_playbooks
+            for pb in (pack.funding_playbooks or [])
             if pb.get("id")
         ]
     checklist = [
