@@ -144,7 +144,7 @@ export default function FamilyProfilePage(): React.JSX.Element {
       .createPerson(matterId, input)
       .then(() => {
         setShowAdd(false);
-        setRelationshipRole('');
+        setRelationshipRole('dependent');
         setNotice('Person added. Your attorney will see the updated household.');
         loadHousehold(matterId);
       })
@@ -265,8 +265,6 @@ export default function FamilyProfilePage(): React.JSX.Element {
                     className="flex min-h-11 w-full rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2 text-sm text-lf-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500"
                   >
                     <option value="dependent">Dependent (child or other dependent)</option>
-                    <option value="collaborator">Collaborator (spouse or partner)</option>
-                    <option value="primary_client">Primary client</option>
                     <option value="trusted_contact">Trusted contact</option>
                   </select>
                 </div>
