@@ -47,6 +47,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import (
+    STORAGE_BUCKETS_STUB,
     TEST_AUDIENCE,
     TEST_EMAIL,
     TEST_ISSUER,
@@ -133,7 +134,13 @@ def seeded_db(db_url: str) -> str:
             cur.execute("create schema auth")
             # profiles.id references auth.users(id) per §7.2 DDL; RLS policies
             # call auth.uid(), shimmed here like the supabase RLS suite does.
-            cur.execute("create table auth.users (id uuid primary key)")
+            # Canonical auth.users shape (F1 sweep): email +
+            # raw_user_meta_data/raw_app_meta_data are read by the
+            # handle_new_user trigger migration (20261001130000).
+            cur.execute(
+                "create table auth.users (id uuid primary key, email text,"
+                " raw_user_meta_data jsonb, raw_app_meta_data jsonb)"
+            )
             cur.execute(
                 """
                 create or replace function auth.uid() returns uuid
@@ -141,6 +148,10 @@ def seeded_db(db_url: str) -> str:
                 as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;
                 """
             )
+            # storage.buckets stub (shared, tests.conftest): the
+            # storage-buckets migration INSERTs into it; bare pgserver
+            # has no storage schema.
+            cur.execute(STORAGE_BUCKETS_STUB)
             for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
                 cur.execute(migration.read_text())
             _seed(cur)
@@ -154,13 +165,20 @@ def _seed(cur: Any) -> None:
         (ATTORNEY_SUB, "attorney"),
     ):
         cur.execute("insert into auth.users (id) values (%s)", (sub,))
+        # The handle_new_user trigger already created the profile row
+        # on the auth.users insert; upsert the synthetic display data
+        # onto it (canonical seed pattern, cf. test_slice2_access).
         cur.execute(
-            "insert into profiles (id, display_name, email) values (%s, %s, %s)",
+            "insert into profiles (id, display_name, email) values (%s, %s, %s)"
+            " on conflict (id) do update set display_name = excluded.display_name,"
+            " email = excluded.email",
             (sub, f"Synthetic Perf {role}", f"perf-{role}@example.com"),
         )
     cur.execute("insert into auth.users (id) values (%s)", (CLIENT_SUB,))
     cur.execute(
-        "insert into profiles (id, display_name, email) values (%s, %s, %s)",
+        "insert into profiles (id, display_name, email) values (%s, %s, %s)"
+        " on conflict (id) do update set display_name = excluded.display_name,"
+        " email = excluded.email",
         (CLIENT_SUB, "Synthetic Perf Client", TEST_EMAIL),
     )
     cur.execute(
