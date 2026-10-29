@@ -215,7 +215,11 @@ def scan_pending_uploads(batch_size: int = 25, *, scanner: Scanner | None = None
 
             for upload_id in upload_ids:
                 try:
-                    outcome = perform_file_scan(conn, upload_id, scanner=active)
+                    # ERR-021: per-row savepoint, mirroring drain_outbox —
+                    # a Postgres-level failure on one row must roll back
+                    # alone, never the rows already scanned in this batch.
+                    with conn.transaction():
+                        outcome = perform_file_scan(conn, upload_id, scanner=active)
                 except Exception:  # a failing row must not kill the batch
                     logger.exception("scan_pending_uploads failed for upload %s", upload_id)
                     continue

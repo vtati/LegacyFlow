@@ -37,3 +37,178 @@ def test_worker_deps_declare_psycopg_pool() -> None:
     requirements = (root / "requirements.txt").read_text()
     assert "pool" in pyproject.split("psycopg")[1].split("]")[0]
     assert "pool" in requirements.split("psycopg")[1].split("]")[0]
+
+
+# ---------------------------------------------------------------------------
+# ERR-021: per-row savepoints — a Postgres-level row failure must not
+# roll back rows already marked sent/scanned in the same batch.
+# ---------------------------------------------------------------------------
+
+DDL_021 = """
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id uuid NOT NULL,
+  matter_id uuid,
+  recipient_user_id uuid,
+  recipient_email text,
+  template_key text NOT NULL,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'sent', 'failed')),
+  attempts integer NOT NULL DEFAULT 0,
+  sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS file_uploads (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id uuid NOT NULL,
+  household_id uuid NOT NULL,
+  matter_id uuid,
+  uploader_user_id uuid NOT NULL,
+  original_filename text NOT NULL,
+  stored_path text NOT NULL,
+  mime_type text,
+  size_bytes bigint,
+  scan_status text NOT NULL DEFAULT 'pending'
+    CHECK (scan_status IN ('pending', 'clean', 'quarantined')),
+  scan_detail text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE OR REPLACE FUNCTION fail_row_update() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'synthetic row failure';
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+
+@pytest.fixture(scope="module")
+def batch_dsn() -> Iterator[str]:
+    try:
+        import pgserver
+    except ImportError:
+        pytest.skip("pgserver is not installed")
+    tmpdir = tempfile.mkdtemp(prefix="lf-worker-batchd-")
+    try:
+        with pgserver.get_server(tmpdir) as server:  # type: ignore[attr-defined]
+            dsn = str(server.get_uri())
+            import psycopg
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(DDL_021)
+            yield dsn
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _use_dsn(monkeypatch: pytest.MonkeyPatch, dsn: str) -> None:
+    from worker.db import reset_pool
+    from worker.settings import get_worker_settings
+
+    monkeypatch.setenv("DATABASE_URL", dsn)
+    get_worker_settings.cache_clear()
+    reset_pool()
+
+
+def _clear_dsn() -> None:
+    from worker.db import reset_pool
+    from worker.settings import get_worker_settings
+
+    get_worker_settings.cache_clear()
+    reset_pool()
+
+
+def test_drain_outbox_db_error_row_does_not_roll_back_sent_row(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ERR-021: the poison row's UPDATE raises a real Postgres error.
+    Without a per-row savepoint the recovery UPDATE dies with
+    InFailedSqlTransaction and the good row's sent marking rolls back."""
+    import psycopg
+
+    from worker import actors
+    from worker.settings import get_worker_settings
+
+    monkeypatch.setenv("NOTIFICATION_SANDBOX_DIR", str(tmp_path / "mail"))
+    _use_dsn(monkeypatch, batch_dsn)
+    try:
+        good_id, poison_id = uuid.uuid4(), uuid.uuid4()
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE notification_outbox")
+                cur.execute("DROP TRIGGER IF EXISTS trg_fail ON notification_outbox")
+                for rid, mins in ((good_id, 2), (poison_id, 1)):
+                    cur.execute(
+                        "INSERT INTO notification_outbox"
+                        " (id, firm_id, recipient_email, template_key, created_at)"
+                        " VALUES (%s, %s, 's@example.com', 'gate.decided', now() - %s::interval)",
+                        (str(rid), str(uuid.uuid4()), f"{mins} minutes"),
+                    )
+                cur.execute(
+                    "CREATE TRIGGER trg_fail BEFORE UPDATE ON notification_outbox"
+                    f" FOR EACH ROW WHEN (OLD.id = '{poison_id}' AND NEW.status = 'sent')"
+                    " EXECUTE FUNCTION fail_row_update()"
+                )
+        ledger = actors.drain_outbox(batch_size=25)
+        assert ledger == {"sent": 1, "failed": 1}
+        with psycopg.connect(batch_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status, attempts FROM notification_outbox WHERE id=%s", (str(good_id),))
+                assert cur.fetchone() == ("sent", 1)
+                cur.execute("SELECT status, attempts FROM notification_outbox WHERE id=%s", (str(poison_id),))
+                assert cur.fetchone() == ("pending", 1)
+    finally:
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DROP TRIGGER IF EXISTS trg_fail ON notification_outbox")
+        get_worker_settings.cache_clear()
+        _clear_dsn()
+
+
+def test_scan_pending_db_error_row_does_not_roll_back_scanned_row(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ERR-021 (scan path): same savepoint shape in scan_pending_uploads."""
+    import psycopg
+
+    from worker.scanning import scan_pending_uploads
+
+    _use_dsn(monkeypatch, batch_dsn)
+    try:
+        good_id, poison_id = uuid.uuid4(), uuid.uuid4()
+        pdf = b"%PDF-1.4\n%synthetic\n%%EOF"
+        for rid in (good_id, poison_id):
+            p = tmp_path / f"{rid}.pdf"
+            p.write_bytes(pdf)
+            with psycopg.connect(batch_dsn, autocommit=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO file_uploads (id, firm_id, household_id,"
+                        " uploader_user_id, original_filename, stored_path, mime_type)"
+                        " VALUES (%s, %s, %s, %s, 'x.pdf', %s, 'application/pdf')"
+                        " ON CONFLICT (id) DO NOTHING",
+                        (str(rid), str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()), str(p)),
+                    )
+                    cur.execute("UPDATE file_uploads SET scan_status='pending' WHERE id=%s", (str(rid),))
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DROP TRIGGER IF EXISTS trg_fail_scan ON file_uploads")
+                cur.execute(
+                    "CREATE TRIGGER trg_fail_scan BEFORE UPDATE ON file_uploads"
+                    f" FOR EACH ROW WHEN (OLD.id = '{poison_id}') EXECUTE FUNCTION fail_row_update()"
+                )
+        ledger = scan_pending_uploads(batch_size=25)
+        assert ledger["scanned"] == 1 and ledger["clean"] == 1
+        with psycopg.connect(batch_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT scan_status FROM file_uploads WHERE id=%s", (str(good_id),))
+                assert cur.fetchone()[0] == "clean"
+                cur.execute("SELECT scan_status FROM file_uploads WHERE id=%s", (str(poison_id),))
+                assert cur.fetchone()[0] == "pending"
+    finally:
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DROP TRIGGER IF EXISTS trg_fail_scan ON file_uploads")
+        _clear_dsn()

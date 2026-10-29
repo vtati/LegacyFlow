@@ -118,33 +118,44 @@ def drain_outbox(batch_size: int = 25) -> dict[str, int]:
             for row in rows:
                 outbox_id = UUID(str(row["id"]))
                 try:
-                    rendered = _render_notification(row)
-                    _write_to_sandbox(rendered, outbox_id)
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            """
-                            UPDATE notification_outbox
-                            SET status = 'sent', attempts = attempts + 1, sent_at = now()
-                            WHERE id = %s
-                            """,
-                            (str(outbox_id),),
-                        )
+                    # ERR-021: per-row savepoint. A Postgres-level failure
+                    # (constraint, trigger, serialization) aborts only this
+                    # row's nested transaction; without it the recovery
+                    # UPDATE below would run on an aborted transaction,
+                    # raise InFailedSqlTransaction, and roll back rows
+                    # already marked sent (-> duplicate notifications).
+                    with conn.transaction():
+                        rendered = _render_notification(row)
+                        _write_to_sandbox(rendered, outbox_id)
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                UPDATE notification_outbox
+                                SET status = 'sent', attempts = attempts + 1, sent_at = now()
+                                WHERE id = %s
+                                """,
+                                (str(outbox_id),),
+                            )
                     sent += 1
                 except Exception:  # a failing row must not kill the batch
                     logger.exception("send_notifications failed for outbox row %s", outbox_id)
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            """
-                            UPDATE notification_outbox
-                            SET attempts = attempts + 1,
-                                status = CASE
-                                    WHEN attempts + 1 >= %s THEN 'failed'
-                                    ELSE 'pending'
-                                END
-                            WHERE id = %s
-                            """,
-                            (settings.NOTIFICATION_MAX_ATTEMPTS, str(outbox_id)),
-                        )
+                    # Recovery UPDATE runs AFTER the failed savepoint has
+                    # rolled back, in its own savepoint, on a healthy
+                    # transaction.
+                    with conn.transaction():
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                UPDATE notification_outbox
+                                SET attempts = attempts + 1,
+                                    status = CASE
+                                        WHEN attempts + 1 >= %s THEN 'failed'
+                                        ELSE 'pending'
+                                    END
+                                WHERE id = %s
+                                """,
+                                (settings.NOTIFICATION_MAX_ATTEMPTS, str(outbox_id)),
+                            )
                     failed += 1
     logger.info("send_notifications processed batch: sent=%d failed=%d", sent, failed)
     return {"sent": sent, "failed": failed}
