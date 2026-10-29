@@ -146,6 +146,22 @@ class PackageAlreadyReleasedError(ConflictError):
     )
 
 
+class AmendmentRequiresReleasedPlanError(ConflictError):
+    """Amendment requested before the plan was released (HTTP 409).
+
+    The machine-readable ``code`` is ``amendment_requires_released_plan``
+    (FUNC-011): amendments change an existing plan, so the matter must
+    be at DOCUMENTS_RELEASED or later in its lifecycle.
+    """
+
+    type = "urn:legacyflow:error:amendment_requires_released_plan"
+    title = "Amendment requires a released plan"
+    detail = (
+        "Amendments can only be requested once the plan's documents "
+        "have been released (or the plan has been implemented)."
+    )
+
+
 class DraftsMissingError(ConflictError):
     """Submit attempted before the current draft set was generated (HTTP 409).
 
@@ -3481,10 +3497,53 @@ def build_notary_package(conn: Any, *, actor_sub: str, matter_id: UUID) -> bytes
 def create_amendment_request(
     conn: Any, *, actor_sub: str, matter_id: UUID, payload: sch.AmendmentRequestIn
 ) -> sch.AmendmentRequestOut:
-    """Create an amendment request for an implemented plan."""
+    """Create an amendment request for an implemented plan.
+
+    FUNC-011: the matter must be post-release — DOCUMENTS_RELEASED,
+    SIGNING_IN_PROGRESS, FUNDING_IN_PROGRESS or PLAN_IMPLEMENTED (the
+    lifecycle states from document release onward). Earlier states get
+    409 ``amendment_requires_released_plan``. An identical PENDING
+    request (same matter, same description modulo case/whitespace)
+    is returned as-is instead of duplicated, so client retries are
+    idempotent.
+    """
     actor_id = _actor_id(actor_sub)
     scope = authz.get_matter_scope(conn, matter_id, actor_id)
     matter = scope.matter
+
+    from ...domains.matters.state_machine import MatterStatus
+
+    _AMENDABLE_STATUSES = {
+        MatterStatus.DOCUMENTS_RELEASED.value,
+        MatterStatus.SIGNING_IN_PROGRESS.value,
+        MatterStatus.FUNDING_IN_PROGRESS.value,
+        MatterStatus.PLAN_IMPLEMENTED.value,
+    }
+    if str(matter.get("status")) not in _AMENDABLE_STATUSES:
+        raise AmendmentRequiresReleasedPlanError()
+
+    def _normalize(text: str) -> str:
+        return " ".join(str(text).split()).casefold()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, matter_id, description, affected_template_types, status, created_at
+            FROM amendment_requests
+            WHERE matter_id = %s AND status = 'pending'
+            """,
+            (str(matter_id),),
+        )
+        for existing in cur.fetchall():
+            if _normalize(existing["description"]) == _normalize(payload.description):
+                return sch.AmendmentRequestOut(
+                    id=existing["id"],
+                    matter_id=existing["matter_id"],
+                    description=existing["description"],
+                    affected_template_types=existing["affected_template_types"],
+                    status=existing["status"],
+                    created_at=existing["created_at"],
+                )
 
     with conn.cursor() as cur:
         cur.execute(
