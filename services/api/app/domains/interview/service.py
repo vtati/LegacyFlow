@@ -5801,7 +5801,9 @@ def update_session_status(
                 continue
             rule_id = f"{_INTERVIEW_INCOMPLETE_RULE_ID}:{key}"
             if not escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
-                escalation_repo.insert_escalation(
+                # ERR-016: savepoint-isolated — one bad row must not
+                # roll back session completion and its sibling rows.
+                escalation_repo.insert_escalation_isolated(
                     conn,
                     matter_id=matter_id,
                     rule_id=rule_id,

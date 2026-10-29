@@ -61,6 +61,12 @@ class _FakeConn:
     def cursor(self) -> _FakeCursor:
         return _FakeCursor(self)
 
+    from contextlib import contextmanager as _cm
+
+    @_cm
+    def transaction(self):  # savepoint stand-in (ERR-016 isolated inserts)
+        yield
+
 
 def _render_and_flag(conn: _FakeConn, template_body: str, context: dict[str, str]):
     """Mirror the production render paths: merge, capture pre-blank tokens,

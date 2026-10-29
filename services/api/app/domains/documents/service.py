@@ -1744,7 +1744,9 @@ def _flag_unfilled_placeholders(
         rule_id = f"document_unmapped_placeholder:{template_name}:{name}"
         if escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
             continue
-        escalation_repo.insert_escalation(
+        # ERR-016: savepoint-isolated — one bad placeholder row must
+        # not roll back the whole render's escalation set.
+        escalation_repo.insert_escalation_isolated(
             conn,
             matter_id=matter_id,
             rule_id=rule_id,

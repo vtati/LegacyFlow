@@ -123,7 +123,10 @@ def evaluate_intake(conn: Any, *, actor_sub: str, matter_id: UUID) -> EvaluateOu
         if not fires:
             continue
         if not repo.open_escalation_exists(conn, matter_id, rule.id):
-            repo.insert_escalation(
+            # ERR-016: savepoint-isolated — one bad row degrades to a
+            # skipped escalation + log; siblings (and the response,
+            # which reports the rule as triggered) still persist.
+            repo.insert_escalation_isolated(
                 conn,
                 matter_id=matter_id,
                 rule_id=rule.id,

@@ -31,7 +31,15 @@ from typing import Any
 
 import yaml
 
+from app.core.errors import ConfigurationError
 from app.core.paths import find_content_packs_dir
+
+#: The only severities the escalations table's CHECK constraint accepts
+#: (migrations 20260928090000 + 20261027170000). Validated at pack LOAD
+#: (ERR-016): a pack author writing ``severity: urgent`` must fail the
+#: import here — not a family's evaluate request with a 500, which is
+#: exactly the 2026-10-27 consistency-review failure mode.
+ESCALATION_SEVERITIES = frozenset({"info", "review", "attention", "blocking"})
 
 # ---------------------------------------------------------------------------
 # Manifest / pack structures
@@ -70,7 +78,7 @@ class EscalationRule:
     id: str
     version: str
     when: str
-    severity: str  # info | review | blocking
+    severity: str  # info | review | attention | blocking (validated at load)
     outcome: str
     user_message: str | None = None
 
@@ -194,12 +202,20 @@ def _get_pack_cached(jurisdiction_code: str, version: str | None, packs_root: st
     rules_path = version_dir / "escalation-rules.yaml"
     if rules_path.is_file():
         for item in _read_yaml(rules_path).get("rules", []):
+            severity = str(item.get("severity", "review"))
+            if severity not in ESCALATION_SEVERITIES:
+                raise ConfigurationError(
+                    f"Escalation rule {item.get('id', '')!r} in pack "
+                    f"{manifest.jurisdiction_code} {manifest.semantic_version} "
+                    f"has invalid severity {severity!r}; expected one of "
+                    f"{sorted(ESCALATION_SEVERITIES)}."
+                )
             rules.append(
                 EscalationRule(
                     id=str(item.get("id", "")),
                     version=str(item.get("version", "")),
                     when=str(item.get("when", "")),
-                    severity=str(item.get("severity", "review")),
+                    severity=severity,
                     outcome=str(item.get("outcome", "")),
                     user_message=item.get("user_message"),
                 )
