@@ -247,3 +247,7 @@ class ConsistencyReviewOut(BaseModel):
     findings: list[ConsistencyFindingOut]
     escalations_created: int
     facts_considered: int
+    # ERR-022 (additive): the provider failed and this review was
+    # persisted degraded (zero findings, no model pass) — the client
+    # may show a "review incomplete" note instead of a clean pass.
+    degraded: bool = False

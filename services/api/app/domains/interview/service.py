@@ -6044,12 +6044,7 @@ def list_extractions(
     ]
 
 
-def consistency_review(
-    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
-) -> ConsistencyReviewOut:
-    result = consistency.run_consistency_review(
-        conn, actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
-    )
+def _consistency_review_out(result: Any) -> ConsistencyReviewOut:
     return ConsistencyReviewOut(
         review_id=result.review_id,
         findings=[
@@ -6058,7 +6053,29 @@ def consistency_review(
         ],
         escalations_created=result.escalations_created,
         facts_considered=result.facts_considered,
+        degraded=result.degraded,
     )
+
+
+def consistency_review(
+    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> ConsistencyReviewOut:
+    result = consistency.run_consistency_review(
+        conn, actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
+    )
+    return _consistency_review_out(result)
+
+
+def consistency_review_phased(
+    *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> ConsistencyReviewOut:
+    """Request-path variant (PERF-016): the consistency module manages
+    its own short transactions so the 90s provider call never holds a
+    pooled connection or an open transaction."""
+    result = consistency.run_consistency_review_phased(
+        actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
+    )
+    return _consistency_review_out(result)
 
 
 def get_turn_detail(

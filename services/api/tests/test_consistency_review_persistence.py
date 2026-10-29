@@ -251,6 +251,135 @@ def test_attention_and_review_findings_persist(db, openai_env, monkeypatch):
     assert len(_all(db, "SELECT id FROM escalations WHERE matter_id = %s", (matter_id,))) == 2
 
 
+class _RaisingProvider:
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+        raise RuntimeError("provider is down")
+
+
+class _GarbageProvider:
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+        return ("this is not json at all", {"prompt_tokens": 3, "completion_tokens": 1})
+
+
+def test_provider_failure_persists_degraded_review(db, openai_env, monkeypatch):
+    """ERR-022: a provider failure must not 500 / roll back. Following
+    the attorney-reviewer policy, the review persists degraded: facts
+    considered recorded, zero findings, degraded marker set, and the
+    model id does NOT claim the real model ran."""
+    matter_id, session_id = build_world(db)
+    monkeypatch.setattr(consistency, "get_json_provider", lambda model: _RaisingProvider())
+
+    result = consistency.run_consistency_review(
+        db, actor_sub=CLIENT, matter_id=UUID(matter_id), session_id=UUID(session_id)
+    )
+    db.commit()
+
+    assert result.degraded is True
+    assert result.findings == []
+    assert result.escalations_created == 0
+    assert result.facts_considered == 4
+    reviews = _all(
+        db,
+        "SELECT findings_count, facts_considered, model_id FROM"
+        " interview_consistency_reviews WHERE session_id = %s",
+        (session_id,),
+    )
+    assert len(reviews) == 1
+    assert reviews[0]["findings_count"] == 0
+    assert reviews[0]["facts_considered"] == 4
+    assert reviews[0]["model_id"] != "gpt-4o-mini"  # never the configured model
+    assert reviews[0]["model_id"] == "deterministic_dev"
+
+
+def test_unparseable_provider_output_persists_degraded_review(db, openai_env, monkeypatch):
+    """ERR-022: unparseable model output gets the same degraded
+    treatment — not a silent zero-findings row wearing the real
+    model id."""
+    matter_id, session_id = build_world(db)
+    monkeypatch.setattr(consistency, "get_json_provider", lambda model: _GarbageProvider())
+
+    result = consistency.run_consistency_review(
+        db, actor_sub=CLIENT, matter_id=UUID(matter_id), session_id=UUID(session_id)
+    )
+    db.commit()
+
+    assert result.degraded is True
+    assert result.findings == []
+    reviews = _all(
+        db,
+        "SELECT model_id FROM interview_consistency_reviews WHERE session_id = %s",
+        (session_id,),
+    )
+    assert len(reviews) == 1
+    assert reviews[0]["model_id"] == "deterministic_dev"
+
+
+def test_phased_review_holds_no_transaction_during_provider_call(
+    db, pg_uri, openai_env, monkeypatch
+):
+    """PERF-016: the phased path (what the router runs) must call the
+    provider with NO database transaction open. Proven directly: the
+    transaction factory is replaced with a tracking shim over real
+    connections, and the stub provider records how many transactions
+    are open at call time."""
+    import contextlib
+
+    import psycopg as _psycopg
+    from psycopg.rows import dict_row as _dict_row
+
+    from app.core import db as core_db
+
+    matter_id, session_id = build_world(db)
+
+    class _Tracker:
+        def __init__(self) -> None:
+            self.open = 0
+            self.opened_total = 0
+
+        @contextlib.contextmanager
+        def transaction(self):
+            with _psycopg.connect(pg_uri, row_factory=_dict_row) as conn:
+                with conn.transaction():
+                    self.open += 1
+                    self.opened_total += 1
+                    try:
+                        yield conn
+                    finally:
+                        self.open -= 1
+
+    tracker = _Tracker()
+    monkeypatch.setattr(core_db, "transaction", tracker.transaction)
+
+    seen: dict[str, int] = {}
+
+    class _RecordingProvider:
+        def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+            seen["open_at_call"] = tracker.open
+            return (
+                json.dumps({"findings": [REVIEW_FINDING]}),
+                {"prompt_tokens": 5, "completion_tokens": 2},
+            )
+
+    monkeypatch.setattr(
+        consistency, "get_json_provider", lambda model: _RecordingProvider()
+    )
+
+    result = consistency.run_consistency_review_phased(
+        actor_sub=CLIENT, matter_id=UUID(matter_id), session_id=UUID(session_id)
+    )
+
+    assert seen["open_at_call"] == 0, "provider called with a transaction open"
+    assert tracker.opened_total == 2, "expected prepare + persist transactions only"
+    assert result.facts_considered == 4
+    assert len(result.findings) == 1
+    reviews = _all(
+        db,
+        "SELECT id FROM interview_consistency_reviews WHERE session_id = %s",
+        (session_id,),
+    )
+    assert len(reviews) == 1
+
+
 def test_one_findings_insert_failure_degrades_instead_of_500(db, openai_env, monkeypatch):
     """A single escalation insert failure must not sink the whole review."""
     matter_id, session_id = build_world(db)

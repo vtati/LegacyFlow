@@ -26,6 +26,7 @@ from uuid import UUID
 
 import psycopg.errors
 
+from app.core import db
 from app.core.config import get_settings
 from app.core.errors import (
     AuthorizationError,
@@ -89,6 +90,31 @@ class ConsistencyReviewResult:
     findings: list[ConsistencyFinding] = field(default_factory=list)
     escalations_created: int = 0
     facts_considered: int = 0
+    # ERR-022: the provider failed (or returned unparseable output) and
+    # the review was persisted degraded — zero findings, no model claim.
+    degraded: bool = False
+
+
+@dataclass
+class _PreparedConsistencyReview:
+    """Frozen inputs for one review, assembled in a short read
+    transaction (PERF-016, mirroring attorney_review's pattern)."""
+
+    actor_id: UUID
+    firm_id: UUID
+    matter_id: UUID
+    session_id: UUID
+    pack_version: str
+    facts: list[dict[str, Any]]
+    known_keys: set[str]
+
+
+@dataclass
+class _ComputedConsistencyReview:
+    findings: list[ConsistencyFinding] = field(default_factory=list)
+    model_id: str = "deterministic_dev"
+    usage: dict[str, int] = field(default_factory=dict)
+    degraded: bool = False
 
 
 def _require_flag(conn: Any, firm_id: UUID) -> None:
@@ -149,10 +175,14 @@ def _review_via_openai(
     logger.info("consistency provider call latency_ms=%d", int((time.monotonic() - started) * 1000))
     try:
         parsed = json.loads(content)
-    except (ValueError, AttributeError):
-        parsed = {}
-    findings = parsed.get("findings")
-    return (findings if isinstance(findings, list) else []), usage
+    except (ValueError, AttributeError) as exc:
+        # ERR-022: unparseable output is a provider failure, not a
+        # silent zero-findings success — the caller degrades the
+        # review (and must not record the real model id for it).
+        raise ProviderError("Consistency provider returned unparseable output.") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
+        raise ProviderError("Consistency provider returned unparseable output.")
+    return parsed["findings"], usage
 
 
 def _rule_id(question: str, fields: list[str]) -> str:
@@ -162,9 +192,10 @@ def _rule_id(question: str, fields: list[str]) -> str:
     return f"{CONSISTENCY_RULE_PREFIX}:{digest}"
 
 
-def run_consistency_review(
+def _prepare_consistency_review(
     conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
-) -> ConsistencyReviewResult:
+) -> _PreparedConsistencyReview:
+    """Read phase (short transaction): scope, flag, session, facts."""
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
     firm_id = UUID(str(scope.matter["firm_id"]))
@@ -176,38 +207,84 @@ def run_consistency_review(
     pack_version = str(session["pack_version"])
 
     facts = _verified_facts(conn, matter_id, session_id)
-    known_keys = {f["key"] for f in facts}
+    return _PreparedConsistencyReview(
+        actor_id=actor_id,
+        firm_id=firm_id,
+        matter_id=matter_id,
+        session_id=session_id,
+        pack_version=pack_version,
+        facts=facts,
+        known_keys={f["key"] for f in facts},
+    )
 
+
+def _compute_consistency_findings(
+    prepared: _PreparedConsistencyReview,
+) -> _ComputedConsistencyReview:
+    """Compute phase: the provider call. NO database access — this
+    runs with no transaction open (PERF-016).
+
+    ERR-022: a provider failure (transport error or unparseable
+    output) degrades instead of propagating — the caller persists a
+    review record with the facts considered, zero findings, the
+    no-model marker, and ``degraded=True`` (the attorney-reviewer's
+    policy for advisory AI calls).
+    """
     settings = get_settings()
-    findings: list[ConsistencyFinding] = []
-    model_id = "deterministic_dev"
-    usage: dict[str, int] = {}
-    if facts and settings.AI_LLM_PROVIDER.strip().lower() == "openai":
-        if not settings.OPENAI_API_KEY:
-            raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
+    computed = _ComputedConsistencyReview()
+    facts = prepared.facts
+    if not facts or settings.AI_LLM_PROVIDER.strip().lower() != "openai":
+        return computed
+    if not settings.OPENAI_API_KEY:
+        raise ConfigurationError("AI_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set.")
+    try:
         raw_findings, usage = _review_via_openai(
             model=settings.OPENAI_CONSISTENCY_MODEL,
             facts=facts,
         )
-        model_id = settings.OPENAI_CONSISTENCY_MODEL
-        for item in raw_findings:
-            if not isinstance(item, dict):
-                continue
-            question = str(item.get("question", "")).strip()
-            # Questions only: anything not phrased as a question is discarded.
-            if not question.endswith("?"):
-                continue
-            fields = [f for f in (item.get("fields") or []) if str(f) in known_keys]
-            if not fields:
-                continue
-            severity = str(item.get("severity", "review"))
-            if severity not in ("review", "attention"):
-                severity = "review"
-            findings.append(
-                ConsistencyFinding(
-                    question=question[:500], fields=[str(f) for f in fields], severity=severity
-                )
+    except Exception:
+        logger.exception(
+            "consistency provider call failed matter_id=%s; "
+            "persisting a degraded review with zero findings",
+            prepared.matter_id,
+        )
+        computed.degraded = True
+        return computed
+    computed.model_id = settings.OPENAI_CONSISTENCY_MODEL
+    computed.usage = usage
+    for item in raw_findings:
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question", "")).strip()
+        # Questions only: anything not phrased as a question is discarded.
+        if not question.endswith("?"):
+            continue
+        fields = [f for f in (item.get("fields") or []) if str(f) in prepared.known_keys]
+        if not fields:
+            continue
+        severity = str(item.get("severity", "review"))
+        if severity not in ("review", "attention"):
+            severity = "review"
+        computed.findings.append(
+            ConsistencyFinding(
+                question=question[:500], fields=[str(f) for f in fields], severity=severity
             )
+        )
+    return computed
+
+
+def _persist_consistency_review(
+    conn: Any,
+    prepared: _PreparedConsistencyReview,
+    computed: _ComputedConsistencyReview,
+) -> ConsistencyReviewResult:
+    """Write phase (short transaction): escalations, trace, review row."""
+    matter_id = prepared.matter_id
+    session_id = prepared.session_id
+    firm_id = prepared.firm_id
+    findings = computed.findings
+    model_id = computed.model_id
+    usage = computed.usage
 
     escalations_created = 0
     for finding in findings:
@@ -260,7 +337,7 @@ def run_consistency_review(
         model_version=None,
         prompt_template="interview_consistency_review",
         prompt_version=CONSISTENCY_PROMPT_VERSION,
-        pack_version=pack_version,
+        pack_version=prepared.pack_version,
         tokens_in=usage.get("prompt_tokens"),
         tokens_out=usage.get("completion_tokens"),
         latency_ms=None,
@@ -273,14 +350,43 @@ def run_consistency_review(
         matter_id=matter_id,
         findings_count=len(findings),
         escalations_created=escalations_created,
-        facts_considered=len(facts),
+        facts_considered=len(prepared.facts),
         model_id=model_id,
         prompt_version=CONSISTENCY_PROMPT_VERSION,
-        created_by_user_id=actor_id,
+        created_by_user_id=prepared.actor_id,
     )
     return ConsistencyReviewResult(
         review_id=UUID(str(review["id"])),
         findings=findings,
         escalations_created=escalations_created,
-        facts_considered=len(facts),
+        facts_considered=len(prepared.facts),
+        degraded=computed.degraded,
     )
+
+
+def run_consistency_review(
+    conn: Any, *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> ConsistencyReviewResult:
+    """Single-connection composition of the three phases (direct
+    callers / tests). The request path uses the phased variant so the
+    provider call never sits inside a transaction (PERF-016)."""
+    prepared = _prepare_consistency_review(
+        conn, actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
+    )
+    computed = _compute_consistency_findings(prepared)
+    return _persist_consistency_review(conn, prepared, computed)
+
+
+def run_consistency_review_phased(
+    *, actor_sub: str, matter_id: UUID, session_id: UUID
+) -> ConsistencyReviewResult:
+    """Request-path entry: manages its own short transactions —
+    read/prepare, provider call with NO transaction open, persist —
+    mirroring attorney_review.run_review (PERF-016)."""
+    with db.transaction() as conn:
+        prepared = _prepare_consistency_review(
+            conn, actor_sub=actor_sub, matter_id=matter_id, session_id=session_id
+        )
+    computed = _compute_consistency_findings(prepared)
+    with db.transaction() as conn:
+        return _persist_consistency_review(conn, prepared, computed)

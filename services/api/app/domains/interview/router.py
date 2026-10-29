@@ -459,7 +459,8 @@ def consistency_review(
     claims: Annotated[Claims, Depends(get_current_user)],
 ) -> ConsistencyReviewOut:
     """AI consistency check over verified facts; findings become attorney questions."""
-    with db.transaction() as conn:
-        return service.consistency_review(
-            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
-        )
+    # Phased (PERF-016): the service manages short prepare/persist
+    # transactions itself so the provider call holds no transaction.
+    return service.consistency_review_phased(
+        actor_sub=claims.sub, matter_id=matter_id, session_id=session_id
+    )
