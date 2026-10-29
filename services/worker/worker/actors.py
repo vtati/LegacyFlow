@@ -196,16 +196,33 @@ def _count_suppressed_reminders(cur: Any) -> int:
     return int(cur.fetchone()["suppressed"])
 
 
-def _select_due_reminders(cur: Any, batch_size: int) -> list[dict[str, Any]]:
+def _select_due_reminders(
+    cur: Any, batch_size: int
+) -> tuple[list[dict[str, Any]], int | None]:
     """Lock and return due reminders whose recipients have not opted out.
 
     Users with ``notification_preferences.reminder_enabled = false`` or a
     non-null ``unsubscribed_at`` are skipped (their rows stay unsent so a
     later re-subscribe still delivers them).
+
+    PERF-007: the suppressed count rides along as a scalar column on the
+    same query (one statement, supported by the partial index on
+    ``reminders (scheduled_for) WHERE sent_at IS NULL``) instead of a
+    separate full COUNT on every dispatch. Returns ``(rows, count)``;
+    the count is ``None`` when no deliverable row was selected (the
+    caller falls back to the standalone count on that cold path only).
     """
     cur.execute(
         """
-        SELECT r.*
+        SELECT r.*, (
+            SELECT COUNT(*)
+            FROM reminders r2
+            LEFT JOIN notification_preferences np2 ON np2.user_id = r2.user_id
+            WHERE r2.sent_at IS NULL
+              AND r2.scheduled_for <= now()
+              AND NOT (np2.user_id IS NULL
+                       OR (np2.reminder_enabled AND np2.unsubscribed_at IS NULL))
+        ) AS suppressed_count
         FROM reminders r
         LEFT JOIN notification_preferences np ON np.user_id = r.user_id
         WHERE r.sent_at IS NULL
@@ -218,7 +235,13 @@ def _select_due_reminders(cur: Any, batch_size: int) -> list[dict[str, Any]]:
         """,
         (batch_size,),
     )
-    return [dict(row) for row in cur.fetchall()]
+    rows = [dict(row) for row in cur.fetchall()]
+    if not rows:
+        return rows, None
+    suppressed = int(rows[0].get("suppressed_count") or 0)
+    for row in rows:
+        row.pop("suppressed_count", None)
+    return rows, suppressed
 
 
 def _enqueue_reminder_notification(cur: Any, reminder: dict[str, Any]) -> None:
@@ -288,24 +311,42 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
     delivered reminder with a generic subject (FR-FUND-004), marks
     ``sent_at`` idempotently, and records an audit event per send.
 
-    Returns ``{"processed": p, "queued": q, "skipped": s}`` where
-    ``processed`` counts due rows examined and ``queued`` counts only
-    successful enqueues (FUNC-017). Never logs reminder payloads or
-    recipient PII — only counts (contract rule 9).
+    Returns ``{"processed": p, "queued": q, "skipped": s, "failed": f}``
+    where ``processed`` counts due rows examined, ``queued`` counts only
+    successful enqueues (FUNC-017), and ``failed`` counts rows whose
+    enqueue failed (ERR-002 — previously indistinguishable from a
+    successful run). Never logs reminder payloads or recipient PII —
+    only ids and counts (contract rule 9).
+
+    Quarantine note (ERR-002): the ``reminders`` schema has no
+    attempts/failure-state column, so a poison row cannot be given a
+    terminal failed state here — it stays unsent and is retried on the
+    next scheduled dispatch, but every failure is now exception-logged
+    with its id and counted in ``failed``; permanently failing ACTOR
+    messages (as opposed to single rows) land in ``worker_dead_letters``
+    via the ERR-003 dead-letter path.
     """
     settings = get_worker_settings()
     if not settings.DATABASE_URL:
         logger.warning("DATABASE_URL is not set; send_due_reminders has nothing to dispatch.")
-        return {"processed": 0, "queued": 0, "skipped": 0}
+        return {"processed": 0, "queued": 0, "skipped": 0, "failed": 0}
 
     processed = 0
     queued = 0
     skipped = 0
+    failed = 0
     with get_connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
-                skipped = _count_suppressed_reminders(cur)
-                due = _select_due_reminders(cur, batch_size)
+                due, folded_skipped = _select_due_reminders(cur, batch_size)
+                # PERF-007: the folded count covers the hot path; the
+                # standalone COUNT only runs when nothing deliverable
+                # was selected (cold path) so `skipped` stays truthful.
+                skipped = (
+                    folded_skipped
+                    if folded_skipped is not None
+                    else _count_suppressed_reminders(cur)
+                )
             for reminder in due:
                 # FUNC-017: counters track reality — ``processed``
                 # counts rows examined, ``queued`` counts only
@@ -325,21 +366,24 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
                                 )
                             _audit_reminder_sent(cur, reminder)
                 except Exception:
-                    logger.warning(
+                    # ERR-002: exception-level log WITH the reminder id
+                    # (was a warning) + honest failure count.
+                    logger.exception(
                         "send_due_reminders: reminder %s could not be queued; "
                         "leaving it unsent",
                         reminder_id,
-                        exc_info=True,
                     )
+                    failed += 1
                     continue
                 queued += 1
     logger.info(
-        "send_due_reminders processed batch: processed=%d queued=%d skipped=%d",
+        "send_due_reminders processed batch: processed=%d queued=%d skipped=%d failed=%d",
         processed,
         queued,
         skipped,
+        failed,
     )
-    return {"processed": processed, "queued": queued, "skipped": skipped}
+    return {"processed": processed, "queued": queued, "skipped": skipped, "failed": failed}
 
 
 # ---------------------------------------------------------------------------

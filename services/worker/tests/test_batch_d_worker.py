@@ -75,6 +75,40 @@ CREATE TABLE IF NOT EXISTS file_uploads (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS reminders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id uuid NOT NULL,
+  matter_id uuid,
+  user_id uuid NOT NULL,
+  reminder_type text NOT NULL,
+  scheduled_for timestamptz NOT NULL,
+  sent_at timestamptz,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id uuid PRIMARY KEY,
+  email_enabled boolean NOT NULL DEFAULT true,
+  reminder_enabled boolean NOT NULL DEFAULT true,
+  unsubscribed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS audit_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id uuid,
+  matter_id uuid,
+  actor_user_id uuid,
+  actor_type text NOT NULL,
+  action text NOT NULL,
+  resource_type text NOT NULL,
+  resource_id uuid,
+  correlation_id uuid,
+  before_summary jsonb,
+  after_summary jsonb,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE OR REPLACE FUNCTION fail_row_update() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'synthetic row failure';
@@ -211,4 +245,109 @@ def test_scan_pending_db_error_row_does_not_roll_back_scanned_row(
         with psycopg.connect(batch_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute("DROP TRIGGER IF EXISTS trg_fail_scan ON file_uploads")
+        _clear_dsn()
+
+
+# ---------------------------------------------------------------------------
+# ERR-002 + PERF-007: dispatch failure ledger/logging; folded count
+# ---------------------------------------------------------------------------
+
+
+def _insert_due_reminder(dsn: str, user_id: uuid.UUID) -> uuid.UUID:
+    import psycopg
+
+    rid = uuid.uuid4()
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO reminders (id, firm_id, user_id, reminder_type, scheduled_for)"
+                " VALUES (%s, %s, %s, 'signing_checklist_due', now() - interval '1 hour')",
+                (str(rid), str(uuid.uuid4()), str(user_id)),
+            )
+    return rid
+
+
+def test_dispatch_failure_logs_exception_and_counts_failed(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ERR-002: a failing reminder produces logger.exception with the
+    reminder id and is counted in the returned ledger's ``failed``."""
+    import logging
+
+    import psycopg
+
+    from worker import actors
+
+    _use_dsn(monkeypatch, batch_dsn)
+    try:
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "TRUNCATE reminders, notification_preferences, notification_outbox, audit_events"
+                )
+        user = uuid.uuid4()
+        good_id = _insert_due_reminder(batch_dsn, user)
+        bad_id = _insert_due_reminder(batch_dsn, user)
+        real_enqueue = actors._enqueue_reminder_notification
+
+        def flaky(cur: Any, reminder: dict[str, Any]) -> None:
+            if str(reminder["id"]) == str(bad_id):
+                raise RuntimeError("outbox unavailable (synthetic)")
+            return real_enqueue(cur, reminder)
+
+        monkeypatch.setattr(actors, "_enqueue_reminder_notification", flaky)
+        with caplog.at_level(logging.ERROR, logger="worker.actors"):
+            ledger = actors.dispatch_due_reminders(batch_size=100)
+        assert ledger == {"processed": 2, "queued": 1, "skipped": 0, "failed": 1}
+        failures = [
+            r for r in caplog.records
+            if r.levelno >= logging.ERROR and str(bad_id) in r.getMessage()
+        ]
+        assert failures, "expected an ERROR log naming the failed reminder id"
+        assert failures[0].exc_info is not None, "must be logger.exception (exc_info set)"
+        with psycopg.connect(batch_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT sent_at FROM reminders WHERE id=%s", (str(good_id),))
+                assert cur.fetchone()[0] is not None
+                cur.execute("SELECT sent_at FROM reminders WHERE id=%s", (str(bad_id),))
+                assert cur.fetchone()[0] is None
+    finally:
+        _clear_dsn()
+
+
+def test_dispatch_suppressed_count_folded_into_selection(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PERF-007: when deliverable rows are selected, the suppressed
+    count comes from that same query — no separate COUNT round-trip."""
+    import psycopg
+
+    from worker import actors
+
+    _use_dsn(monkeypatch, batch_dsn)
+    try:
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "TRUNCATE reminders, notification_preferences, notification_outbox, audit_events"
+                )
+        _insert_due_reminder(batch_dsn, uuid.uuid4())
+        opted_out = uuid.uuid4()
+        _insert_due_reminder(batch_dsn, opted_out)
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO notification_preferences (user_id, reminder_enabled)"
+                    " VALUES (%s, false)",
+                    (str(opted_out),),
+                )
+
+        def _boom(cur: Any) -> int:
+            raise AssertionError("separate suppressed COUNT ran on the hot path")
+
+        monkeypatch.setattr(actors, "_count_suppressed_reminders", _boom)
+        ledger = actors.dispatch_due_reminders(batch_size=100)
+        assert ledger["queued"] == 1
+        assert ledger["skipped"] == 1
+    finally:
         _clear_dsn()

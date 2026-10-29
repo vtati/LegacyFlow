@@ -226,7 +226,7 @@ def test_dispatch_queues_due_reminders_and_marks_sent(
 
         ledger = actors.dispatch_due_reminders(batch_size=100)
 
-        assert ledger == {"processed": 1, "queued": 1, "skipped": 0}
+        assert ledger == {"processed": 1, "queued": 1, "skipped": 0, "failed": 0}
         rows = _outbox_rows(reminders_dsn)
         assert len(rows) == 1
         assert rows[0]["template_key"] == "reminder.due"
@@ -264,7 +264,7 @@ def test_dispatch_skips_opted_out_users(
 
         ledger = actors.dispatch_due_reminders(batch_size=100)
 
-        assert ledger == {"processed": 0, "queued": 0, "skipped": 2}
+        assert ledger == {"processed": 0, "queued": 0, "skipped": 2, "failed": 0}
         assert _outbox_rows(reminders_dsn) == []
         # Skipped rows stay unsent so a later re-subscribe still delivers.
         assert _fetch_reminder(reminders_dsn, disabled_id)["sent_at"] is None
@@ -292,7 +292,7 @@ def test_dispatch_second_run_is_noop(reminders_dsn: str, monkeypatch: pytest.Mon
         second = actors.dispatch_due_reminders(batch_size=100)
 
         assert first["queued"] == 1
-        assert second == {"processed": 0, "queued": 0, "skipped": 0}
+        assert second == {"processed": 0, "queued": 0, "skipped": 0, "failed": 0}
         # Still exactly one outbox row: the idempotent sent_at update
         # prevents double-enqueueing.
         assert len(_outbox_rows(reminders_dsn)) == 1
@@ -337,6 +337,7 @@ def test_dispatch_without_database_warns(monkeypatch: pytest.MonkeyPatch) -> Non
             "processed": 0,
             "queued": 0,
             "skipped": 0,
+            "failed": 0,
         }
     finally:
         get_worker_settings.cache_clear()
@@ -380,7 +381,7 @@ def test_dispatch_failed_enqueue_counts_honestly(
 
         ledger = actors.dispatch_due_reminders(batch_size=100)
 
-        assert ledger == {"processed": 2, "queued": 1, "skipped": 0}
+        assert ledger == {"processed": 2, "queued": 1, "skipped": 0, "failed": 1}
         assert _fetch_reminder(reminders_dsn, good_id)["sent_at"] is not None
         assert _fetch_reminder(reminders_dsn, bad_id)["sent_at"] is None
         assert len(_outbox_rows(reminders_dsn)) == 1
