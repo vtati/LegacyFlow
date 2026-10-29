@@ -346,6 +346,37 @@ def test_auto_confirm_bundle_verdict_still_confirms_material_key(monkeypatch) ->
     assert calls["save"] == [{"primary_executor_person": "Pat Example"}]
 
 
+def test_auto_confirm_batch_uncoercible_value_stays_proposed(monkeypatch) -> None:
+    """I-1 regression: a batched save_answers coerces non-strictly for
+    multi-key saves and SILENTLY DROPS uncoercible values, so a batch
+    containing a boolean proposal with a non-boolean draft value (the
+    deterministic-fallback path can emit one) must not be reported
+    confirmed — its answer was never written and no card would ever
+    surface. Semantic chosen for the fix: the uncoercible proposal is
+    excluded BEFORE deciding (it remains ``proposed`` for manual card
+    review); the valid proposal in the same batch still confirms —
+    the batch is NOT rolled back."""
+    from uuid import uuid4
+
+    router, calls = _auto_confirm_harness(monkeypatch)
+    turn_out = _turn_out_with(
+        [
+            ("primary_residence_state", "Virginia", "user_stated", 0.95),
+            # Boolean question, non-boolean / non yes-no draft value.
+            ("has_debts", "perhaps", "user_stated", 0.95),
+        ]
+    )
+    confirmed = router._auto_confirm_proposals(turn_out, "sub", uuid4())
+    assert confirmed == 1
+    by_key = {p.question_key: p.status for p in turn_out.proposals}
+    assert by_key["primary_residence_state"] == "confirmed"
+    assert by_key["has_debts"] == "proposed", (
+        "uncoercible proposal must not be phantom-confirmed"
+    )
+    assert len(calls["decide"]) == 1, "uncoercible proposal must not be decided"
+    assert calls["save"] == [{"primary_residence_state": "Virginia"}]
+
+
 def test_turn_out_history_incomplete_defaults_false() -> None:
     from uuid import uuid4
 

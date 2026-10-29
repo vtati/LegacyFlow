@@ -11,6 +11,7 @@ import logging
 
 from app.core import db
 from app.core.deps import get_current_user
+from app.core.errors import ValidationAppError
 from app.core.security import Claims
 from app.domains.intake import question_sets as qs
 from app.domains.intake import service as intake_service
@@ -190,12 +191,43 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
             actor_id = matters_service.caller_id(actor_sub)
             pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
             material_keys = _material_question_keys(pack)
+            questions_by_key = {
+                str(q.get("key")): q
+                for _, _, q in qs.iter_questions(pack.question_sets)
+            }
             answers: dict[str, Any] = {}
             for p in candidates:
                 if p.question_key in material_keys and p.source != "bundle":
                     # SEC-013: never auto-confirm a legally material
                     # key on the model's say-so.
                     continue
+                # I-1: pre-coerce with the SAME rules save_answers
+                # applies. A batched (multi-key) save coerces
+                # non-strictly and silently DROPS uncoercible values,
+                # so deciding such a proposal first would phantom-
+                # confirm it — status confirmed, answer never written,
+                # card never surfaces. Exclude it BEFORE the CAS: it
+                # stays ``proposed`` for manual card review. The
+                # coerced value (not the raw draft) is what is saved,
+                # so what save_answers receives always survives its
+                # own coercion pass.
+                question = questions_by_key.get(p.question_key)
+                if question is None:
+                    coerced_value = p.proposed_value
+                else:
+                    try:
+                        coerced_value = intake_service._coerce_answer_value(
+                            question, p.proposed_value
+                        )
+                    except ValidationAppError:
+                        logger.warning(
+                            "Auto-confirm: proposal %s for %r is "
+                            "uncoercible; leaving it proposed for "
+                            "manual review",
+                            p.id,
+                            p.question_key,
+                        )
+                        continue
                 # Compare-and-set FIRST: if the user already decided
                 # this proposal (e.g. rejected a fabrication while a
                 # slow turn was retrying), the CAS matches nothing and
@@ -206,7 +238,7 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
                 )
                 if not row:
                     continue
-                answers[p.question_key] = p.proposed_value
+                answers[p.question_key] = coerced_value
                 decided.append(p)
             if answers:
                 intake_service.save_answers(
