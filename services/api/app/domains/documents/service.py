@@ -127,6 +127,25 @@ class DocumentAssemblyDisabledError(ConflictError):
     )
 
 
+class PackageAlreadyReleasedError(ConflictError):
+    """Demo generation attempted on a released package (HTTP 409).
+
+    The machine-readable ``code`` is ``package_already_released``
+    (FUNC-007): a released package holds FINAL versions; re-running
+    the demo path would silently downgrade it to ``demo_released``
+    and append DRAFTs after the FINALs. Post-release changes belong
+    to the amendment flow.
+    """
+
+    type = "urn:legacyflow:error:package_already_released"
+    title = "Package already released"
+    detail = (
+        "This package has already been released; demo documents cannot "
+        "be generated for it. Post-release changes go through the "
+        "amendment flow."
+    )
+
+
 class DraftsMissingError(ConflictError):
     """Submit attempted before the current draft set was generated (HTTP 409).
 
@@ -1964,12 +1983,20 @@ def _render_demo_package(
 def generate_demo(
     conn: Any, *, actor_sub: str, package_id: UUID
 ) -> tuple[sch.DocumentPackageOut, list[sch.DocumentVersionOut]]:
-    """Render DOCX+PDF demo versions for a package and mark it demo_released."""
+    """Render DOCX+PDF demo versions for a package and mark it demo_released.
+
+    FUNC-007: refuses a ``released`` package with 409
+    ``package_already_released`` — the guard sits at this entry point
+    only, NOT in the shared render core, so the family draft-set path
+    (which operates pre-release) is unaffected.
+    """
     actor_id = _actor_id(actor_sub)
     package = _require_package(conn, package_id)
     scope = authz.require_matter_firm_role(
         conn, UUID(str(package["matter_id"])), actor_id, authz.STAFF_ROLES
     )
+    if str(package.get("status")) == "released":
+        raise PackageAlreadyReleasedError()
     matter = scope.matter
     pack_id, jurisdiction_code, semantic_version = _matter_pack_ref(matter)
     _require_document_assembly(

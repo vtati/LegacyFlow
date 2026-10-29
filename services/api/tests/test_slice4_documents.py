@@ -1019,6 +1019,30 @@ def test_send_reminders_worker(db):
 # ---------------------------------------------------------------------------
 
 
+def test_generate_demo_on_released_package_is_409(db, api_client):
+    """FUNC-007: generate_demo must refuse a released package (409,
+    code package_already_released) instead of downgrading it to
+    demo_released and appending DRAFT versions after FINALs."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    template = create_template_via_api(api_client, ADMIN_B, WILL_TEMPLATE)
+    package = create_package_via_api(api_client, STAFF_A, matter_id, template["id"])
+    _exec(db, "UPDATE document_packages SET status = 'released' WHERE id = %s", (package["id"],))
+
+    response = api_client.post(
+        f"/v1/packages/{package['id']}/generate-demo", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "package_already_released"
+
+    with db.cursor() as cur:
+        cur.execute("SELECT status FROM document_packages WHERE id = %s", (package["id"],))
+        assert cur.fetchone()["status"] == "released"
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM document_versions WHERE package_id = %s", (package["id"],)
+        )
+        assert cur.fetchone()["n"] == 0
+
+
 def test_funding_task_list_returns_stored_digest(db, api_client):
     """PERF-003: the evidence digest on the list path comes from the
     stored file_uploads.sha256 — set when the evidence was uploaded."""
