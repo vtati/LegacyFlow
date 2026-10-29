@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from app.core import db
 from app.core.config import Settings
 from app.core.errors import AppError, AuthError, NotFoundError
 from app.core.security import Claims
@@ -52,7 +53,10 @@ class IdentityService:
             user_id = UUID(claims.sub)
         except ValueError as exc:
             raise AuthError("The token subject is invalid.") from exc
-        row = ProfileRepository(database_url).get_profile(user_id)
+        # PERF-022: read through the core connection pool, not a fresh
+        # per-call connection.
+        with db.get_connection() as conn:
+            row = ProfileRepository().get_profile(conn, user_id)
         if row is None:
             raise ProfileNotFoundError()
         return ProfileOut.model_validate(row)
