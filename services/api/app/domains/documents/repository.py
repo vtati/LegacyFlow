@@ -121,9 +121,22 @@ FILE_UPLOAD_COLUMNS = (
 
 
 def get_file_upload(conn: Any, upload_id: UUID) -> dict[str, Any] | None:
-    """Return a file_uploads row by id, or ``None``."""
+    """Return a file_uploads row by id, or ``None``.
+
+    PERF-009: explicit column list (``FILE_UPLOAD_COLUMNS``) — SELECT *
+    dragged the ~20KB extracted_text blob (plus the vault-analysis
+    columns) into every caller. Caller audit: _evidence_out
+    (filename/size/sha256), the version-render paths merged into
+    _version_out (filename/mime), update_funding_task (firm_id), the
+    notary package builder (stored_path) — none needs extracted_text,
+    key_facts, or tags; those reads belong to the files domain's own
+    repository.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM file_uploads WHERE id = %s", (str(upload_id),))
+        cur.execute(
+            f"SELECT {FILE_UPLOAD_COLUMNS} FROM file_uploads WHERE id = %s",
+            (str(upload_id),),
+        )
         row = cur.fetchone()
     return dict(row) if row else None
 
