@@ -503,6 +503,10 @@ def _sync_testator_name(
             == "primary_client"
         ]
         if primary_members:
+            # Deliberately conservative: multiple primary_client rows
+            # are treated as corruption elsewhere, and any() fails
+            # toward abstention in that state (one linked row is
+            # enough to block creation).
             may_create = any(
                 not m.get("person_id") for m in primary_members
             )
@@ -510,10 +514,36 @@ def _sync_testator_name(
             # No primary_client membership row to read (legacy
             # households): the original no-adults signal governs.
             may_create = not adults
+        # The abstention invariant applies to the placeholder-fill
+        # branch too, not only to creation: if a primary_client
+        # membership is linked to a person carrying a real (non-
+        # placeholder) name different from the confirmed name, that
+        # is the same genuine identity conflict — a stray blank /
+        # "Unknown person" adult elsewhere in the household must not
+        # be renamed to the conflicting name (triage review M1).
+        persons_by_id = {str(p.get("id")): p for p in persons}
+        primary_conflict = any(
+            (
+                (linked := persons_by_id.get(str(m.get("person_id") or "")))
+                is not None
+                and str(linked.get("full_name") or "").strip()
+                not in ("", "Unknown person")
+                and str(linked.get("full_name") or "").strip().lower()
+                != name.lower()
+            )
+            for m in primary_members
+        )
         with conn.cursor() as cur:
             cur.execute("SAVEPOINT lf_testator_sync")
         try:
-            if unknown:
+            if primary_conflict:
+                logger.warning(
+                    "Testator name sync abstained: primary_client "
+                    "membership is linked to a differently-named person "
+                    "(household %s)",
+                    household_id,
+                )
+            elif unknown:
                 household_repo.update_person(
                     conn,
                     UUID(str(unknown[0]["id"])),

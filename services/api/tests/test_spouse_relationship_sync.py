@@ -793,6 +793,9 @@ def test_unresolvable_testator_logs_warning(db, caplog):
     answers = dict(MARRIED_ANSWERS, testator_full_name="Rohan Sharma")
     with caplog.at_level(logging.WARNING, logger="app.domains.intake.service"):
         save(db, matter_id, answers)
+    # M4 (triage review): the conflicting name must not merely fail to
+    # anchor a spouse row — no person carrying it may exist at all.
+    assert person_by_name(db, household_id, "Rohan Sharma") is None
     assert spouse_rows(db, household_id) == []
     warnings = [
         r for r in caplog.records if r.levelno >= logging.WARNING
@@ -801,3 +804,86 @@ def test_unresolvable_testator_logs_warning(db, caplog):
         "testator" in r.getMessage().lower() and household_id in r.getMessage()
         for r in warnings
     ), [r.getMessage() for r in warnings]
+
+
+def person_by_id(db, person_id: str):
+    rows = _all(db, "SELECT * FROM persons WHERE id = %s", (person_id,))
+    return rows[0] if rows else None
+
+
+def test_conflicting_primary_link_plus_placeholder_abstains(db, caplog):
+    """M1 (triage review): the abstention invariant must hold on the
+    placeholder-fill branch too, not only on the create branch.
+
+    The primary_client membership is linked to a real, differently-
+    named person (Arjun Sharma) AND a stray blank/"Unknown person"
+    adult exists. A save naming "Rohan Sharma" is a genuine identity
+    conflict: the unknown-fill branch runs BEFORE the may_create
+    check in the pre-fix code, so it renamed the placeholder to the
+    conflicting name instead of abstaining. Post-fix: the placeholder
+    keeps its name, no Rohan person is minted, and the unresolvable-
+    testator warning still fires."""
+    import logging
+
+    household_id, matter_id = build_world(db)
+    linked_testator = insert_person(db, household_id, TESTATOR)
+    _exec(
+        db,
+        "UPDATE household_members SET person_id = %s"
+        " WHERE household_id = %s AND relationship_role = 'primary_client'",
+        (linked_testator, household_id),
+    )
+    placeholder_id = insert_person(db, household_id, "Unknown person")
+    answers = dict(MARRIED_ANSWERS, testator_full_name="Rohan Sharma")
+    with caplog.at_level(logging.WARNING, logger="app.domains.intake.service"):
+        save(db, matter_id, answers)
+    placeholder = person_by_id(db, placeholder_id)
+    assert placeholder is not None
+    assert placeholder["full_name"] == "Unknown person"
+    assert person_by_name(db, household_id, "Rohan Sharma") is None
+    assert person_by_name(db, household_id, TESTATOR) is not None
+    assert spouse_rows(db, household_id) == []
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(
+        "testator" in r.getMessage().lower() and household_id in r.getMessage()
+        for r in warnings
+    ), [r.getMessage() for r in warnings]
+
+
+# ---------------------------------------------------------------------------
+# M3 (triage review): the legacy no-membership-row branch of the
+# testator capture had no in-tree regression test. A client-actor save
+# cannot reach it (matter scope resolves via the membership row), so
+# these call the sync directly — the branch under test is the sync's.
+# ---------------------------------------------------------------------------
+
+
+def _delete_membership_row(db, household_id: str) -> None:
+    _exec(db, "DELETE FROM household_members WHERE household_id = %s",
+          (household_id,))
+
+
+def test_legacy_no_membership_with_existing_adult_abstains(db):
+    household_id, _matter_id = build_world(db)
+    _delete_membership_row(db, household_id)
+    insert_person(db, household_id, "Existing Adult")
+    intake_service._sync_testator_name(
+        db, household_id=UUID(household_id),
+        answers={"testator_full_name": TESTATOR},
+    )
+    db.commit()
+    assert person_by_name(db, household_id, TESTATOR) is None
+    persons = _all(db, "SELECT * FROM persons WHERE household_id = %s",
+                   (household_id,))
+    assert len(persons) == 1
+
+
+def test_legacy_no_membership_with_no_adults_creates(db):
+    household_id, _matter_id = build_world(db)
+    _delete_membership_row(db, household_id)
+    intake_service._sync_testator_name(
+        db, household_id=UUID(household_id),
+        answers={"testator_full_name": TESTATOR},
+    )
+    db.commit()
+    assert person_by_name(db, household_id, TESTATOR) is not None
