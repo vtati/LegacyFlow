@@ -31,7 +31,7 @@ from app.domains.documents import service as documents_service
 from app.domains.interview import consistency as consistency_module
 from app.domains.interview import extraction as extraction_module
 from app.domains.interview import text_extract
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 ADMIN_SUB = "aaaaaaaa-1111-1111-1111-111111111111"
 CLIENT_SUB = "dddddddd-4444-4444-4444-444444444444"
@@ -70,7 +70,7 @@ CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT current_setting('app.test_uid', true)::uuid $$;
-"""
+""" + STORAGE_BUCKETS_STUB
 
 
 @pytest.fixture(scope="session")

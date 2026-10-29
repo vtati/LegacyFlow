@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
 from tests.conftest import (
+    STORAGE_BUCKETS_STUB,
     TEST_AUDIENCE,
     TEST_ISSUER,
     TEST_SECRET,
@@ -67,11 +68,7 @@ CREATE TABLE IF NOT EXISTS auth.users (
 );
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-CREATE SCHEMA IF NOT EXISTS storage;
-CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean
-);
-"""
+""" + STORAGE_BUCKETS_STUB
 
 
 # ---------------------------------------------------------------------------

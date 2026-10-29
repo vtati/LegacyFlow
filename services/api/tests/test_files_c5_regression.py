@@ -44,7 +44,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 ATTORNEY_A = "a1111111-1111-1111-1111-111111111111"
 CLIENT_A = "a3333333-3333-3333-3333-333333333333"
@@ -70,11 +70,7 @@ AS $$ SELECT NULL::uuid $$;
 -- The storage-buckets migration inserts into storage.buckets; stub the
 -- schema/table so the migration sweep can run on a bare pgserver
 -- (same stub as test_slice4_documents.py / test_interview.py).
-CREATE SCHEMA IF NOT EXISTS storage;
-CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean
-);
-"""
+""" + STORAGE_BUCKETS_STUB
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"

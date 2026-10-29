@@ -40,7 +40,7 @@ from app.domains.interview.state_machine import (
     SessionStatus,
     validate_transition,
 )
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 # ---------------------------------------------------------------------------
 # Synthetic identities (fixed UUIDs so tests read deterministically)
@@ -90,11 +90,7 @@ AS $$ SELECT current_setting('app.test_uid', true)::uuid $$;
 -- The storage-buckets migration inserts into storage.buckets; stub the
 -- schema/table so the migration sweep can run on a bare pgserver
 -- (same stub as test_slice4_documents.py / test_family_draft_documents.py).
-CREATE SCHEMA IF NOT EXISTS storage;
-CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean
-);
-"""
+""" + STORAGE_BUCKETS_STUB
 
 RLS_ROLE = "interview_rls_test"
 

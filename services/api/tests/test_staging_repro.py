@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 ADMIN = "d1111111-1111-1111-1111-111111111111"
 
@@ -27,10 +27,15 @@ SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jur
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+-- raw_user_meta_data/raw_app_meta_data: the handle_new_user trigger
+-- (migration 20261001130000) reads them; mirror the real auth.users shape.
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-"""
+""" + STORAGE_BUCKETS_STUB
 
 TRUNCATE_TABLES = (
     "feature_flags, document_templates, document_packages, document_versions,"
@@ -43,8 +48,13 @@ TRUNCATE_TABLES = (
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def pg_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
+    # Session scope, like every other DB test module: a fresh pgserver
+    # per test made later tests inherit pooled connections to a server
+    # the previous test's cleanup had already shut down
+    # (psycopg AdminShutdown / initdb failures). Per-test isolation is
+    # provided by the db fixture's TRUNCATE, not by the server.
     try:
         import pgserver
     except ImportError:
@@ -104,7 +114,8 @@ def seed_admin_with_matter(db) -> str:
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (ADMIN, "admin@example.test"))
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (ADMIN, "admin@example.test", "Admin"),
     )
     firm_id = str(uuid4())
@@ -165,7 +176,12 @@ def test_feature_flags_list(db, api_client):
     seed_admin_with_matter(db)
     r = api_client.get("/v1/admin/feature-flags", headers=_auth())
     assert r.status_code == 200, r.text
-    assert len(r.json()) == 4
+    # The known-flag registry grows with the product (interview_v2 and
+    # attorney_reviewer were added after this repro was written); pin
+    # the count to the service's own registry instead of a literal.
+    from app.domains.feature_flags.service import KNOWN_FLAG_DEFAULTS
+
+    assert len(r.json()) == len(KNOWN_FLAG_DEFAULTS)
 
 
 def test_feature_flags_blank_env_treated_as_unset(db, api_client, monkeypatch):

@@ -22,6 +22,7 @@ from psycopg.rows import dict_row
 
 from app.domains.assets import service as asset_service
 from tests.conftest import (
+    STORAGE_BUCKETS_STUB,
     TEST_AUDIENCE,
     TEST_ISSUER,
     TEST_SECRET,
@@ -67,10 +68,15 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+-- raw_user_meta_data/raw_app_meta_data: the handle_new_user trigger
+-- (migration 20261001130000) reads them; mirror the real auth.users shape.
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-"""
+""" + STORAGE_BUCKETS_STUB
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +151,8 @@ def create_user(db, sub: str) -> None:
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (sub, email, f"Synthetic {email}"),
     )
 

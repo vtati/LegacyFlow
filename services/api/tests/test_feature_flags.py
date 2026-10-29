@@ -31,7 +31,7 @@ from psycopg.rows import dict_row
 from pypdf import PdfReader
 
 from app.domains.feature_flags import service as flags_service
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 # ---------------------------------------------------------------------------
 # Synthetic identities (fixed UUIDs so tests read deterministically)
@@ -64,10 +64,15 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+-- raw_user_meta_data/raw_app_meta_data: the handle_new_user trigger
+-- (migration 20261001130000) reads them; mirror the real auth.users shape.
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-"""
+""" + STORAGE_BUCKETS_STUB
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"
@@ -176,7 +181,8 @@ def create_user(db, sub: str) -> None:
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (sub, email, f"Synthetic {email}"),
     )
 
@@ -252,6 +258,11 @@ def insert_flag(db, key: str, scope: str, scope_ref: str, is_enabled: bool) -> N
         "INSERT INTO feature_flags (key, scope, scope_ref, is_enabled) VALUES (%s, %s, %s, %s)",
         (key, scope, scope_ref, is_enabled),
     )
+    # d029f42 added a 60s in-process resolution cache to the flags
+    # service; a direct-SQL insert bypasses the service's own cache
+    # invalidation, so clear it here or later resolves in the same test
+    # keep returning the pre-insert resolution.
+    flags_service._flag_cache.clear()
 
 
 def setup_firm(db):
@@ -411,12 +422,10 @@ def test_flag_admin_endpoints(db, api_client):
     response = api_client.get("/v1/admin/feature-flags", headers=auth(ADMIN_A))
     assert response.status_code == 200, response.text
     by_key = {flag["key"]: flag for flag in response.json()}
-    assert set(by_key) == {
-        "document_assembly",
-        "ai_assistance",
-        "funding_reminders",
-        "ai_interviewer",
-    }
+    # The known-flag set grows with the product (interview_v2 and
+    # attorney_reviewer were added after this test was written); pin it
+    # to the service's own registry instead of a frozen literal list.
+    assert set(by_key) == set(flags_service.KNOWN_FLAG_DEFAULTS)
     assert by_key["document_assembly"]["is_enabled"] is False
     assert by_key["document_assembly"]["source"] == "default"
     assert by_key["ai_assistance"]["is_enabled"] is True
@@ -523,12 +532,29 @@ def test_assembly_allowed_when_flag_on_and_capability_true(db, api_client, monke
     assert DEMO_TEXT in pdf_text(download.content)
 
 
-def test_assembly_blocked_when_capability_false(db, api_client, monkeypatch):
+def test_assembly_blocked_when_capability_false(db, api_client, monkeypatch, tmp_path):
     """Flag on but pack manifest capability false -> still 409 (fail closed)."""
     monkeypatch.setenv("LF_FLAG_DOCUMENT_ASSEMBLY", "1")
-    # Point the loader at the real content-packs: us-va declares
-    # document_assembly: false.
-    monkeypatch.setenv("CONTENT_PACKS_DIR", str(REPO_CONTENT_PACKS_DIR))
+    # The repo us-va pack now declares document_assembly: true, so the
+    # capability-false case needs its own scratch pack: same identity
+    # as the fixture matter's snapshot (us-va / US-VA / 0.1.0) with the
+    # capability explicitly false.
+    manifest = {
+        "pack": {
+            "id": "us-va",
+            "country_code": "US",
+            "subdivision_code": "VA",
+            "display_name": "Synthetic VA Pack (capability off)",
+            "semantic_version": "0.1.0",
+            "status": "approved",
+            "effective_from": "2026-09-27",
+        },
+        "capabilities": {"intake": True, "document_assembly": False},
+    }
+    packs_dir = tmp_path / "content-packs" / "us-va" / "v0"
+    packs_dir.mkdir(parents=True)
+    (packs_dir / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(tmp_path / "content-packs"))
     firm_id = setup_firm(db)
     household_id = create_household(db, firm_id, ADMIN_A)
     matter_id = insert_matter(db, firm_id, household_id, pack_id="us-va", jurisdiction_code="US-VA")
@@ -566,6 +592,21 @@ def test_assembly_blocked_when_pack_unknown(db, api_client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _pin_platform_admin(monkeypatch) -> None:
+    """Pin the platform-admin allowlist to ADMIN_A (SEC-009).
+
+    Since SEC-009 (commit 1c9e275) pack lifecycle transitions are
+    platform-admin only — a firm role must never authorize one. With
+    an empty allowlist in a non-production env every authenticated
+    user counts as a platform admin, so the role assertions below
+    only mean anything with the allowlist pinned.
+    """
+    monkeypatch.setenv("PLATFORM_ADMIN_USER_IDS", ADMIN_A)
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+
 def _transition(api_client: TestClient, pack_ref: str, sub: str, to_status: str):
     return api_client.post(
         f"/v1/admin/packs/{pack_ref}/transition",
@@ -574,7 +615,8 @@ def _transition(api_client: TestClient, pack_ref: str, sub: str, to_status: str)
     )
 
 
-def test_pack_transition_ordering_enforced(db, api_client):
+def test_pack_transition_ordering_enforced(db, api_client, monkeypatch):
+    _pin_platform_admin(monkeypatch)
     setup_firm(db)
     pack_uuid = create_jurisdiction_pack(db, status="draft")
 
@@ -591,13 +633,13 @@ def test_pack_transition_ordering_enforced(db, api_client):
     # Non-admin staff cannot transition at all.
     assert _transition(api_client, pack_uuid, STAFF_A, "internal_testing").status_code == 403
 
-    # draft -> internal_testing (firm_admin).
+    # draft -> internal_testing (platform admin).
     response = _transition(api_client, pack_uuid, ADMIN_A, "internal_testing")
     assert response.status_code == 200, response.text
     assert response.json()["from_status"] == "draft"
     assert response.json()["to_status"] == "internal_testing"
 
-    # internal_testing -> attorney_review (firm_admin).
+    # internal_testing -> attorney_review (platform admin).
     response = _transition(api_client, pack_uuid, ADMIN_A, "attorney_review")
     assert response.status_code == 200, response.text
 
@@ -612,15 +654,25 @@ def test_pack_transition_ordering_enforced(db, api_client):
     assert _transition(api_client, pack_uuid, ADMIN_A, "approved").status_code == 409
 
 
-def test_pack_approval_requires_attorney_or_admin(db, api_client):
+def test_pack_approval_requires_attorney_or_admin(db, api_client, monkeypatch):
+    # SEC-009 superseded this test's original contract: approval is no
+    # longer granted by firm roles at all (attorney / firm_admin) —
+    # pack transitions, including the approved step, are platform-admin
+    # only, because a firm role is self-grantable via firm creation.
+    # The test now pins that contract: firm staff AND a firm attorney
+    # get 403; the pinned platform admin (ADMIN_A) approves.
+    _pin_platform_admin(monkeypatch)
     setup_firm(db)
     pack_uuid = create_jurisdiction_pack(db, status="attorney_review")
 
     # Staff (not attorney, not admin) cannot approve.
     assert _transition(api_client, pack_uuid, STAFF_A, "approved").status_code == 403
 
-    # An attorney who is not a firm_admin can approve.
-    response = _transition(api_client, pack_uuid, ATTORNEY_A, "approved")
+    # A firm attorney who is not a platform admin cannot approve either.
+    assert _transition(api_client, pack_uuid, ATTORNEY_A, "approved").status_code == 403
+
+    # The platform admin can approve.
+    response = _transition(api_client, pack_uuid, ADMIN_A, "approved")
     assert response.status_code == 200, response.text
     assert response.json()["to_status"] == "approved"
 
@@ -632,7 +684,7 @@ def test_pack_approval_requires_attorney_or_admin(db, api_client):
         )
         row = cur.fetchone()
     assert row["status"] == "approved"
-    assert str(row["approved_by_user_id"]) == ATTORNEY_A
+    assert str(row["approved_by_user_id"]) == ADMIN_A
     assert row["approved_at"] is not None
 
     # Every transition emitted a packs.status_changed audit event.

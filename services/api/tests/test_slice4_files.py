@@ -34,7 +34,7 @@ from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
 from app.domains.files import service as files_service
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 # ---------------------------------------------------------------------------
 # Synthetic identities (fixed UUIDs so tests read deterministically)
@@ -74,10 +74,15 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+-- raw_user_meta_data/raw_app_meta_data: the handle_new_user trigger
+-- (migration 20261001130000) reads them; mirror the real auth.users shape.
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-"""
+""" + STORAGE_BUCKETS_STUB
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"
@@ -147,12 +152,24 @@ def api_client(pg_uri, monkeypatch, tmp_path):
     from app.core.config import get_settings
 
     get_settings.cache_clear()  # force settings reload for the new env
+    # The worker scanner resolves its settings through its own
+    # lru_cached get_worker_settings(); without a clear it keeps the
+    # FIRST test's STORAGE_DIR for the whole file, so scans in later
+    # tests look for uploads in a previous test's tmp dir and report
+    # them "missing". Clear it alongside the API settings.
+    if str(WORKER_DIR) not in sys.path:
+        sys.path.insert(0, str(WORKER_DIR))
+    from worker.settings import get_worker_settings
+
+    get_worker_settings.cache_clear()
     from app.domains.files.router import router as files_router
     from app.main import create_app
 
     app = create_app()
     app.include_router(files_router, prefix="/v1")
-    return TestClient(app)
+    yield TestClient(app)
+    get_worker_settings.cache_clear()
+    get_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +188,8 @@ def create_user(db, sub: str) -> None:
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (sub, email, f"Synthetic {email}"),
     )
 

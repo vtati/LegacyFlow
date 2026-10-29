@@ -29,6 +29,8 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
+from tests.conftest import STORAGE_BUCKETS_STUB
+
 from app.domains.documents import service as documents_service
 from app.domains.intake import service as intake_service
 
@@ -56,11 +58,7 @@ CREATE TABLE IF NOT EXISTS auth.users (
 );
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-CREATE SCHEMA IF NOT EXISTS storage;
-CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean
-);
-"""
+""" + STORAGE_BUCKETS_STUB
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"

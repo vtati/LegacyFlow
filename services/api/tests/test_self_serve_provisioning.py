@@ -30,7 +30,7 @@ import yaml
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, mint_token
+from tests.conftest import TEST_AUDIENCE, TEST_ISSUER, TEST_SECRET, STORAGE_BUCKETS_STUB, mint_token
 
 # ---------------------------------------------------------------------------
 # Synthetic identities
@@ -79,11 +79,7 @@ CREATE TABLE IF NOT EXISTS auth.users (
 );
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
-CREATE SCHEMA IF NOT EXISTS storage;
-CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean
-);
-"""
+""" + STORAGE_BUCKETS_STUB
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "supabase" / "migrations"
 SEED_FILE = Path(__file__).resolve().parents[3] / "supabase" / "seeds" / "01_jurisdictions.sql"

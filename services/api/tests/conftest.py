@@ -21,6 +21,23 @@ TEST_EMAIL = "synthetic.user@example.com"
 TEST_AUDIENCE = "authenticated"
 
 
+# Shared pgserver stub for the Supabase Storage schema (Batch F1,
+# FUNC-028 class): the storage-buckets migration
+# (20261002160000_storage_buckets.sql) INSERTs into storage.buckets,
+# which does not exist on a bare pgserver. Every DB-backed test module
+# that applies the full migration sweep appends this fragment to its
+# own AUTH_STUB (the auth.users shape differs per file, so only this
+# identical fragment is hoisted). Previously each file carried its own
+# copy — and several files were missing it entirely, erroring every
+# DB test in the file with UndefinedTable: storage.buckets.
+STORAGE_BUCKETS_STUB = """
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE TABLE IF NOT EXISTS storage.buckets (
+    id text PRIMARY KEY, name text, public boolean
+);
+"""
+
+
 def mint_token(
     *,
     sub: str = TEST_SUB,
