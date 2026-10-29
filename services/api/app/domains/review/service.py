@@ -748,6 +748,17 @@ def _import_pack_dir(
     if not isinstance(manifest, dict):
         raise ValidationAppError("The pack manifest.yaml is not a mapping.")
     normalized = _validate_manifest(manifest)
+    # M-1: keep the stored manifest faithful to the source bundle, but
+    # store effective_from in its normalized ISO form. yaml.safe_load
+    # turns an UNQUOTED effective_from into a date/datetime object,
+    # which is not JSON-serializable and does not belong in the stored
+    # manifest; every other field is stored exactly as authored.
+    stored_manifest = dict(manifest)
+    pack_section = manifest.get("pack")
+    if isinstance(pack_section, dict):
+        stored_pack = dict(pack_section)
+        stored_pack["effective_from"] = normalized["effective_from"]
+        stored_manifest["pack"] = stored_pack
 
     computed_hash = _bundle_hash(pack_dir)
     if expected_bundle_hash and expected_bundle_hash != computed_hash:
@@ -774,7 +785,7 @@ def _import_pack_dir(
             version=normalized["semantic_version"],
             status=normalized["status"],
             effective_from=str(normalized["effective_from"]),
-            manifest=manifest,
+            manifest=stored_manifest,
             source_bundle_hash=computed_hash,
         )
     except psycopg.errors.UniqueViolation as exc:

@@ -263,6 +263,63 @@ def test_firm_admin_cannot_transition_pack_with_allowlist_in_force(api_client, d
     assert resp.status_code == 403, resp.text
 
 
+def test_platform_admin_import_pack_with_unquoted_effective_from(api_client, db, tmp_path) -> None:
+    # M-1 regression: an UNQUOTED YAML effective_from is loaded by
+    # yaml.safe_load as a datetime.date object, not a string. Import
+    # must succeed (not 500 on json.dumps of the raw manifest) and the
+    # stored row must carry the normalized ISO date string.
+    _create_user(db, PLATFORM_ADMIN)
+    pack_dir = tmp_path / "unquoted-pack"
+    pack_dir.mkdir()
+    (pack_dir / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "pack:",
+                "  id: us-zz-unquoted",
+                "  country_code: US",
+                "  subdivision_code: ZZ",
+                "  display_name: Zedland (synthetic)",
+                "  semantic_version: 1.0.0",
+                "  status: approved",
+                "  effective_from: 2026-09-26",
+                "capabilities: {}",
+                "requirements: {}",
+                "sources: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    resp = api_client.post(
+        "/v1/admin/packs/import",
+        data={"pack_dir": str(pack_dir)},
+        headers=_auth(PLATFORM_ADMIN),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["pack_id"] == "us-zz-unquoted"
+    assert body["jurisdiction_code"] == "US-ZZ"
+    assert body["version"] == "1.0.0"
+    assert body["status"] == "draft"
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT jp.* FROM jurisdiction_packs jp"
+            " JOIN jurisdictions j ON j.id = jp.jurisdiction_id"
+            " WHERE j.country_code = 'US' AND j.subdivision_code = 'ZZ'"
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["status"] == "draft"
+    assert str(row["effective_from"]) == "2026-09-26"
+    stored_manifest = row["manifest"]
+    if isinstance(stored_manifest, str):
+        import json
+
+        stored_manifest = json.loads(stored_manifest)
+    assert stored_manifest["pack"]["effective_from"] == "2026-09-26"
+    assert stored_manifest["pack"]["id"] == "us-zz-unquoted"
+
+
 def test_firm_admin_cannot_import_pack_with_allowlist_in_force(api_client, db) -> None:
     _create_user(db, FIRM_ADMIN)
     firm_id = str(uuid4())

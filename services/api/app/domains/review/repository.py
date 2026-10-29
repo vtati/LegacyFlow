@@ -475,7 +475,12 @@ def insert_jurisdiction_pack(
                 version,
                 status,
                 effective_from,
-                json.dumps(manifest),
+                # default=str: YAML manifests can carry date/datetime
+                # objects (unquoted effective_from) — JSON has no date
+                # type, so serialize them as their ISO-ish string form
+                # instead of raising TypeError (M-1). Sibling dumps in
+                # this module already use default=str.
+                json.dumps(manifest, default=str),
                 source_bundle_hash,
             ),
         )
