@@ -156,6 +156,104 @@ def test_pack_bundle_extracted_size_cap(monkeypatch) -> None:
     assert imported == []
 
 
+def test_pack_bundle_member_write_failures_map_to_422(tmp_path) -> None:
+    """m-2 (Batch C3 follow-up): a member chain through a non-directory
+    (``evil_link`` written as a file, then ``evil_link/x`` beneath it)
+    fails member writes with NotADirectoryError/FileExistsError — that
+    must surface as the 422 validation shape, never a raw 500."""
+    import stat
+
+    from app.core.errors import ValidationAppError
+    from app.domains.review import service as review_service
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        link = zipfile.ZipInfo("evil_link")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(link, "/tmp")
+        archive.writestr("evil_link/x.txt", "payload")
+    buffer.seek(0)
+    with zipfile.ZipFile(buffer) as archive_file:
+        with pytest.raises(ValidationAppError) as excinfo:
+            review_service._extract_pack_bundle(archive_file, tmp_path)
+    assert excinfo.value.status == 422
+
+
+def test_pack_bundle_encrypted_member_maps_to_422(tmp_path) -> None:
+    """m-2: a member whose read raises RuntimeError (encrypted /
+    unsupported compression) maps to the same 422 shape."""
+    from app.core.errors import ValidationAppError
+    from app.domains.review import service as review_service
+
+    class _Info:
+        filename = "secret.txt"
+        file_size = 10
+
+        def is_dir(self) -> bool:
+            return False
+
+    class _EncryptedArchive:
+        def infolist(self):
+            return [_Info()]
+
+        def open(self, info):  # noqa: ANN001, ANN202
+            raise RuntimeError("File <ZipInfo 'secret.txt'> is encrypted")
+
+    with pytest.raises(ValidationAppError) as excinfo:
+        review_service._extract_pack_bundle(_EncryptedArchive(), tmp_path)  # type: ignore[arg-type]
+    assert excinfo.value.status == 422
+
+
+def test_pack_bundle_member_named_like_archive_cannot_corrupt_read(monkeypatch, tmp_path) -> None:
+    """m-2: a member named ``bundle.zip`` (the uploaded archive's own
+    temp name) must not overwrite the archive while it is being read:
+    members extract into a subdirectory distinct from the archive."""
+    from app.domains.review import service as review_service
+
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    captured: dict[str, object] = {}
+
+    def stub_import(conn, actor_id, pack_dir, *, expected_bundle_hash=None):  # noqa: ANN001, ANN202
+        captured["pack_dir"] = pack_dir
+        # The uploaded archive must still exist, intact, as a SIBLING of
+        # the extraction directory (pre-fix the extraction dir WAS the
+        # archive's directory and the member overwrote the archive).
+        sibling_archive = pack_dir.parent / "bundle.zip"
+        captured["archive_intact"] = (
+            sibling_archive.is_file()
+            and sibling_archive.read_bytes() == captured["bundle_bytes"]
+        )
+        captured["files"] = {
+            p.relative_to(pack_dir).as_posix(): p.read_bytes()
+            for p in sorted(pack_dir.rglob("*")) if p.is_file()
+        }
+        return "imported"
+
+    monkeypatch.setattr(review_service, "_import_pack_dir", stub_import)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        # Hostile member FIRST: overwriting the archive mid-read would
+        # corrupt every member read after it (pre-fix behaviour).
+        archive.writestr("bundle.zip", b"member-bytes-not-the-archive")
+        archive.writestr("manifest.yaml", "pack: {}")
+    captured["bundle_bytes"] = buffer.getvalue()
+    bundle = StarletteUploadFile(filename="pack.zip", file=io.BytesIO(buffer.getvalue()))
+    result = review_service.import_pack(
+        object(), actor_sub=str(uuid4()), bundle=bundle  # type: ignore[arg-type]
+    )
+    assert result == "imported"
+    assert captured["archive_intact"] is True
+    # The importer saw the manifest intact AND the bundle.zip member as
+    # its own file — the archive read was never corrupted.
+    assert captured["files"]["manifest.yaml"] == b"pack: {}"  # type: ignore[index]
+    assert captured["files"]["bundle.zip"] == b"member-bytes-not-the-archive"  # type: ignore[index]
+
+
 def test_interview_extraction_rejects_oversize_before_service(monkeypatch) -> None:
     from app.domains.interview import router as interview_router
 

@@ -117,19 +117,31 @@ def _extract_pack_bundle(archive_file: zipfile.ZipFile, dest: Path) -> None:
             raise ValidationAppError(
                 f"The pack bundle member {info.filename!r} escapes the pack directory."
             )
-        if info.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with archive_file.open(info) as source, target.open("wb") as out:
-            while chunk := source.read(65536):
-                extracted_total += len(chunk)
-                if extracted_total > PACK_BUNDLE_MAX_EXTRACTED_BYTES:
-                    raise ValidationAppError(
-                        "The pack bundle's extracted size exceeds the "
-                        f"{PACK_BUNDLE_MAX_EXTRACTED_BYTES // (1024 * 1024)} MB limit."
-                    )
-                out.write(chunk)
+        try:
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive_file.open(info) as source, target.open("wb") as out:
+                while chunk := source.read(65536):
+                    extracted_total += len(chunk)
+                    if extracted_total > PACK_BUNDLE_MAX_EXTRACTED_BYTES:
+                        raise ValidationAppError(
+                            "The pack bundle's extracted size exceeds the "
+                            f"{PACK_BUNDLE_MAX_EXTRACTED_BYTES // (1024 * 1024)} MB limit."
+                        )
+                    out.write(chunk)
+        except ValidationAppError:
+            raise
+        except (OSError, RuntimeError) as exc:
+            # m-2: member-write failures (FileExistsError /
+            # NotADirectoryError from a member chain through a
+            # non-directory, RuntimeError from an encrypted or
+            # unsupported member) are client-bundle defects — the same
+            # 422 shape as BadZipFile, never a raw 500.
+            raise ValidationAppError(
+                f"The pack bundle member {info.filename!r} could not be extracted."
+            ) from exc
 
 
 def _out[M: BaseModel](row: dict[str, Any], model: type[M]) -> M:
@@ -798,13 +810,18 @@ def import_pack(
         with tempfile.TemporaryDirectory(prefix="legacyflow-pack-") as tmp:
             archive = Path(tmp) / "bundle.zip"
             archive.write_bytes(bundle_bytes)
+            # m-2: members extract into a SUBDIRECTORY distinct from the
+            # archive's location — a member named "bundle.zip" must
+            # never overwrite the archive while it is still being read.
+            extract_dir = Path(tmp) / "extracted"
+            extract_dir.mkdir()
             try:
                 with zipfile.ZipFile(archive) as archive_file:
-                    _extract_pack_bundle(archive_file, Path(tmp))
+                    _extract_pack_bundle(archive_file, extract_dir)
             except zipfile.BadZipFile as exc:
                 raise ValidationAppError("The uploaded bundle is not a valid zip archive.") from exc
             return _import_pack_dir(
-                conn, actor_id, Path(tmp), expected_bundle_hash=expected_bundle_hash
+                conn, actor_id, extract_dir, expected_bundle_hash=expected_bundle_hash
             )
     if pack_dir:
         source = Path(pack_dir)
