@@ -20,17 +20,19 @@ export function AccountMenu({ user }: AccountMenuProps): React.JSX.Element {
 
   useEffect(() => {
     if (!open) return;
-    // UI-023: closing returns focus to the trigger — without it,
-    // keyboard focus is dropped to <body> when the menu unmounts.
-    const closeAndRestoreFocus = (): void => {
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
+    // UI-023: an Escape close returns focus to the trigger — without
+    // it, keyboard focus is dropped to <body> when the menu unmounts.
+    // An outside-mousedown close must NOT move focus: the pointer
+    // user's click target takes focus itself, and forcing the trigger
+    // here would race (and usually beat) that.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') closeAndRestoreFocus();
+      if (e.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
     };
     const onClick = (e: MouseEvent): void => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeAndRestoreFocus();
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onClick);
