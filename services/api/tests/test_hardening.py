@@ -136,9 +136,41 @@ def test_rate_limiter_blocks_after_threshold(client, fresh_limits) -> None:
     assert body["title"] == "Rate limit exceeded"
 
 
-def test_healthz_exempt_from_rate_limit(client, fresh_limits) -> None:
+def test_healthz_exempt_from_rate_limit(client, fresh_limits, monkeypatch) -> None:
     fresh_limits.setenv("RATE_LIMIT_DEFAULT_PER_MINUTE", "1")
     get_settings.cache_clear()
+    # What this test asserts is the rate-limit EXEMPTION (never a 429),
+    # not DB health: /healthz returns 503 by design when its DB check
+    # fails, and the plain test client has no database configured, so
+    # the check is stubbed to healthy (same seam as test_health.py) to
+    # isolate the exemption. The 503 path itself is pinned by
+    # test_health.py::test_healthz_degraded_when_db_check_raises.
+    import contextlib
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, *args):
+            return None
+
+        def fetchone(self):
+            return (1,)
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+    @contextlib.contextmanager
+    def _fake_transaction():
+        yield _Conn()
+
+    from app.core import db as db_module
+
+    monkeypatch.setattr(db_module, "transaction", _fake_transaction)
     for _ in range(5):
         response = client.get("/healthz")
         assert response.status_code == 200

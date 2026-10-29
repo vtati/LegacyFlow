@@ -588,9 +588,12 @@ def test_matter_create_with_va_pack_snapshot(api_client: TestClient, db) -> None
     snapshot = matter["jurisdiction_snapshot"]
     assert snapshot["pack_id"] == "us-va"
     assert snapshot["jurisdiction_code"] == "US-VA"
-    assert snapshot["semantic_version"] == "0.1.0"
+    # Matter creation snapshots the resolver's current VA pack, which
+    # is the v2 pack (semantic_version 2.0.0, question sets 2.0.0)
+    # since f8786cf — not the 0.1.0 / 1.0.0 pair asserted originally.
+    assert snapshot["semantic_version"] == "2.0.0"
     assert isinstance(snapshot["rule_ids"], list) and snapshot["rule_ids"]
-    assert snapshot["question_set_versions"]["household"] == "1.0.0"
+    assert snapshot["question_set_versions"]["household"] == "2.0.0"
     assert matter["completeness_pct"] == 9  # lifecycle position of INTAKE_IN_PROGRESS
     with db.cursor() as cur:
         cur.execute(

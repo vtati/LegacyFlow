@@ -119,7 +119,10 @@ def test_va_pack_manifest():
     pack = get_pack("US-VA")
     assert pack.manifest.pack_id == "us-va"
     assert pack.manifest.jurisdiction_code == "US-VA"
-    assert pack.manifest.semantic_version == "0.1.0"
+    # The loader resolves the highest pack version on disk; that is the
+    # v2 pack (semantic_version 2.0.0, added by f8786cf for Interview
+    # v2), not the original 0.1.0 v0 pack this assertion predates.
+    assert pack.manifest.semantic_version == "2.0.0"
     assert len(pack.escalation_rules) == 7
     assert all(r.id.startswith("VA-ESC-") for r in pack.escalation_rules)
 
@@ -159,7 +162,8 @@ def test_question_sets_present():
     assert "guardians" in va.question_sets
     assert "assets" in va.question_sets
     household = va.question_sets["household"]
-    assert household["question_set"]["version"] == "1.0.0"
+    # v2 pack question sets are version 2.0.0 (see test_va_pack_manifest).
+    assert household["question_set"]["version"] == "2.0.0"
 
 
 def test_pack_listing():

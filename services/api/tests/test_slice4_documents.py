@@ -461,6 +461,29 @@ def test_template_delete_blocked_when_packages_reference_it(db, api_client):
 
 def test_package_lifecycle_and_demo_generation(db, api_client):
     _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    # f8786cf added the intake-completeness gate to demo generation
+    # (409 intake_incomplete while applicable required answers are
+    # missing); seed every required v0 answer so the gate passes, the
+    # same setup test_generate_demo_blanks_unknown_tokens uses.
+    for key, value in {
+        "marital_status": "single",
+        "primary_residence_state": "VA",
+        "has_minor_children": False,
+        "has_child_with_special_needs": False,
+        "has_prior_marriage_or_children_outside_current_relationship": False,
+        "owns_real_estate_outside_primary_jurisdiction": False,
+        "owns_or_controls_business_interest": False,
+        "expects_family_conflict": False,
+        "primary_guardian_person": "Synthetic Guardian",
+        "asset_categories_present": ["bank_account"],
+        "has_debts": False,
+    }.items():
+        _exec(
+            db,
+            "INSERT INTO intake_answers (matter_id, question_key, answer)"
+            " VALUES (%s, %s, %s::jsonb)",
+            (matter_id, key, json.dumps(value)),
+        )
     template = create_template_via_api(api_client, ADMIN_B, WILL_TEMPLATE)
 
     # household client cannot create a package
@@ -488,7 +511,10 @@ def test_package_lifecycle_and_demo_generation(db, api_client):
     for version in body["versions"]:
         assert version["is_demo"] is True
         assert version["watermark_text"] == DEMO_TEXT
-        assert version["file_name"].endswith("-DEMO." + version["file_format"])
+        # a6cbe7d replaced the user-visible DEMO wording with DRAFT:
+        # demo versions are named *-DRAFT.<format> (suffix logic in
+        # documents service: FINAL when unwatermarked, else DRAFT).
+        assert version["file_name"].endswith("-DRAFT." + version["file_format"])
         assert version["download_url"].startswith("/v1/document-versions/")
 
     docx_version = next(v for v in body["versions"] if v["file_format"] == "docx")
