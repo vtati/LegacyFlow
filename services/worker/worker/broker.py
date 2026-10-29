@@ -7,6 +7,17 @@ middleware carries the broker-level fallback bounds (max 3 retries,
 5s–1h backoff); each actor in ``worker/actors.py`` narrows those with
 its own ``max_retries``/backoff/``max_age`` options and names
 ``record_dead_letter`` as its ``on_retry_exhausted`` sink.
+
+Two give-up paths exist and they are NOT equivalent: a message that
+exhausts its retries is forwarded to ``record_dead_letter`` and
+persisted in ``worker_dead_letters``; a message that exceeds its
+``max_age`` is dropped by the ``AgeLimit`` middleware with only a
+WARNING log — it never reaches the dead-letter sink. Age-expired
+messages are dropped BY DESIGN and recovered by the periodic drains
+instead: reminder dispatch re-runs each cadence (the
+``send_due_reminders`` drain re-derives its work from the reminders
+table), and ``scan_file`` is recovered by ``scan_pending_uploads``,
+which re-derives pending uploads from ``file_uploads``.
 """
 
 from __future__ import annotations

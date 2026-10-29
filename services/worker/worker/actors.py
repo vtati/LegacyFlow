@@ -34,7 +34,12 @@ broker = get_broker()
 # worker/broker.py). Batch drains are idempotent and run on schedules,
 # so their max_age matches the schedule cadence; scans get more retries
 # because storage blips are transient. Every work actor names the
-# dead-letter sink so an exhausted message is recorded, never dropped.
+# dead-letter sink, so a RETRY-EXHAUSTED message is recorded in
+# worker_dead_letters. That guarantee does NOT cover age expiry: the
+# AgeLimit middleware drops a message older than max_age with a WARNING
+# and it never reaches the sink — dropped by design, and recovered by
+# the periodic drains (reminder dispatch re-runs each cadence;
+# scan_file is recovered by scan_pending_uploads). See broker.py.
 _DEAD_LETTER = "record_dead_letter"
 
 
