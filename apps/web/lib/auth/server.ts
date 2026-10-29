@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import type { AuthSession } from './adapter';
 import { MOCK_SESSION_COOKIE } from './constants';
 import { isMockAuth } from './adapter';
+import { parseMockSessionCookie } from './mock-session';
 
 /**
  * Server-side session read. Mock mode: parse the `lf_mock_session` cookie.
@@ -12,16 +13,9 @@ export async function getServerSession(): Promise<AuthSession | null> {
   const cookieStore = await cookies();
 
   if (isMockAuth()) {
-    const raw = cookieStore.get(MOCK_SESSION_COOKIE)?.value;
-    if (!raw) return null;
-    try {
-      const session = JSON.parse(decodeURIComponent(raw)) as AuthSession;
-      if (!session?.user?.id) return null;
-      if (new Date(session.expiresAt).getTime() < Date.now()) return null;
-      return session;
-    } catch {
-      return null;
-    }
+    // Shared with the middleware (SEC-001) so both surfaces apply the
+    // exact same well-formed + unexpired validation.
+    return parseMockSessionCookie(cookieStore.get(MOCK_SESSION_COOKIE)?.value);
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

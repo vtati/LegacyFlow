@@ -1,15 +1,21 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { MOCK_SESSION_COOKIE } from './lib/auth/constants';
+import { mockAuthDecision } from './lib/auth/mock-session';
 
 function isMockAuth(): boolean {
   return !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 }
 
-function toLogin(request: NextRequest): NextResponse {
+function toLogin(request: NextRequest, error?: string): NextResponse {
   const url = request.nextUrl.clone();
   url.pathname = '/login';
-  url.searchParams.set('next', request.nextUrl.pathname);
+  url.search = '';
+  if (error) {
+    url.searchParams.set('error', error);
+  } else {
+    url.searchParams.set('next', request.nextUrl.pathname);
+  }
   return NextResponse.redirect(url);
 }
 
@@ -33,9 +39,19 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   if (isMockAuth()) {
-    const session = request.cookies.get(MOCK_SESSION_COOKIE)?.value;
-    if (!session) return toLogin(request);
-    return NextResponse.next();
+    // SEC-001 (fail closed): mock mode is a local-dev convenience only.
+    // In production an unset Supabase config is a misconfiguration, not
+    // an invitation to trust a cookie — redirect to login with an error
+    // flag instead of passing. Outside production, the cookie must
+    // still parse as a well-formed, unexpired session (the same
+    // validation getServerSession applies); mere presence is not proof.
+    const decision = mockAuthDecision({
+      nodeEnv: process.env.NODE_ENV,
+      cookieValue: request.cookies.get(MOCK_SESSION_COOKIE)?.value,
+    });
+    if (decision === 'pass') return NextResponse.next();
+    if (decision === 'misconfigured') return toLogin(request, 'auth_unavailable');
+    return toLogin(request);
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
