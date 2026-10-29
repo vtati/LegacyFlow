@@ -14,11 +14,19 @@ import inspect
 def test_dictate_and_extract_handlers_are_sync() -> None:
     from app.domains.interview import router
 
-    assert not inspect.iscoroutinefunction(router.dictate), (
-        "dictate must be a plain def handler (threadpool offload)"
-    )
     assert not inspect.iscoroutinefunction(router.extract_document), (
         "extract_document must be a plain def handler (threadpool offload)"
+    )
+    # Batch C3 (SEC-014) supersedes the plain-def shape for dictate
+    # ONLY: a sync handler cannot stream the request body, so the body
+    # was buffered whole before any size check. Dictate is now async
+    # solely to stream the body under a hard cap; the PERF-015
+    # invariant — blocking DB + Whisper work never runs on the event
+    # loop — is preserved by offloading the service call through
+    # run_in_threadpool, asserted here.
+    assert inspect.iscoroutinefunction(router.dictate)
+    assert "run_in_threadpool" in inspect.getsource(router.dictate), (
+        "dictate must offload its blocking service work via run_in_threadpool"
     )
 
 
