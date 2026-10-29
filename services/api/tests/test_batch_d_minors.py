@@ -93,3 +93,38 @@ def test_import_pack_with_valid_escalation_severity_still_imports(
     )
     assert result.pack_id == "us-zz-import"
     assert len(registered) == 1
+
+
+# ---------------------------------------------------------------------------
+# M-3: ai/service._ensure_open_escalation must use the savepoint-isolated
+# insert like every other escalation writer, not the plain insert.
+# ---------------------------------------------------------------------------
+
+
+def test_ai_ensure_open_escalation_uses_isolated_insert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domains.ai import service as ai_service
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        ai_service.escalation_repo, "open_escalation_exists", lambda *a, **k: False
+    )
+    monkeypatch.setattr(
+        ai_service.escalation_repo,
+        "insert_escalation",
+        lambda *a, **k: calls.append("plain"),
+    )
+    monkeypatch.setattr(
+        ai_service.escalation_repo,
+        "insert_escalation_isolated",
+        lambda *a, **k: calls.append("isolated"),
+    )
+    ai_service._ensure_open_escalation(
+        object(),
+        matter_id=uuid4(),
+        rule_id="ai_refusal",
+        severity="review",
+        outcome="attorney_review",
+    )
+    assert calls == ["isolated"]

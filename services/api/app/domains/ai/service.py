@@ -217,7 +217,7 @@ def _ensure_open_escalation(
     """Record an open escalation idempotently per (matter, rule)."""
     if escalation_repo.open_escalation_exists(conn, matter_id, rule_id):
         return
-    escalation_repo.insert_escalation(
+    escalation_repo.insert_escalation_isolated(
         conn,
         matter_id=matter_id,
         rule_id=rule_id,
