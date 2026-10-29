@@ -193,6 +193,159 @@ def test_post_turn_phased_calls_provider_outside_transaction(monkeypatch) -> Non
     assert tracker.opened_total == 2, "expected prepare + persist transactions only"
 
 
+# ---------------------------------------------------------------------------
+# SEC-013 + PERF-019: auto-confirm must never write legally material
+# keys on the model's say-so, and the confirmable remainder must be
+# written in ONE save_answers call in ONE transaction.
+# ---------------------------------------------------------------------------
+
+
+def _auto_confirm_harness(monkeypatch):
+    """Stub the router's collaborators; return (calls, turn_out_factory)."""
+    import contextlib
+    from uuid import uuid4
+
+    from app.domains.interview import router
+    from app.domains.legal_content.pack_loader import get_pack
+
+    calls: dict[str, list] = {"decide": [], "save": [], "txns": []}
+
+    class _Cur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, *a, **k):
+            pass
+
+    class _Conn:
+        def cursor(self):
+            return _Cur()
+
+    @contextlib.contextmanager
+    def _txn():
+        calls["txns"].append(1)
+        yield _Conn()
+
+    monkeypatch.setattr(router.db, "transaction", _txn)
+
+    from app.domains.matters import service as matters_service
+
+    pack = get_pack("US-VA", "2.0.0")
+    monkeypatch.setattr(matters_service, "caller_id", lambda sub: uuid4())
+    monkeypatch.setattr(
+        matters_service, "load_matter_pack", lambda conn, mid: (pack, "US-VA", "2.0.0")
+    )
+    monkeypatch.setattr(
+        router.interview_repo,
+        "decide_proposal",
+        lambda conn, pid, **kw: calls["decide"].append(pid) or {"id": str(pid)},
+    )
+    monkeypatch.setattr(
+        router.intake_service,
+        "save_answers",
+        lambda conn, **kw: calls["save"].append(kw["answers"]),
+    )
+    monkeypatch.setattr(
+        router.service,
+        "_display_progress_for_matter",
+        lambda conn, pack_, mid: (50.0, [], 10, 5, []),
+    )
+    return router, calls
+
+
+def _turn_out_with(proposals):
+    from uuid import uuid4
+
+    from app.domains.interview.schemas import ProposalDraftOut, TurnOut
+
+    return TurnOut(
+        id=uuid4(),
+        session_id=uuid4(),
+        role="assistant",
+        reply="ok",
+        proposals=[
+            ProposalDraftOut(
+                id=uuid4(),
+                question_key=key,
+                proposed_value=value,
+                source=source,
+                confidence=conf,
+                source_snippet=None,
+                status="proposed",
+            )
+            for key, value, source, conf in proposals
+        ],
+        trace_hash="x",
+        completeness_pct=0.0,
+        missing_required_keys=[],
+    )
+
+
+def test_auto_confirm_never_confirms_material_keys(monkeypatch) -> None:
+    from uuid import uuid4
+
+    router, calls = _auto_confirm_harness(monkeypatch)
+    turn_out = _turn_out_with(
+        [
+            # Model-reported 0.95 on legally material keys: spouse
+            # (relationship sync) and a person-typed nomination key.
+            ("spouse_full_name", "Jamie Example", "user_stated", 0.95),
+            ("primary_executor_person", "Pat Example", "user_stated", 0.99),
+            ("minor_children_details", "Kid Example (7)", "user_stated", 0.95),
+        ]
+    )
+    confirmed = router._auto_confirm_proposals(turn_out, "sub", uuid4())
+    assert confirmed == 0
+    assert calls["decide"] == [], "material proposals must not even be decided"
+    assert calls["save"] == [], "material values must not reach intake answers"
+    assert all(p.status == "proposed" for p in turn_out.proposals)
+
+
+def test_auto_confirm_batches_non_material_into_one_save(monkeypatch) -> None:
+    from uuid import uuid4
+
+    router, calls = _auto_confirm_harness(monkeypatch)
+    turn_out = _turn_out_with(
+        [
+            ("primary_residence_state", "Virginia", "user_stated", 0.95),
+            ("funeral_wishes", "Cremation", "user_stated", 0.92),
+            ("organ_donation_wishes", "Yes", "user_stated", 0.5),  # too low
+        ]
+    )
+    confirmed = router._auto_confirm_proposals(turn_out, "sub", uuid4())
+    assert confirmed == 2
+    assert len(calls["txns"]) == 1, "batch must run in a single transaction"
+    assert len(calls["save"]) == 1, "batch must be a single save_answers call"
+    assert calls["save"][0] == {
+        "primary_residence_state": "Virginia",
+        "funeral_wishes": "Cremation",
+    }
+    by_key = {p.question_key: p.status for p in turn_out.proposals}
+    assert by_key["primary_residence_state"] == "confirmed"
+    assert by_key["funeral_wishes"] == "confirmed"
+    assert by_key["organ_donation_wishes"] == "proposed"
+    # Progress refreshed from the same transaction (PERF-019).
+    assert turn_out.completeness_pct == 50.0
+
+
+def test_auto_confirm_bundle_verdict_still_confirms_material_key(monkeypatch) -> None:
+    """Bundle proposals carry the user's own explicit YES verdict
+    (server-generated, source='bundle') — the SEC-013 block targets
+    model-asserted facts, not the user's verdict."""
+    from uuid import uuid4
+
+    router, calls = _auto_confirm_harness(monkeypatch)
+    turn_out = _turn_out_with(
+        [("primary_executor_person", "Pat Example", "bundle", 1.0)]
+    )
+    confirmed = router._auto_confirm_proposals(turn_out, "sub", uuid4())
+    assert confirmed == 1
+    assert calls["save"] == [{"primary_executor_person": "Pat Example"}]
+
+
 def test_turn_out_history_incomplete_defaults_false() -> None:
     from uuid import uuid4
 

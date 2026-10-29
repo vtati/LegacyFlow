@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, UploadFile
@@ -12,6 +12,7 @@ import logging
 from app.core import db
 from app.core.deps import get_current_user
 from app.core.security import Claims
+from app.domains.intake import question_sets as qs
 from app.domains.intake import service as intake_service
 from app.domains.interview import extraction as extraction_service
 from app.domains.interview import repository as interview_repo
@@ -91,17 +92,13 @@ def post_turn(
     turn_out = service.post_turn_phased(
         actor_sub=claims.sub, matter_id=matter_id, session_id=session_id, payload=payload
     )
-    # Auto-confirm high-confidence proposals AFTER the turn transaction
-    # commits, in a separate transaction with a statement timeout.
-    # (Doing save_answers inside the turn transaction hung indefinitely.)
-    # Best-effort: never let auto-confirm break the turn response.
+    # Auto-confirm high-confidence NON-MATERIAL proposals after the
+    # turn commits, batched into one transaction + one save_answers
+    # (PERF-019); legally material keys always surface as confirmation
+    # cards instead (SEC-013). Best-effort: never let auto-confirm
+    # break the turn response.
     try:
-        confirmed = _auto_confirm_proposals(turn_out, claims.sub, matter_id)
-        if confirmed:
-            # The turn's completeness snapshot was computed BEFORE its
-            # proposals existed; refresh it so the client shows the
-            # post-auto-confirm truth instead of lagging a turn behind.
-            _refresh_turn_progress(turn_out, matter_id)
+        _auto_confirm_proposals(turn_out, claims.sub, matter_id)
     except Exception:
         logging.getLogger(__name__).exception(
             "Auto-confirm failed; proposals left pending for manual review"
@@ -109,38 +106,69 @@ def post_turn(
     return turn_out
 
 
-def _refresh_turn_progress(turn_out: TurnOut, matter_id: UUID) -> None:
-    """Recompute completeness/missing after auto-confirm wrote answers."""
-    try:
-        with db.transaction() as conn:
-            from app.domains.matters import service as matters_service
+#: Answer keys whose save_answers write materializes legal facts about
+#: people, relationships, minors, or assets (SEC-013). A proposal for
+#: one of these keys is NEVER auto-confirmed on the model's
+#: self-reported confidence — it always surfaces as a confirmation
+#: card for explicit user review. This set holds the keys consumed by
+#: intake's household-graph syncs that are not already identifiable
+#: from pack metadata (see _material_question_keys): the spouse
+#: reconcile (marital_status / spouse_full_name), the testator-name
+#: sync (testator_full_name), the minors sync (has_minor_children /
+#: minor_children_details), and the asset materialization
+#: (asset_categories_present).
+_MATERIAL_SYNC_KEYS = frozenset(
+    {
+        "marital_status",
+        "spouse_full_name",
+        "testator_full_name",
+        "has_minor_children",
+        "minor_children_details",
+        "asset_categories_present",
+    }
+)
 
-            pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
-            (
-                completeness,
-                missing,
-                _total,
-                _answered,
-                parked_required,
-            ) = service._display_progress_for_matter(conn, pack, matter_id)
-            turn_out.completeness_pct = completeness
-            turn_out.missing_required_keys = missing
-            turn_out.parked_required_keys = parked_required
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "Progress refresh after auto-confirm failed", exc_info=True
-        )
+
+def _material_question_keys(pack: Any) -> set[str]:
+    """The legally material question keys for a matter's pack (SEC-013).
+
+    Principled definition, derived from the pack + the intake sync
+    triggers: a key is material when confirming it writes a person,
+    relationship, nomination, or asset fact — i.e. the question is
+    person-typed, binds to a nomination via ``maps_to``
+    (``nominations.<type>.<priority>``), or feeds one of intake's
+    household-graph syncs (_MATERIAL_SYNC_KEYS).
+    """
+    keys = set(_MATERIAL_SYNC_KEYS)
+    for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
+        key = str(question.get("key"))
+        if str(question.get("type") or "") == "person" or str(
+            question.get("maps_to") or ""
+        ).startswith("nominations."):
+            keys.add(key)
+    return keys
 
 
 def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) -> int:
     """Best-effort auto-confirm of high-confidence proposals.
 
-    Runs in its own transaction with a 10s statement timeout so it can
-    never hang the interview. Failures leave proposals pending for
-    manual card confirmation. Returns the number confirmed.
+    SEC-013: proposals for legally material keys (persons,
+    relationships, nominations, assets) are never auto-confirmed —
+    they stay ``proposed`` and surface as confirmation cards. The one
+    exception is bundle proposals (source ``bundle``): those carry the
+    user's own explicit YES verdict from the bundle offer, not a
+    model assertion.
+
+    PERF-019: all confirmable proposals are decided and written in
+    ONE transaction with ONE save_answers call (previously one
+    transaction + full save cascade per proposal), and the refreshed
+    progress is computed in that same transaction from the answers
+    just written. A failure anywhere rolls the batch back — every
+    proposal stays pending for manual card confirmation, and the
+    response only claims confirmations that actually committed.
+    Returns the number confirmed.
     """
     logger = logging.getLogger(__name__)
-    confirmed = 0
     try:
         candidates = [
             p for p in (turn_out.proposals or [])
@@ -153,42 +181,65 @@ def _auto_confirm_proposals(turn_out: TurnOut, actor_sub: str, matter_id: UUID) 
         return 0
     from app.domains.matters import service as matters_service
 
+    decided: list[Any] = []
+    progress: tuple[float, list[str], list[str]] | None = None
     try:
         with db.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '10s'")
             actor_id = matters_service.caller_id(actor_sub)
-    except Exception:
-        logger.warning("Auto-confirm: caller lookup failed; skipping")
-        return 0
-    # One transaction PER candidate: a failure (or a lost compare-and-set)
-    # on one proposal can neither poison nor overstate the others, and
-    # the response only claims confirmations that actually committed.
-    for p in candidates:
-        try:
-            with db.transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SET LOCAL statement_timeout = '10s'")
-                # Compare-and-set FIRST: if the user already decided this
-                # proposal (e.g. rejected a fabrication while a slow turn
-                # was retrying), the CAS matches nothing and the user's
-                # decision wins — no answer is written.
+            pack, _code, _version = matters_service.load_matter_pack(conn, matter_id)
+            material_keys = _material_question_keys(pack)
+            answers: dict[str, Any] = {}
+            for p in candidates:
+                if p.question_key in material_keys and p.source != "bundle":
+                    # SEC-013: never auto-confirm a legally material
+                    # key on the model's say-so.
+                    continue
+                # Compare-and-set FIRST: if the user already decided
+                # this proposal (e.g. rejected a fabrication while a
+                # slow turn was retrying), the CAS matches nothing and
+                # the user's decision wins — no answer is written.
                 row = interview_repo.decide_proposal(
                     conn, p.id, status="confirmed", corrected_value=None,
                     decided_by_user_id=actor_id, scrub_snippet=False,
                 )
                 if not row:
                     continue
+                answers[p.question_key] = p.proposed_value
+                decided.append(p)
+            if answers:
                 intake_service.save_answers(
                     conn, actor_sub=actor_sub, matter_id=matter_id,
-                    answers={p.question_key: p.proposed_value},
+                    answers=answers,
                 )
-            p.status = "confirmed"  # reflect in the response
-            confirmed += 1
-        except Exception:
-            logger.warning(
-                "Auto-confirm failed for %r, leaving as pending",
-                p.question_key,
-            )
-    return confirmed
+            if decided:
+                # The turn's completeness snapshot was computed BEFORE
+                # its proposals existed; refresh it from the answers
+                # this same transaction just wrote, so the client
+                # shows the post-auto-confirm truth.
+                (
+                    completeness,
+                    missing,
+                    _total,
+                    _answered,
+                    parked_required,
+                ) = service._display_progress_for_matter(conn, pack, matter_id)
+                progress = (completeness, missing, parked_required)
+    except Exception:
+        logger.warning(
+            "Auto-confirm batch failed; proposals left pending for manual review",
+            exc_info=True,
+        )
+        return 0
+    # Reflect only what actually committed.
+    for p in decided:
+        p.status = "confirmed"
+    if progress is not None:
+        turn_out.completeness_pct = progress[0]
+        turn_out.missing_required_keys = progress[1]
+        turn_out.parked_required_keys = progress[2]
+    return len(decided)
 
 
 @router.post(
