@@ -24,9 +24,11 @@ export default function LoginPage(): React.JSX.Element {
           <p className="font-lf-serif text-xl font-semibold tracking-tight text-white">
             {PRODUCT_NAME}
           </p>
-          <h1 className="mt-10 font-lf-serif text-4xl font-semibold leading-[1.1] tracking-tight text-white lg:text-[44px]">
+          {/* Editorial slogan is a subheading (UI-003): the form column's
+              "Sign in to LegacyFlow" is the page's h1. */}
+          <h2 className="mt-10 font-lf-serif text-4xl font-semibold leading-[1.1] tracking-tight text-white lg:text-[44px]">
             Pick up where you left off.
-          </h1>
+          </h2>
           <p className="mt-4 text-[15px] leading-relaxed text-white/75">
             Your plan waits exactly as you left it — every answer saved, every document in
             place.

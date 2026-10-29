@@ -115,7 +115,7 @@ export function LoginForm(): React.JSX.Element {
     <Card className="w-full max-w-md">
       <CardHeader className="items-center text-center">
         <LogoMark className="size-16" />
-        <CardTitle className="text-2xl">Sign in to LegacyFlow</CardTitle>
+        <CardTitle level={1} className="text-2xl">Sign in to LegacyFlow</CardTitle>
         <CardDescription>Use Google, your password, or a magic link sent to your email.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">

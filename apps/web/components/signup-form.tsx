@@ -64,7 +64,7 @@ export function SignUpForm(): React.JSX.Element {
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle className="text-2xl">Create your LegacyFlow account</CardTitle>
+        <CardTitle level={1} className="text-2xl">Create your LegacyFlow account</CardTitle>
         <CardDescription>Use your email and a password — no Google account needed.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">

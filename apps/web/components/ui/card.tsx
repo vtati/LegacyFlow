@@ -19,27 +19,48 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 CardHeader.displayName = 'CardHeader';
 
-const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3
-      ref={ref}
-      className={cn('font-semibold leading-none tracking-tight', className)}
-      {...props}
-    />
-  ),
+export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+export interface CardTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {
+  /**
+   * Heading level to render (UI-002). Defaults to h3 so existing callers
+   * are unchanged; pass level={1} where the card title is the page's
+   * primary heading (auth screens) or `as` for an explicit tag.
+   */
+  level?: HeadingLevel;
+  as?: `h${HeadingLevel}`;
+}
+
+function headingTag(level: HeadingLevel | undefined, as: CardTitleProps['as']): string {
+  return as ?? `h${level ?? 3}`;
+}
+
+const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ className, level, as, ...props }, ref) => {
+    const Tag = headingTag(level, as) as React.ElementType;
+    return (
+      <Tag
+        ref={ref}
+        className={cn('font-semibold leading-none tracking-tight', className)}
+        {...props}
+      />
+    );
+  },
 );
 CardTitle.displayName = 'CardTitle';
 
-const CardTitleEditorial = React.forwardRef<
-  HTMLHeadingElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn('font-lf-serif text-lg leading-none tracking-tight', className)}
-    {...props}
-  />
-));
+const CardTitleEditorial = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ className, level, as, ...props }, ref) => {
+    const Tag = headingTag(level, as) as React.ElementType;
+    return (
+      <Tag
+        ref={ref}
+        className={cn('font-lf-serif text-lg leading-none tracking-tight', className)}
+        {...props}
+      />
+    );
+  },
+);
 CardTitleEditorial.displayName = 'CardTitleEditorial';
 
 const CardDescription = React.forwardRef<

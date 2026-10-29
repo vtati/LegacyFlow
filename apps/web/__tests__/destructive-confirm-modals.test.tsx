@@ -9,9 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const deleteAsset = vi.fn(async () => undefined);
-const deleteLiability = vi.fn(async () => undefined);
-const deleteNomination = vi.fn(async () => undefined);
+const deleteAsset = vi.fn(async (_id: string) => undefined);
+const deleteLiability = vi.fn(async (_id: string) => undefined);
+const deleteNomination = vi.fn(async (_matterId: string, _id: string) => undefined);
 
 const asset = {
   id: 'asset-1',
