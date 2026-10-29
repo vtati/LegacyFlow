@@ -845,8 +845,9 @@ def compute_source_fingerprint(conn: Any, matter: dict[str, Any]) -> str:
     """sha256 over the exact user-editable inputs the renderer consumes.
 
     Covers the matter title, household name, intake answers, household
-    persons, and nominations — the data a family (or staff) edit can
-    change and that can change the rendered output. Deliberately NOT the
+    persons, nominations, relationships, and household-member links —
+    the data a family (or staff) edit can change and that can change
+    the rendered output. Deliberately NOT the
     render context: ``_render_context`` injects a volatile ``today``
     string, so a context hash would flip daily with no edit. A package
     whose stored fingerprint differs from the current one is stale.
@@ -894,6 +895,41 @@ def compute_source_fingerprint(conn: Any, matter: dict[str, Any]) -> str:
                 nomination["person_id"] or "",
                 nomination["priority"] if nomination["priority"] is not None else -1,
                 nomination["status"],
+            ),
+        ),
+        # FUNC-022: the renderer also consumes relationships (spouse
+        # resolution) and household-member links (testator link) — edits
+        # there change rendered output, so they must change the fingerprint.
+        "relationships": sorted(
+            (
+                {
+                    "household_id": str(row["household_id"]) if row.get("household_id") else None,
+                    "from_person_id": str(row["from_person_id"]) if row.get("from_person_id") else None,
+                    "to_person_id": str(row["to_person_id"]) if row.get("to_person_id") else None,
+                    "relationship_type": str(row.get("relationship_type") or ""),
+                }
+                for row in household_repo.list_relationships_for_household(conn, household_id)
+            ),
+            key=lambda rel: (
+                rel["from_person_id"] or "",
+                rel["to_person_id"] or "",
+                rel["relationship_type"],
+            ),
+        ),
+        "member_links": sorted(
+            (
+                {
+                    "user_id": str(row["user_id"]) if row.get("user_id") else None,
+                    "person_id": str(row["person_id"]) if row.get("person_id") else None,
+                    "relationship_role": str(row.get("relationship_role") or ""),
+                    "access_status": str(row.get("access_status") or ""),
+                }
+                for row in household_repo.list_members_for_household(conn, household_id)
+            ),
+            key=lambda member: (
+                member["user_id"] or "",
+                member["person_id"] or "",
+                member["relationship_role"],
             ),
         ),
     }
