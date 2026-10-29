@@ -86,10 +86,11 @@ def post_turn(
     claims: Annotated[Claims, Depends(get_current_user)],
 ) -> TurnOut:
     """Send a message; get the assistant reply + proposals + citations."""
-    with db.transaction() as conn:
-        turn_out = service.post_turn(
-            conn, actor_sub=claims.sub, matter_id=matter_id, session_id=session_id, payload=payload
-        )
+    # Phased (PERF-016): the service manages short prepare/persist
+    # transactions itself so the provider call holds no transaction.
+    turn_out = service.post_turn_phased(
+        actor_sub=claims.sub, matter_id=matter_id, session_id=session_id, payload=payload
+    )
     # Auto-confirm high-confidence proposals AFTER the turn transaction
     # commits, in a separate transaction with a statement timeout.
     # (Doing save_answers inside the turn transaction hung indefinitely.)

@@ -889,7 +889,7 @@ class TestRejectedPairBlock:
 
         from app.domains.interview import service
 
-        src = inspect.getsource(service.post_turn)
+        src = inspect.getsource(service._complete_turn)
         assert "rejected_proposal_values" in src
         assert "previously_rejected" in src
         assert "_rejected_pair_restated" in src
@@ -1690,7 +1690,7 @@ class TestGuardWiring:
 
         from app.domains.interview import service
 
-        src = inspect.getsource(service.post_turn)
+        src = inspect.getsource(service._complete_turn)
         assert "_grounding_drop_reason(" in src
         assert "_focus_completeness_proposals(" in src
         assert "focus_authoritative" in src

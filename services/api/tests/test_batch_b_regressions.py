@@ -130,6 +130,69 @@ def test_analyze_upload_phased_calls_llm_outside_transaction(monkeypatch) -> Non
     assert tracker.opened_total == 2, "expected prepare + persist transactions only"
 
 
+def test_post_turn_phased_calls_provider_outside_transaction(monkeypatch) -> None:
+    """PERF-016 (interview turn, the hot path): post_turn_phased must
+    run prepare in one short transaction, call the provider with NO
+    transaction open, and persist in a second short transaction.
+    Proven with a tracking transaction factory over stubbed phases;
+    the full interview suite exercises the same path end-to-end."""
+    import contextlib
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.core import db as core_db
+    from app.domains.interview import service
+
+    class _Tracker:
+        def __init__(self) -> None:
+            self.open = 0
+            self.opened_total = 0
+
+        @contextlib.contextmanager
+        def transaction(self):
+            self.open += 1
+            self.opened_total += 1
+            try:
+                yield object()
+            finally:
+                self.open -= 1
+
+    tracker = _Tracker()
+    monkeypatch.setattr(core_db, "transaction", tracker.transaction)
+
+    seen: dict[str, int] = {}
+
+    class _Provider:
+        name = "stub"
+
+        def chat(self, *, system_prompt, messages, context):
+            seen["open_at_call"] = tracker.open
+            return SimpleNamespace(reply="ok", proposals=[], citations=[], usage={})
+
+    prepared = SimpleNamespace(
+        provider=_Provider(),
+        system_prompt="sys",
+        context=object(),
+        history=[],
+        message="hello",
+    )
+    monkeypatch.setattr(service, "_prepare_turn", lambda conn, **kw: prepared)
+    sentinel = object()
+    monkeypatch.setattr(
+        service, "_complete_turn", lambda conn, prep, response, latency_ms: sentinel
+    )
+
+    out = service.post_turn_phased(
+        actor_sub="sub",
+        matter_id=uuid4(),
+        session_id=uuid4(),
+        payload=SimpleNamespace(message="hello", idempotency_key=None),
+    )
+    assert out is sentinel
+    assert seen["open_at_call"] == 0, "provider called with a transaction open"
+    assert tracker.opened_total == 2, "expected prepare + persist transactions only"
+
+
 def test_turn_out_history_incomplete_defaults_false() -> None:
     from uuid import uuid4
 

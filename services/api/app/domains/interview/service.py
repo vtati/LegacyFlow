@@ -22,6 +22,7 @@ import hashlib
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -6117,14 +6118,66 @@ def get_turn_detail(
 # ---------------------------------------------------------------------------
 
 
-def post_turn(
+@dataclass
+class _PreparedTurn:
+    """Frozen state for one interview turn (PERF-016).
+
+    The prepare phase assembles everything the provider call needs in
+    a short read transaction; the call itself runs with NO transaction
+    open; the complete phase persists the turn in a fresh transaction.
+    Writes the prepare phase would historically have made inline
+    (session status, conversational parks, bundle state) are DEFERRED
+    and applied at the top of the complete phase, so a provider
+    failure still persists nothing — the single-transaction atomicity
+    the turn always had.
+    """
+
+    actor_id: UUID
+    firm_id: UUID
+    matter_id: UUID
+    session_id: UUID
+    message: str
+    idempotency_key: str | None
+    pack: LoadedPack
+    version: str
+    answers: dict[str, Any]
+    completeness: float
+    missing: list[str]
+    parked_required: list[str]
+    pending_keys: list[str]
+    question_labels: dict[str, str]
+    v2_on: bool
+    presented_offers: list[dict[str, Any]]
+    verdict_offers: list[dict[str, Any]]
+    bundle_state: dict[str, Any]
+    cluster_gap: dict[str, Any] | None
+    focus_keys: list[str]
+    window_focus_keys: frozenset[str]
+    prev_focus_keys: frozenset[str]
+    history: list[ChatMessage]
+    history_skipped: int
+    retrieved: list[RetrievedDocument]
+    system_prompt: str
+    context: InterviewContext
+    prompt_version: str
+    effective_model: str
+    provider: Any
+    session_was_draft: bool
+    deferred_parks: list[str]
+    deferred_bundle_state: dict[str, Any] | None
+
+
+def _prepare_turn(
     conn: Any,
     *,
     actor_sub: str,
     matter_id: UUID,
     session_id: UUID,
     payload: TurnCreate,
-) -> TurnOut:
+) -> TurnOut | _PreparedTurn:
+    """Prepare phase of post_turn: auth/scope, idempotent replay and
+    advice-refusal short-circuits (returned as TurnOut), prompt and
+    context assembly. Runs inside the caller's (short) transaction."""
     settings = get_settings()
     actor_id = matters_service.caller_id(actor_sub)
     scope = matters_service.require_matter_write_scope(conn, matter_id, actor_id)
@@ -6157,8 +6210,12 @@ def post_turn(
             "Your attorney can continue from the review package."
         )
 
-    if status is SessionStatus.DRAFT:
-        repo.update_session_status(conn, session_id, SessionStatus.IN_PROGRESS.value)
+    # Deferred (PERF-016): applied in the complete phase so the
+    # provider call can run between two short transactions without
+    # losing turn atomicity on provider failure.
+    session_was_draft = status is SessionStatus.DRAFT
+    deferred_parks: list[str] = []
+    deferred_bundle_state: dict[str, Any] | None = None
 
     message = payload.message.strip()
     pack, _code, version = matters_service.load_matter_pack(conn, matter_id)
@@ -6275,12 +6332,10 @@ def post_turn(
                 and k not in pending_keys
             ]
             for _key in _park_candidates:
-                repo.park_item(
-                    conn,
-                    matter_id=matter_id,
-                    question_key=_key,
-                    parked_by_user_id=actor_id,
-                )
+                # Deferred write (PERF-016): the in-memory parked set
+                # below drives this turn; the row lands in the
+                # complete phase's transaction.
+                deferred_parks.append(_key)
             if _park_candidates:
                 parked = parked | set(_park_candidates)
                 (
@@ -6384,10 +6439,9 @@ def post_turn(
         if _asked_now:
             bundle_state["asked_focus_keys"] = sorted(asked_before | _asked_now)
         if not state_unavailable:
-            try:
-                repo.update_session_state(conn, session_id, bundle_state)
-            except Exception:
-                logger.warning("bundle state persist failed", exc_info=True)
+            # Deferred write (PERF-016): persisted at the top of the
+            # complete phase (same best-effort warning there).
+            deferred_bundle_state = bundle_state
         if then_gap is not None:
             # The verdict turn's prompt also names the then-gap fields;
             # its gates' shadow fields ride along (review C-2) so a
@@ -6526,13 +6580,116 @@ def post_turn(
         else settings.OPENAI_INTERVIEW_MODEL
     )
     provider = get_llm_provider(model=effective_model if v2_on else None)
-    started = time.perf_counter()
-    response = provider.chat(
+    return _PreparedTurn(
+        actor_id=actor_id,
+        firm_id=firm_id,
+        matter_id=matter_id,
+        session_id=session_id,
+        message=message,
+        idempotency_key=payload.idempotency_key,
+        pack=pack,
+        version=version,
+        answers=answers,
+        completeness=completeness,
+        missing=missing,
+        parked_required=parked_required,
+        pending_keys=pending_keys,
+        question_labels=question_labels,
+        v2_on=v2_on,
+        presented_offers=presented_offers,
+        verdict_offers=verdict_offers,
+        bundle_state=bundle_state,
+        cluster_gap=cluster_gap,
+        focus_keys=focus_keys,
+        window_focus_keys=window_focus_keys,
+        prev_focus_keys=prev_focus_keys,
+        history=history,
+        history_skipped=history_skipped,
+        retrieved=retrieved,
         system_prompt=system_prompt,
-        messages=[*history, ChatMessage(role="user", content=message)],
         context=context,
+        prompt_version=prompt_version,
+        effective_model=effective_model,
+        provider=provider,
+        session_was_draft=session_was_draft,
+        deferred_parks=deferred_parks,
+        deferred_bundle_state=deferred_bundle_state,
     )
-    latency_ms = int((time.perf_counter() - started) * 1000)
+
+
+def _call_turn_provider(prepared: _PreparedTurn) -> tuple[Any, int]:
+    """The provider call itself — invoked by the orchestrators with
+    NO database transaction open (PERF-016). Returns (response,
+    latency_ms)."""
+    started = time.perf_counter()
+    response = prepared.provider.chat(
+        system_prompt=prepared.system_prompt,
+        messages=[
+            *prepared.history,
+            ChatMessage(role="user", content=prepared.message),
+        ],
+        context=prepared.context,
+    )
+    return response, int((time.perf_counter() - started) * 1000)
+
+
+def _complete_turn(
+    conn: Any, prepared: _PreparedTurn, response: Any, latency_ms: int
+) -> TurnOut:
+    """Write phase of post_turn: apply the deferred prepare writes,
+    validate the model's proposals against the deterministic guards,
+    and persist turns/proposals/traces/audit in the caller's (short)
+    transaction."""
+    actor_id = prepared.actor_id
+    firm_id = prepared.firm_id
+    matter_id = prepared.matter_id
+    session_id = prepared.session_id
+    message = prepared.message
+    pack = prepared.pack
+    version = prepared.version
+    answers = prepared.answers
+    completeness = prepared.completeness
+    missing = prepared.missing
+    parked_required = prepared.parked_required
+    pending_keys = prepared.pending_keys
+    question_labels = prepared.question_labels
+    v2_on = prepared.v2_on
+    presented_offers = prepared.presented_offers
+    verdict_offers = prepared.verdict_offers
+    bundle_state = prepared.bundle_state
+    cluster_gap = prepared.cluster_gap
+    focus_keys = prepared.focus_keys
+    window_focus_keys = prepared.window_focus_keys
+    prev_focus_keys = prepared.prev_focus_keys
+    history = prepared.history
+    history_skipped = prepared.history_skipped
+    retrieved = prepared.retrieved
+    prompt_version = prepared.prompt_version
+    effective_model = prepared.effective_model
+    provider = prepared.provider
+
+    # Deferred prepare-phase writes (PERF-016), in their original
+    # relative order: session status, conversational parks, bundle
+    # state. A provider failure never reaches this phase, so the turn
+    # keeps its all-or-nothing semantics.
+    if prepared.session_was_draft:
+        repo.update_session_status(
+            conn, session_id, SessionStatus.IN_PROGRESS.value
+        )
+    for _park_key in prepared.deferred_parks:
+        repo.park_item(
+            conn,
+            matter_id=matter_id,
+            question_key=_park_key,
+            parked_by_user_id=actor_id,
+        )
+    if prepared.deferred_bundle_state is not None:
+        try:
+            repo.update_session_state(
+                conn, session_id, prepared.deferred_bundle_state
+            )
+        except Exception:
+            logger.warning("bundle state persist failed", exc_info=True)
 
     # --- Validate proposals: known pack keys only; drop the rest loudly ---
     known_keys = qs.all_question_keys(pack.question_sets)
@@ -6896,7 +7053,7 @@ def post_turn(
         matter_id=matter_id,
         role="user",
         text=message,
-        idempotency_key=payload.idempotency_key,
+        idempotency_key=prepared.idempotency_key,
     )
     assistant_turn = _store_turn(
         conn,
@@ -7064,6 +7221,58 @@ def post_turn(
         parked_required_keys=parked_required,
         history_incomplete=history_skipped > 0,
     )
+
+
+def post_turn(
+    conn: Any,
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    session_id: UUID,
+    payload: TurnCreate,
+) -> TurnOut:
+    """Single-connection composition of the turn phases (direct
+    callers / tests). The request path uses :func:`post_turn_phased`
+    so the provider call never sits inside a transaction (PERF-016)."""
+    prepared = _prepare_turn(
+        conn,
+        actor_sub=actor_sub,
+        matter_id=matter_id,
+        session_id=session_id,
+        payload=payload,
+    )
+    if isinstance(prepared, TurnOut):
+        return prepared
+    response, latency_ms = _call_turn_provider(prepared)
+    return _complete_turn(conn, prepared, response, latency_ms)
+
+
+def post_turn_phased(
+    *,
+    actor_sub: str,
+    matter_id: UUID,
+    session_id: UUID,
+    payload: TurnCreate,
+) -> TurnOut:
+    """Request-path entry (PERF-016): short prepare transaction,
+    provider call with NO transaction open, short persist transaction
+    — mirroring attorney_review.run_review. Replay/refusal
+    short-circuits complete inside the prepare transaction."""
+    from app.core import db
+
+    with db.transaction() as conn:
+        prepared = _prepare_turn(
+            conn,
+            actor_sub=actor_sub,
+            matter_id=matter_id,
+            session_id=session_id,
+            payload=payload,
+        )
+    if isinstance(prepared, TurnOut):
+        return prepared
+    response, latency_ms = _call_turn_provider(prepared)
+    with db.transaction() as conn:
+        return _complete_turn(conn, prepared, response, latency_ms)
 
 
 def _refused_turn(
