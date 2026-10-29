@@ -214,7 +214,7 @@ def import_pack(
     """Import a content pack from a directory or an uploaded zip bundle.
 
     Validates the manifest and the bundle hash, then registers the version
-    in ``jurisdiction_packs``. Firm_admin only.
+    in ``jurisdiction_packs``. Platform admin only (SEC-009).
     """
     with db.transaction() as conn:
         return service.import_pack(
@@ -244,10 +244,8 @@ def transition_pack(
     """Transition a content pack through its lifecycle.
 
     Ordering: draft -> internal_testing -> attorney_review -> approved, and
-    internal_testing / attorney_review / approved -> retired. The
-    attorney_review -> approved step requires an attorney or firm_admin
-    role; all other transitions require firm_admin. Emits the
-    ``packs.status_changed`` audit event.
+    internal_testing / attorney_review / approved -> retired. Platform
+    admin only (SEC-009). Emits the ``packs.status_changed`` audit event.
     """
     with db.transaction() as conn:
         return service.transition_pack(

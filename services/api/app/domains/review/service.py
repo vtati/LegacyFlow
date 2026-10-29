@@ -11,8 +11,9 @@ Authorization summary:
   * Clarifications: created by attorney/firm_admin (matter must be in
     ATTORNEY_REVIEW); answered by the household side.
   * Gates: created by firm staff; decided by attorney/firm_admin.
-  * Pack import: firm_admin only. Pack listing: any caller with a firm or
-    household membership (packs are a global legal-content catalog).
+  * Pack import/transition: platform admin only (SEC-009). Pack listing:
+    any caller with a firm or household membership (packs are a global
+    legal-content catalog).
 """
 
 from __future__ import annotations
@@ -637,7 +638,17 @@ def _bundle_hash(pack_dir: Path) -> str:
 
 
 def _validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Validate a pack manifest; return the normalized pack section."""
+    """Validate a pack manifest; return the normalized pack section.
+
+    SEC-009: the registered status is ALWAYS forced to ``draft``
+    regardless of the manifest's claimed status — the transition
+    endpoint is the only way a pack's status advances. ``effective_from``
+    must parse as a date and must not be absurdly future (> 366 days),
+    because pack resolution orders by ``effective_from DESC``: a
+    far-future date would hijack resolution for every new matter.
+    """
+    import datetime as _dt
+
     pack = manifest.get("pack") or {}
     missing = [
         field
@@ -648,10 +659,27 @@ def _validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         raise ValidationAppError(
             "The pack manifest is missing required pack fields: " + ", ".join(missing) + "."
         )
-    status = str(pack.get("status", "draft"))
-    if status not in PACK_STATUSES:
+    claimed_status = str(pack.get("status", "draft"))
+    if claimed_status not in PACK_STATUSES:
         raise ValidationAppError(
-            f"The pack status {status!r} is not one of: {', '.join(sorted(PACK_STATUSES))}."
+            f"The pack status {claimed_status!r} is not one of: {', '.join(sorted(PACK_STATUSES))}."
+        )
+    raw_effective = pack.get("effective_from") or "2026-09-26"
+    if isinstance(raw_effective, _dt.datetime):
+        effective_date = raw_effective.date()
+    elif isinstance(raw_effective, _dt.date):
+        effective_date = raw_effective
+    else:
+        try:
+            effective_date = _dt.date.fromisoformat(str(raw_effective).strip())
+        except ValueError as exc:
+            raise ValidationAppError(
+                f"The pack effective_from {raw_effective!r} is not a valid ISO date."
+            ) from exc
+    if effective_date > _dt.date.today() + _dt.timedelta(days=366):
+        raise ValidationAppError(
+            f"The pack effective_from {effective_date.isoformat()} is more than "
+            "366 days in the future."
         )
     return {
         "pack_id": str(pack["id"]),
@@ -659,8 +687,8 @@ def _validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "subdivision_code": str(pack["subdivision_code"]).upper(),
         "display_name": str(pack.get("display_name") or pack["id"]),
         "semantic_version": str(pack["semantic_version"]),
-        "status": status,
-        "effective_from": pack.get("effective_from") or "2026-09-26",
+        "status": "draft",
+        "effective_from": effective_date.isoformat(),
     }
 
 
@@ -676,11 +704,12 @@ def import_pack(
 
     Validates the manifest, computes the bundle hash (verified against
     ``expected_bundle_hash`` when supplied), and registers the version in
-    ``jurisdiction_packs``. Firm_admin only.
+    ``jurisdiction_packs``. Platform admin only (SEC-009): packs are a
+    global catalog, so a firm role — self-grantable via firm creation —
+    must never authorize this.
     """
     actor_id = matters_service.caller_id(actor_sub)
-    firm_id = authz.get_user_firm_id(conn, actor_id)
-    authz.require_firm_role(conn, actor_id, firm_id, {"firm_admin"})
+    authz.require_platform_admin(actor_id)
 
     if bundle is not None:
         filename = (bundle.filename or "").lower()
@@ -838,13 +867,20 @@ def transition_pack(
     """Move a content pack through its lifecycle.
 
     ``pack_ref`` is a jurisdiction_pack UUID or a manifest pack id
-    (e.g. ``us-va``). Ordering is enforced by ``PACK_TRANSITIONS``;
-    the attorney_review -> approved step additionally requires the
-    attorney or firm_admin role, and every transition is audited as
-    ``packs.status_changed``. All other transitions require firm_admin.
+    (e.g. ``us-va``). Ordering is enforced by ``PACK_TRANSITIONS`` and
+    every transition is audited as ``packs.status_changed``.
+
+    SEC-009: platform admin only — packs are global legal content, so a
+    firm role (self-grantable via firm creation, SEC-008) must never
+    authorize a transition, including the approved step.
     """
     actor_id = matters_service.caller_id(actor_sub)
-    firm_id = authz.get_user_firm_id(conn, actor_id)
+    authz.require_platform_admin(actor_id)
+    # Audit context only: the caller's firm when they have one.
+    try:
+        firm_id: UUID | None = authz.get_user_firm_id(conn, actor_id)
+    except Exception:
+        firm_id = None
     row = repo.get_jurisdiction_pack_by_ref(conn, pack_ref)
     if row is None:
         raise NotFoundError("Content pack not found.")
@@ -855,11 +891,6 @@ def transition_pack(
     allowed = PACK_TRANSITIONS.get(from_status)
     if allowed is None or to_status not in allowed:
         raise ConflictError(f"A pack cannot transition from {from_status!r} to {to_status!r}.")
-    if to_status == "approved":
-        # Attorney approval gate: attorney or firm_admin (never staff).
-        authz.require_firm_role(conn, actor_id, firm_id, authz.ATTORNEY_ROLES)
-    else:
-        authz.require_firm_role(conn, actor_id, firm_id, {"firm_admin"})
     updated = repo.update_jurisdiction_pack_status(
         conn,
         UUID(str(row["id"])),

@@ -88,11 +88,16 @@ def list_public_firms(conn: Any) -> list[FirmOut]:
 def create_firm(conn: Any, *, actor_sub: str, legal_name: str, display_name: str) -> FirmOut:
     """Create a new firm. The creator becomes its firm_admin.
 
-    Any authenticated user may create a firm (workspace-creation model).
+    SEC-008: firm creation is a platform-admin action. Previously any
+    authenticated user could create a firm and instantly become its
+    firm_admin — a self-grantable role that also gated global content
+    packs (SEC-009). See app.core.authz.is_platform_admin for the
+    allowlist/dev semantics.
     """
     import uuid
 
     actor_id = _caller_id(actor_sub)
+    authz.require_platform_admin(actor_id)
     firm_id = uuid.uuid4()
     with conn.cursor() as cur:
         cur.execute(

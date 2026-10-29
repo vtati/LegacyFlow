@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: str = "local"
     TEST_JWT_ISSUER: str | None = None
     TEST_JWT_SECRET: str | None = None
+    # Platform-operator allowlist (SEC-008/SEC-009): comma-separated user
+    # UUIDs allowed to perform platform-global actions (firm creation,
+    # content-pack import/transition). Empty + non-production = any
+    # authenticated user (dev/test); empty + production = nobody
+    # (fail closed). See app.core.authz.is_platform_admin.
+    PLATFORM_ADMIN_USER_IDS: str = ""
     API_ENV: str = "development"
     # Deployment environment name. Invitation accept tokens are returned in
     # API responses only when this is not "production" (Slice 2).

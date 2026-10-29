@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from app.core.config import get_settings
 from app.core.errors import AuthorizationError, NotFoundError
 
 # Firm roles ordered by privilege (highest first).
@@ -29,6 +30,40 @@ FIRM_ROLE_RANK = {"firm_admin": 4, "attorney": 3, "staff": 2, "auditor": 1}
 
 ATTORNEY_ROLES = {"firm_admin", "attorney"}
 STAFF_ROLES = {"firm_admin", "attorney", "staff"}
+
+
+def _platform_admin_ids() -> set[str]:
+    raw = get_settings().PLATFORM_ADMIN_USER_IDS or ""
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _is_production_env() -> bool:
+    settings = get_settings()
+    return settings.API_ENV == "production" or settings.ENVIRONMENT == "production"
+
+
+def is_platform_admin(actor_id: UUID) -> bool:
+    """Whether ``actor_id`` is a platform operator (SEC-008/SEC-009).
+
+    Platform-global actions (firm creation, content-pack import and
+    lifecycle transitions) are authorized by this check — never by a
+    firm role, which a user could self-grant by creating a firm.
+
+    Semantics: actor in ``PLATFORM_ADMIN_USER_IDS`` -> admin. Allowlist
+    empty and environment is NOT production -> any authenticated user
+    counts (preserves dev/test flows). Production with an empty
+    allowlist -> NOBODY is a platform admin (fail closed).
+    """
+    allowlist = _platform_admin_ids()
+    if allowlist:
+        return str(actor_id) in allowlist
+    return not _is_production_env()
+
+
+def require_platform_admin(actor_id: UUID) -> None:
+    """Raise AuthorizationError unless ``actor_id`` is a platform admin."""
+    if not is_platform_admin(actor_id):
+        raise AuthorizationError("This action requires a platform administrator.")
 
 
 @dataclass(frozen=True)

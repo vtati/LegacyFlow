@@ -932,14 +932,21 @@ def test_pack_import_and_list(client: TestClient) -> None:
 
 def test_pack_import_authz_and_validation(client: TestClient) -> None:
     with tempfile.TemporaryDirectory(prefix="lf-pack-test-") as tmp:
-        pack_dir = _write_pack_dir(pathlib.Path(tmp))
-        # Staff cannot import (firm_admin only).
-        denied = client.post(
+        pack_dir = _write_pack_dir(pathlib.Path(tmp), version="2.0.2")
+        # SEC-009 (2026-10-29): pack import is a PLATFORM-admin action, not
+        # a firm-role action. This suite runs with an empty allowlist in a
+        # non-production env, where any authenticated user counts as a
+        # platform admin (dev semantics) — so staff import now succeeds.
+        # Denial under an allowlist in force (incl. a self-made firm_admin)
+        # is covered by tests/test_platform_admin.py.
+        allowed = client.post(
             "/v1/admin/packs/import",
             data={"pack_dir": str(pack_dir)},
             headers=_headers(STAFF_SUB),
         )
-        assert denied.status_code == 403
+        assert allowed.status_code == 201, allowed.text
+        # Imported packs are forced to draft regardless of manifest status.
+        assert allowed.json()["status"] == "draft"
 
     # Hash mismatch is rejected.
     with tempfile.TemporaryDirectory(prefix="lf-pack-test-") as tmp:
