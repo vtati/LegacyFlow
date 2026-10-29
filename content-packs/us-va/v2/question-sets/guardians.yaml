@@ -20,7 +20,7 @@ sections:
     type: notes
     label: Why is this person a good fit? (optional)
     help: 'Why we ask: your reasoning helps your attorney understand your priorities.'
-    required: true
+    required: false
     maps_to: nominations.guardian.1.notes
     cluster: people
     applies_if: has_minor_children == true

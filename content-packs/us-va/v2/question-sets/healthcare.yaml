@@ -46,7 +46,7 @@ sections:
     type: notes
     label: Are there any limits on what your healthcare agent may decide? (optional)
     help: 'Why we ask: you can restrict specific treatments or decisions.'
-    required: true
+    required: false
     maps_to: facts.healthcare_agent_limitations
     cluster: agents
   - key: organ_donation_wishes

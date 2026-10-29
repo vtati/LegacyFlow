@@ -35,7 +35,7 @@ sections:
     type: notes
     label: Are there any specific financial powers you want to grant or withhold? (optional)
     help: 'Why we ask: you can tailor the standard powers to your situation.'
-    required: true
+    required: false
     maps_to: facts.poa_additional_powers
     cluster: agents
   applies_if: wants_poa_document != false
