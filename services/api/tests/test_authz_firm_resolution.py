@@ -45,4 +45,6 @@ def test_get_user_firm_id_orders_by_created_at_asc():
     assert result == UUID(OLDEST)
     assert conn.queries, "expected a query"
     normalized = " ".join(conn.queries[0].split()).lower()
-    assert "order by created_at asc" in normalized
+    # L-5: deterministic secondary key — identical created_at values
+    # (same-transaction inserts) must still resolve in a stable order.
+    assert "order by created_at asc, id asc" in normalized

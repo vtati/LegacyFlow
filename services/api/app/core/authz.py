@@ -84,14 +84,16 @@ def get_user_firm_id(conn: Any, user_id: UUID) -> UUID:
         cur.execute(
             "SELECT firm_id FROM firm_memberships"
             " WHERE user_id = %s AND status = 'active'"
-            " ORDER BY created_at ASC",
+            " ORDER BY created_at ASC, id ASC",
             (str(user_id),),
         )
         rows = cur.fetchall()
     if not rows:
         raise AuthorizationError("The caller has no active firm membership.")
     # A user may hold several active memberships; the oldest active
-    # membership wins deterministically (ORDER BY created_at ASC above).
+    # membership wins deterministically (ORDER BY created_at ASC, with
+    # the membership row's primary key `id` as the secondary key so
+    # rows sharing a created_at still resolve stably — L-5).
     return UUID(str(rows[0]["firm_id"]))
 
 
