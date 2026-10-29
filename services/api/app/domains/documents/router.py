@@ -12,7 +12,11 @@ them. Errors follow the RFC 7807 ``AppError`` convention; the handler
 in ``app.main`` renders them.
 """
 
+import concurrent.futures
+import contextvars
+import functools
 import json
+import threading
 from typing import Annotated
 from uuid import UUID
 
@@ -31,33 +35,61 @@ router = APIRouter(tags=["documents"])
 User = Annotated[Claims, Depends(get_current_user)]
 
 
+# PERF-023: ONE bounded executor for attorney-review auto-runs. The old
+# code spawned a raw daemon thread per request — unbounded thread
+# growth under a generate/submit burst. Four workers match the
+# reviewer's per-matter locking (runs for one matter serialize anyway).
+_ATTORNEY_REVIEW_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+_ATTORNEY_REVIEW_EXECUTOR_LOCK = threading.Lock()
+
+
+def _get_attorney_review_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Return the shared bounded executor, creating it on first use."""
+    global _ATTORNEY_REVIEW_EXECUTOR
+    if _ATTORNEY_REVIEW_EXECUTOR is None:
+        with _ATTORNEY_REVIEW_EXECUTOR_LOCK:
+            if _ATTORNEY_REVIEW_EXECUTOR is None:
+                _ATTORNEY_REVIEW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4,
+                    thread_name_prefix="attorney-review",
+                )
+    return _ATTORNEY_REVIEW_EXECUTOR
+
+
 def _auto_run_attorney_review(
     matter_id: UUID, actor_sub: str, *, deterministic_only: bool = False
-) -> None:
+) -> concurrent.futures.Future[None]:
     """Best-effort advisory pre-review after a generate/submit commits.
 
-    Runs on a daemon thread (review M2): the family's response must not
-    wait on the review — a slow model call on the submit path could
-    otherwise hold the request open until the client times out and
-    retries an action that already committed. The core action is
-    durable before this is called; the reviewer only advises on it.
+    Runs on the shared bounded executor (review M2 + PERF-023): the
+    family's response must not wait on the review — a slow model call
+    on the submit path could otherwise hold the request open until the
+    client times out and retries an action that already committed. The
+    core action is durable before this is called; the reviewer only
+    advises on it.
 
     Generate passes deterministic_only=True (instant, no model spend);
     submit runs the full review, upgrading a deterministic-only run
     for the same fingerprint. The service entry never raises and
     manages its own transactions; the worker below only resolves the
     matter row and swallows everything else.
-    """
-    import threading
 
-    thread = threading.Thread(
-        target=_auto_run_attorney_review_worker,
-        args=(matter_id, actor_sub),
-        kwargs={"deterministic_only": deterministic_only},
-        daemon=True,
-        name=f"attorney-review-{matter_id}",
+    ERR-024: the worker runs inside a COPY of the submitting request's
+    contextvars context, so its log lines carry the submit request's
+    request_id (the JSON formatter reads it from the contextvar) —
+    previously the auto-run's logs were uncorrelated with the request
+    that triggered them. Returns the Future (callers may ignore it).
+    """
+    ctx = contextvars.copy_context()
+    return _get_attorney_review_executor().submit(
+        ctx.run,
+        functools.partial(
+            _auto_run_attorney_review_worker,
+            matter_id,
+            actor_sub,
+            deterministic_only=deterministic_only,
+        ),
     )
-    thread.start()
 
 
 def _auto_run_attorney_review_worker(

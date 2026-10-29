@@ -787,3 +787,46 @@ def test_get_findings_includes_last_failed_run(
     assert resp.last_failed_run is not None
     assert resp.last_failed_run.status == "failed"
     assert not hasattr(resp.last_failed_run, "error")
+
+
+# ---------------------------------------------------------------------------
+# PERF-023 + ERR-024: bounded executor + request-id context propagation
+# ---------------------------------------------------------------------------
+
+
+def test_auto_run_uses_bounded_shared_executor() -> None:
+    from app.domains.documents import router as documents_router
+
+    first = documents_router._get_attorney_review_executor()
+    second = documents_router._get_attorney_review_executor()
+    assert first is second, "submissions must reuse one module-level executor"
+    assert first._max_workers == 4
+
+
+def test_auto_run_propagates_request_id_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from app.core.logging import get_request_id, reset_request_id, set_request_id
+    from app.domains.documents import router as documents_router
+
+    seen: dict[str, Any] = {}
+    done = threading.Event()
+
+    def fake_worker(matter_id: Any, actor_sub: str, *, deterministic_only: bool = False) -> None:
+        seen["request_id"] = get_request_id()
+        done.set()
+
+    monkeypatch.setattr(
+        documents_router, "_auto_run_attorney_review_worker", fake_worker
+    )
+    token = set_request_id("req-batch-d-024")
+    try:
+        future = documents_router._auto_run_attorney_review(uuid4(), str(uuid4()))
+    finally:
+        reset_request_id(token)
+    assert future is not None
+    future.result(timeout=10)
+    assert done.wait(timeout=5)
+    assert seen["request_id"] == "req-batch-d-024"
