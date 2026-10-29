@@ -264,6 +264,9 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
   const [extractionMsg, setExtractionMsg] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState<ConsistencyReview | null>(null);
+  // ERR-009: the latest turn response flagged that part of the earlier
+  // conversation couldn't be loaded into the model's context.
+  const [historyIncomplete, setHistoryIncomplete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -429,6 +432,7 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const turn = await api.postInterviewTurn(matterId, session.id, text, idempotencyKey);
+      setHistoryIncomplete(turn.history_incomplete === true);
       setMessages((prev) => [
         ...prev,
         {
@@ -679,6 +683,13 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
       {paused && (
         <div className="rounded-lf-control border border-lf-warning-200 bg-lf-warning-50 p-3 text-sm text-lf-warning-700" role="status">
           This interview is paused. Your progress is saved — resume whenever you’re ready.
+        </div>
+      )}
+
+      {historyIncomplete && (
+        <div className="rounded-lf-control border border-lf-border bg-lf-canvas-subtle p-3 text-sm text-lf-text-muted" role="status">
+          Part of your earlier conversation couldn&rsquo;t be loaded — your saved answers are
+          unaffected.
         </div>
       )}
 

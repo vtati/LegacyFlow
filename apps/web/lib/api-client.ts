@@ -392,6 +392,11 @@ export interface InterviewTurn {
   missing_required_keys: string[];
   parked_required_keys: string[];
   replayed: boolean;
+  /** ERR-009 (additive, Batch B): true when one or more prior turn
+   * bodies could not be decrypted into the model's context for this
+   * turn — the UI shows a non-blocking "history may be incomplete"
+   * notice; saved answers are unaffected. */
+  history_incomplete?: boolean;
 }
 
 export interface InterviewTurnSummary {
