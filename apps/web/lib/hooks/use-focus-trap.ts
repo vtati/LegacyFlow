@@ -5,10 +5,14 @@ import { useEffect, type RefObject } from 'react';
 /**
  * Elements that can receive keyboard focus, in DOM order.
  * Used by the focus trap; excludes disabled and inert elements.
+ * Every clause excludes [tabindex="-1"]: without that, an element
+ * opted out of the tab order (e.g. the mobile-nav backdrop button)
+ * would still match its tag clause and re-enter the trap cycle.
  */
 export const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), ' +
-  'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), ' +
+  'textarea:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), ' +
+  'select:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 export interface UseFocusTrapOptions {
   /** Called when Escape is pressed while the trap is active. */

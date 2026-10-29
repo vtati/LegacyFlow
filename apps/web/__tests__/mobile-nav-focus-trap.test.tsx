@@ -32,9 +32,15 @@ afterAll(() => {
 function focusablesIn(dialog: HTMLElement): HTMLElement[] {
   return Array.from(
     dialog.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'a[href], button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
     ),
   );
+}
+
+function backdropIn(dialog: HTMLElement): HTMLElement {
+  const backdrop = dialog.querySelector<HTMLElement>('button.absolute.inset-0');
+  if (!backdrop) throw new Error('backdrop button not found');
+  return backdrop;
 }
 
 describe('MobileNav focus trap (UI-004)', () => {
@@ -67,5 +73,32 @@ describe('MobileNav focus trap (UI-004)', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('keeps the invisible backdrop out of the tab order but clickable', async () => {
+    const user = userEvent.setup();
+    render(<MobileNav section="family" />);
+    await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const backdrop = backdropIn(dialog);
+    // Out of the tab order — Tab must never land on an invisible stop.
+    expect(backdrop.tabIndex).toBe(-1);
+    expect(focusablesIn(dialog)).not.toContain(backdrop);
+
+    // The trap's wrap targets skip it too: Tab on the last control
+    // wraps to the first *visible* control (the close button).
+    const focusables = focusablesIn(dialog);
+    const first = focusables[0]!;
+    const last = focusables[focusables.length - 1]!;
+    expect(first).not.toBe(backdrop);
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+    expect(document.activeElement).not.toBe(backdrop);
+
+    // Click-to-close still works.
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

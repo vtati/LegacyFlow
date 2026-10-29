@@ -69,6 +69,9 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
             type="button"
             aria-label="Close navigation menu"
             onClick={close}
+            // Invisible full-drawer backdrop: clickable, but out of the
+            // tab order so the focus trap never lands on an unseen stop.
+            tabIndex={-1}
             className="absolute inset-0 cursor-default bg-lf-text/40"
           />
           <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-lf-canvas-elevated shadow-lf-subtle">
