@@ -152,7 +152,7 @@ def create_invitation(
     )
 
     accept_token = None
-    if get_settings().ENVIRONMENT != "production":
+    if not get_settings().is_production:
         accept_token = raw_token
     return InvitationCreateResponse(
         invitation=InvitationOut.model_validate(row), accept_token=accept_token
@@ -214,7 +214,7 @@ def resend_invitation(
         correlation_id=correlation_id,
     )
     accept_token = None
-    if get_settings().ENVIRONMENT != "production":
+    if not get_settings().is_production:
         accept_token = raw_token
     return InvitationCreateResponse(
         invitation=InvitationOut.model_validate(updated), accept_token=accept_token

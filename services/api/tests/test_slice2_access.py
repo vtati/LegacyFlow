@@ -61,9 +61,16 @@ TRUNCATE_TABLES = (
 
 AUTH_STUB = """
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
+CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY, email text,
+    raw_user_meta_data jsonb, raw_app_meta_data jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT NULL::uuid $$;
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE TABLE IF NOT EXISTS storage.buckets (
+    id text PRIMARY KEY, name text, public boolean
+);
 """
 
 
@@ -150,7 +157,8 @@ def create_user(db, sub: str, email: str | None = None) -> None:
     _exec(db, "INSERT INTO auth.users (id, email) VALUES (%s, %s)", (sub, email))
     _exec(
         db,
-        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)",
+        "INSERT INTO profiles (id, email, display_name) VALUES (%s, %s, %s)"
+        " ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name",
         (sub, email, f"Synthetic {email}"),
     )
 
@@ -279,18 +287,58 @@ def test_invitation_create_returns_token_in_dev(api_client: TestClient, db) -> N
     assert "token_hash" not in body["invitation"]
 
 
+def _fake_invitations_settings(monkeypatch, *, environment: str, is_production: bool) -> None:
+    """Pin the invitations service's settings at its get_settings seam.
+
+    SEC-002 makes a real Settings load with ENVIRONMENT=production
+    unloadable alongside the test-JWT override these API tests run
+    under, so production behavior is exercised through the seam the
+    service actually calls. The fake mirrors the real Settings fields
+    the service reads (test_config.py pins the real is_production
+    semantics, including case handling).
+    """
+    from types import SimpleNamespace
+
+    from app.domains.invitations import service as invitations_service
+
+    fake = SimpleNamespace(ENVIRONMENT=environment, is_production=is_production)
+    monkeypatch.setattr(invitations_service, "get_settings", lambda: fake)
+
+
 def test_invitation_create_hidden_in_production(api_client: TestClient, db, monkeypatch) -> None:
     _, household_id = setup_firm_a(db)
-    from app.core.config import get_settings
-
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    get_settings.cache_clear()
+    _fake_invitations_settings(monkeypatch, environment="production", is_production=True)
     resp = api_client.post(
         "/v1/firms/invitations",
         json={"email": "prod@example.test", "role": "firm_staff", "household_id": None},
         headers=auth(ADMIN_SUB),
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["accept_token"] is None
+
+
+def test_invitation_token_hidden_for_capitalized_production(
+    api_client: TestClient, db, monkeypatch
+) -> None:
+    # Production checks route through Settings.is_production (the
+    # single source of truth, case-insensitive): ENVIRONMENT="Production"
+    # must hide the raw accept token exactly like "production" — on
+    # create AND on resend. The old exact-string comparison against
+    # "production" leaked the token for case variants.
+    setup_firm_a(db)
+    _fake_invitations_settings(monkeypatch, environment="Production", is_production=True)
+    resp = api_client.post(
+        "/v1/firms/invitations",
+        json={"email": "cased@example.test", "role": "firm_staff", "household_id": None},
+        headers=auth(ADMIN_SUB),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["accept_token"] is None
+    invitation_id = resp.json()["invitation"]["id"]
+    resp = api_client.post(
+        f"/v1/firms/invitations/{invitation_id}/resend", headers=auth(ADMIN_SUB)
+    )
+    assert resp.status_code == 200, resp.text
     assert resp.json()["accept_token"] is None
 
 
