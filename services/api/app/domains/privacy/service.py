@@ -165,8 +165,10 @@ def dispatch_due_reminders(
     except Exception as exc:
         # ERR-007 belt-and-braces: the dispatch helper already translates
         # broker failures; any other enqueue failure still maps to the
-        # documented 501, never a raw 500.
-        raise WorkerBrokerUnavailableError() from exc
+        # documented 501, never a raw 500. REDIS_URL is set at this
+        # point, so the detail is the queue-unavailable wording
+        # (Batch-D M-6), not the not-configured one.
+        raise WorkerBrokerUnavailableError.queue_unavailable() from exc
     record_audit_event(
         conn,
         action="reminders.dispatch_requested",

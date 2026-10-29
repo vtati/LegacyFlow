@@ -175,3 +175,67 @@ def test_auto_run_done_callback_ignores_success() -> None:
     future: concurrent.futures.Future[None] = concurrent.futures.Future()
     future.set_result(None)
     callback(future)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# M-6: WorkerBrokerUnavailableError detail must match the cause — the
+# configured-but-unreachable case must not claim "(REDIS_URL is unset)".
+# ---------------------------------------------------------------------------
+
+
+def test_broker_unset_default_detail_mentions_unset() -> None:
+    from app.domains.privacy.dispatch import WorkerBrokerUnavailableError
+
+    assert "REDIS_URL is unset" in WorkerBrokerUnavailableError().detail
+
+
+def test_enqueue_failure_detail_says_queue_unavailable_not_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    import types
+
+    from app.domains.privacy import dispatch
+
+    class _Broker:
+        def __init__(self, url: str) -> None:
+            pass
+
+        def enqueue(self, message: Any) -> None:
+            raise ConnectionError("redis unreachable (synthetic)")
+
+    fake_dramatiq = types.ModuleType("dramatiq")
+    fake_dramatiq.Message = lambda **kw: kw  # type: ignore[attr-defined]
+    fake_brokers = types.ModuleType("dramatiq.brokers")
+    fake_redis = types.ModuleType("dramatiq.brokers.redis")
+    fake_redis.RedisBroker = _Broker  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dramatiq", fake_dramatiq)
+    monkeypatch.setitem(sys.modules, "dramatiq.brokers", fake_brokers)
+    monkeypatch.setitem(sys.modules, "dramatiq.brokers.redis", fake_redis)
+
+    with pytest.raises(dispatch.WorkerBrokerUnavailableError) as excinfo:
+        dispatch.enqueue_reminder_dispatch("redis://localhost:6399/0")
+    assert excinfo.value.status == 501
+    assert "unset" not in excinfo.value.detail
+    assert "unavailable" in excinfo.value.detail.lower()
+
+
+def test_dispatch_service_unreachable_detail_does_not_claim_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import authz
+    from app.domains.privacy import service as privacy_service
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6399/0")
+    monkeypatch.setattr(authz, "get_user_firm_id", lambda conn, uid: uuid4())
+    monkeypatch.setattr(authz, "require_firm_role", lambda *a, **k: None)
+
+    def _down(redis_url: str) -> None:
+        raise ConnectionError("redis unreachable (synthetic)")
+
+    monkeypatch.setattr(privacy_service, "enqueue_reminder_dispatch", _down)
+    with pytest.raises(privacy_service.WorkerBrokerUnavailableError) as excinfo:
+        privacy_service.dispatch_due_reminders(object(), actor_sub=str(uuid4()))
+    assert excinfo.value.status == 501
+    assert "unset" not in excinfo.value.detail
+    assert "unavailable" in excinfo.value.detail.lower()

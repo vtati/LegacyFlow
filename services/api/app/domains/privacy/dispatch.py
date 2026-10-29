@@ -22,6 +22,22 @@ REMINDER_DISPATCH_ACTOR = "send_due_reminders"
 REMINDER_DISPATCH_QUEUE = "default"
 
 
+#: Detail for the NOT-CONFIGURED cause (REDIS_URL unset).
+DETAIL_NOT_CONFIGURED = (
+    "Reminder dispatch is not configured for this deployment "
+    "(REDIS_URL is unset). Configure the shared Dramatiq broker to "
+    "enqueue worker runs."
+)
+
+#: Detail for the CONFIGURED-BUT-UNREACHABLE cause (Batch-D M-6): the
+#: queue is unavailable; it must NOT claim REDIS_URL is unset.
+DETAIL_QUEUE_UNAVAILABLE = (
+    "Reminder dispatch failed: the worker queue is unavailable "
+    "(the shared Dramatiq broker could not accept the enqueue). "
+    "Retry once the broker is reachable."
+)
+
+
 class WorkerBrokerUnavailableError(AppError):
     """Raised when the worker broker cannot accept a dispatch (ERR-007).
 
@@ -29,16 +45,22 @@ class WorkerBrokerUnavailableError(AppError):
     configured-but-unreachable (broker enqueue raising ConnectionError
     etc.) — previously the second escaped as a raw 500 and the runbook's
     501 degradation signal never fired.
+
+    The DETAIL matches the cause (Batch-D M-6): the bare constructor is
+    the not-configured wording; enqueue failures must use
+    :meth:`queue_unavailable` so the response never claims REDIS_URL is
+    unset when it is configured but unreachable.
     """
 
     type = "urn:legacyflow:error:worker_broker_unavailable"
     title = "Worker broker unavailable"
     status = 501
-    detail = (
-        "Reminder dispatch is not configured for this deployment "
-        "(REDIS_URL is unset). Configure the shared Dramatiq broker to "
-        "enqueue worker runs."
-    )
+    detail = DETAIL_NOT_CONFIGURED
+
+    @classmethod
+    def queue_unavailable(cls) -> WorkerBrokerUnavailableError:
+        """The configured-but-unreachable variant (queue unavailable)."""
+        return cls(DETAIL_QUEUE_UNAVAILABLE)
 
 
 def enqueue_reminder_dispatch(redis_url: str) -> None:
@@ -63,4 +85,4 @@ def enqueue_reminder_dispatch(redis_url: str) -> None:
         )
     except Exception as exc:
         logger.exception("reminder dispatch enqueue failed (broker unavailable)")
-        raise WorkerBrokerUnavailableError() from exc
+        raise WorkerBrokerUnavailableError.queue_unavailable() from exc
