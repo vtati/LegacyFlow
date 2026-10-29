@@ -144,6 +144,33 @@ describe('AttorneyReviewPanel', () => {
     expect(onRun).toHaveBeenCalled();
   });
 
+  it('renders action errors with the real error token, not lf-danger (UI-016)', () => {
+    render(
+      <AttorneyReviewPanel
+        data={baseData}
+        onAcknowledge={vi.fn()}
+        actionError="That acknowledgment could not be recorded — please try again."
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.className).toContain('text-lf-error-700');
+    expect(alert.className).not.toContain('lf-danger');
+  });
+
+  it('explains the acknowledge note requirement via aria-describedby (UI-022)', () => {
+    render(<AttorneyReviewPanel data={baseData} onAcknowledge={vi.fn()} />);
+    const input = screen.getByLabelText(/Note for your attorney/i);
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const helper = document.getElementById(describedBy!);
+    expect(helper?.textContent).toMatch(
+      /A short note is required so your attorney can see why this is OK/,
+    );
+    // 44px touch target on mobile, compact on desktop.
+    expect(input.className).toContain('h-11');
+    expect(input.className).toContain('sm:h-9');
+  });
+
   it('shows a clean result when a completed run found nothing', () => {
     render(
       <AttorneyReviewPanel

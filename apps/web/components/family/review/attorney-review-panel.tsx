@@ -97,23 +97,33 @@ function FindingRow({
           {finding.acknowledgment_note && <p>Note: {finding.acknowledgment_note}</p>}
         </div>
       ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Why is this OK as it is?"
-            aria-label="Note for your attorney"
-            className="h-9 min-w-56 flex-1 rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 text-sm text-lf-text"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={note.trim().length === 0}
-            onClick={() => onAcknowledge(finding.id, note.trim())}
-          >
-            Acknowledge
-          </Button>
+        <div className="mt-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id={`ack-note-${finding.id}`}
+              type="text"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Why is this OK as it is?"
+              aria-label="Note for your attorney"
+              aria-describedby={`ack-note-help-${finding.id}`}
+              className="h-11 min-w-56 flex-1 rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-3 text-sm text-lf-text sm:h-9"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={note.trim().length === 0}
+              onClick={() => onAcknowledge(finding.id, note.trim())}
+            >
+              Acknowledge
+            </Button>
+          </div>
+          {/* UI-022: persistent helper — a disabled button can't be
+              focused, so without this the note requirement is
+              undiscoverable for keyboard users. */}
+          <p id={`ack-note-help-${finding.id}`} className="mt-1.5 text-xs text-lf-text-subtle">
+            A short note is required so your attorney can see why this is OK
+          </p>
         </div>
       )}
     </li>
@@ -157,7 +167,7 @@ export function AttorneyReviewPanel({
       )}
 
       {actionError && (
-        <p role="alert" className="mt-3 text-sm text-lf-danger-700">
+        <p role="alert" className="mt-3 text-sm text-lf-error-700">
           {actionError}
         </p>
       )}
