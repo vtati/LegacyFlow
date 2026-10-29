@@ -41,6 +41,13 @@ class RunOut(BaseModel):
     source_fingerprint: str
     created_at: datetime
     completed_at: datetime | None = None
+    # ERR-020: True when the model layer did not complete for this run
+    # (provider failure -> deterministic-only, or unparseable output),
+    # so clients can show "the judgment pass hasn't run" instead of
+    # rendering a degraded run identically to a clean full review.
+    degraded: bool = False
+    # ERR-019: findings skipped by per-finding savepoint isolation.
+    skipped_findings: int = 0
 
 
 class RunResponseOut(BaseModel):
@@ -58,6 +65,10 @@ class FindingsResponseOut(BaseModel):
     enabled: bool
     run: RunOut | None = None
     findings: list[FindingOut] = []
+    # ERR-025: the latest FAILED run for the current fingerprint
+    # (status + timestamp only — RunOut carries no raw error), so a
+    # repeatedly failing fingerprint doesn't look never-attempted.
+    last_failed_run: RunOut | None = None
 
 
 class RunIn(BaseModel):

@@ -111,13 +111,19 @@ def insert_run(conn: Any, **fields: Any) -> dict[str, Any]:
 
 
 def complete_run(
-    conn: Any, run_id: UUID, *, model_id: str | None
+    conn: Any,
+    run_id: UUID,
+    *,
+    model_id: str | None,
+    degraded: bool = False,
+    skipped_findings: int = 0,
 ) -> dict[str, Any]:
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE attorney_review_runs SET status = 'completed',"
-            " model_id = %s, completed_at = now() WHERE id = %s RETURNING *",
-            (model_id, str(run_id)),
+            " model_id = %s, degraded = %s, skipped_findings = %s,"
+            " completed_at = now() WHERE id = %s RETURNING *",
+            (model_id, degraded, skipped_findings, str(run_id)),
         )
         return dict(cur.fetchone())
 
@@ -157,6 +163,25 @@ def latest_completed_run(
         )
     else:
         query += " ORDER BY created_at DESC LIMIT 1"
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def latest_failed_run(
+    conn: Any, *, matter_id: UUID, source_fingerprint: str | None = None
+) -> dict[str, Any] | None:
+    """The most recent 'failed' run for a matter (ERR-025)."""
+    query = (
+        "SELECT * FROM attorney_review_runs"
+        " WHERE matter_id = %s AND status = 'failed'"
+    )
+    params: list[Any] = [str(matter_id)]
+    if source_fingerprint is not None:
+        query += " AND source_fingerprint = %s"
+        params.append(source_fingerprint)
+    query += " ORDER BY created_at DESC LIMIT 1"
     with conn.cursor() as cur:
         cur.execute(query, params)
         row = cur.fetchone()

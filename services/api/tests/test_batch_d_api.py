@@ -478,3 +478,312 @@ def test_complete_upload_logs_extraction_failure(
         r.levelno >= logging.ERROR and r.exc_info and str(upload_id) in r.getMessage()
         for r in caplog.records
     ), "extraction failure must be exception-logged with the upload id"
+
+
+# ---------------------------------------------------------------------------
+# ERR-019 / ERR-020 / ERR-025: attorney reviewer persistence + visibility
+# ---------------------------------------------------------------------------
+
+
+def _prepared_review() -> Any:
+    from datetime import date
+
+    from app.domains.attorney_review.service import _PreparedReview
+
+    matter = {
+        "id": str(uuid4()),
+        "firm_id": str(uuid4()),
+        "household_id": str(uuid4()),
+        "jurisdiction_snapshot": {
+            "pack_id": "us-va",
+            "jurisdiction_code": "US-VA",
+            "semantic_version": "2.0.0",
+        },
+    }
+    return _PreparedReview(
+        matter=matter,
+        actor_id=uuid4(),
+        fingerprint="fp-1",
+        snapshots=[],
+        source={},
+        profiles={},
+        review_date=date(2026, 10, 29),
+    )
+
+
+def _finding(check: str) -> Any:
+    from app.domains.attorney_review.checks import Finding
+
+    return Finding(
+        layer="deterministic",
+        check=check,
+        severity="should_fix",
+        document="will",
+        field=None,
+        excerpt=None,
+        explanation=f"Finding {check}.",
+        suggested_fix=None,
+        package_id=None,
+    )
+
+
+def test_persist_review_skips_poisoned_finding(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ERR-019: one finding whose insert raises a DB error is skipped
+    (exception-logged, counted on the run) while siblings persist."""
+    import psycopg.errors
+
+    from app.domains.attorney_review import repository as ar_repo
+    from app.domains.attorney_review import service as ar_service
+
+    prepared = _prepared_review()
+    run_id = uuid4()
+    inserted: list[str] = []
+    completed_kwargs: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        ar_repo, "insert_run", lambda conn, **kw: {"id": str(run_id)}
+    )
+    monkeypatch.setattr(ar_repo, "latest_completed_run", lambda conn, **kw: None)
+
+    def flaky_insert(conn: Any, **fields: Any) -> Any:
+        if fields["check_name"] == "poison_check":
+            raise psycopg.errors.CheckViolation("synthetic finding failure")
+        inserted.append(fields["check_name"])
+        return {"id": str(uuid4())}
+
+    monkeypatch.setattr(ar_repo, "insert_finding", flaky_insert)
+
+    def fake_complete(conn: Any, rid: UUID, *, model_id: Any, **kw: Any) -> Any:
+        completed_kwargs.update(kw)
+        from datetime import UTC, datetime
+
+        return {
+            "id": str(rid), "status": "completed", "model_id": model_id,
+            "prompt_version": "v1", "source_fingerprint": "fp-1",
+            "created_at": datetime.now(UTC), "completed_at": datetime.now(UTC),
+            "degraded": kw.get("degraded", False),
+            "skipped_findings": kw.get("skipped_findings", 0),
+        }
+
+    monkeypatch.setattr(ar_repo, "complete_run", fake_complete)
+
+    def fake_rows(conn: Any, rid: UUID) -> list[dict[str, Any]]:
+        from datetime import UTC, datetime
+
+        return [
+            {
+                "id": str(uuid4()), "layer": "deterministic", "check_name": name,
+                "severity": "should_fix",
+                "location": {"document": "will", "field": None, "excerpt": None},
+                "explanation": f"Finding {name}.", "suggested_fix": None,
+                "disposition": "open", "acknowledgment_note": None,
+                "acknowledged_by_user_id": None, "acknowledged_at": None,
+                "created_at": datetime.now(UTC),
+            }
+            for name in inserted
+        ]
+
+    monkeypatch.setattr(ar_repo, "findings_for_run", fake_rows)
+    monkeypatch.setattr(ar_service, "record_audit_event", lambda *a, **k: uuid4())
+
+    findings = [_finding("good_one"), _finding("poison_check"), _finding("good_two")]
+    with caplog.at_level(logging.ERROR, logger="app.domains.attorney_review.service"):
+        resp = ar_service._persist_review(
+            _FakeConn(),
+            prepared=prepared,
+            findings=findings,
+            model_id="deterministic_only",
+            usage=None,
+        )
+    assert inserted == ["good_one", "good_two"]
+    assert completed_kwargs.get("skipped_findings") == 1
+    assert resp.run.skipped_findings == 1
+    assert len(resp.findings) == 2
+    assert any(r.levelno >= logging.ERROR and r.exc_info for r in caplog.records)
+
+
+def _stub_openai_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("AI_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+
+def test_compute_findings_degraded_on_provider_failure(
+    monkeypatch: pytest.MonkeyPatch, test_settings_env: None
+) -> None:
+    from app.domains.attorney_review import model_review
+    from app.domains.attorney_review import service as ar_service
+    from app.core.config import get_settings
+
+    _stub_openai_settings(monkeypatch)
+    try:
+        monkeypatch.setattr(
+            ar_service, "run_deterministic_checks", lambda **kw: []
+        )
+
+        def _down(**kw: Any) -> Any:
+            raise RuntimeError("provider down (synthetic)")
+
+        monkeypatch.setattr(model_review, "review_via_model", _down)
+        findings, model_id, usage, degraded = ar_service._compute_findings(
+            _prepared_review(), full=True
+        )
+        assert degraded is True
+        assert model_id == "deterministic_only"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_compute_findings_unparseable_marks_degraded(
+    monkeypatch: pytest.MonkeyPatch, test_settings_env: None
+) -> None:
+    from app.domains.attorney_review import model_review
+    from app.domains.attorney_review import service as ar_service
+    from app.core.config import get_settings
+
+    _stub_openai_settings(monkeypatch)
+    try:
+        monkeypatch.setattr(
+            ar_service, "run_deterministic_checks", lambda **kw: []
+        )
+        monkeypatch.setattr(
+            model_review,
+            "review_via_model",
+            lambda **kw: (
+                [],
+                {"prompt_tokens": 1, model_review.UNPARSEABLE_MARKER: True},
+            ),
+        )
+        findings, model_id, usage, degraded = ar_service._compute_findings(
+            _prepared_review(), full=True
+        )
+        assert degraded is True
+        assert usage is not None and model_review.UNPARSEABLE_MARKER not in usage
+    finally:
+        get_settings.cache_clear()
+
+
+def test_compute_findings_clean_full_run_not_degraded(
+    monkeypatch: pytest.MonkeyPatch, test_settings_env: None
+) -> None:
+    from app.domains.attorney_review import model_review
+    from app.domains.attorney_review import service as ar_service
+    from app.core.config import get_settings
+
+    _stub_openai_settings(monkeypatch)
+    try:
+        monkeypatch.setattr(
+            ar_service, "run_deterministic_checks", lambda **kw: []
+        )
+        monkeypatch.setattr(
+            model_review,
+            "review_via_model",
+            lambda **kw: ([], {"prompt_tokens": 1, "completion_tokens": 1}),
+        )
+        findings, model_id, usage, degraded = ar_service._compute_findings(
+            _prepared_review(), full=True
+        )
+        assert degraded is False
+        assert model_id != "deterministic_only"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_model_review_unparseable_logs_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import json as _json
+
+    from app.domains.attorney_review import model_review
+
+    class _Stub:
+        def complete_json(self, **kw: Any) -> Any:
+            return "not json at all", {"prompt_tokens": 3, "completion_tokens": 2}
+
+    monkeypatch.setattr(
+        model_review, "get_json_provider", lambda model=None: _Stub()
+    )
+    snapshots = [{
+        "package_id": "pkg", "template_type": "will", "body_text": "body",
+        "context": {},
+    }]
+    with caplog.at_level(logging.WARNING, logger="app.domains.attorney_review.model_review"):
+        findings, usage = model_review.review_via_model(
+            snapshots=snapshots, source={}, model="gpt-x"
+        )
+    assert findings == []
+    assert usage.get(model_review.UNPARSEABLE_MARKER) is True
+    assert any(
+        r.levelno >= logging.WARNING and "unparseable" in r.getMessage().lower()
+        for r in caplog.records
+    )
+
+
+def test_run_out_degraded_flag_from_model_id_row() -> None:
+    """ERR-020 schema: RunOut carries degraded + skipped_findings."""
+    from datetime import UTC, datetime
+
+    from app.domains.attorney_review import service as ar_service
+
+    row = {
+        "id": str(uuid4()), "status": "completed",
+        "model_id": "deterministic_only", "prompt_version": "v1",
+        "source_fingerprint": "fp", "created_at": datetime.now(UTC),
+        "completed_at": datetime.now(UTC), "degraded": True,
+        "skipped_findings": 2,
+    }
+    out = ar_service._run_out(row)
+    assert out.degraded is True
+    assert out.skipped_findings == 2
+
+
+def test_get_findings_includes_last_failed_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ERR-025: with no completed run, the latest FAILED run (status +
+    timestamp, no raw error) is visible instead of 'never attempted'."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from app.domains.attorney_review import repository as ar_repo
+    from app.domains.attorney_review import service as ar_service
+    from app.domains.feature_flags import service as feature_flags
+    from app.domains.matters import service as matters_service
+
+    matter_id = uuid4()
+    matter = {
+        "id": str(matter_id), "firm_id": str(uuid4()),
+        "household_id": str(uuid4()),
+        "jurisdiction_snapshot": {
+            "pack_id": "us-va", "jurisdiction_code": "US-VA",
+            "semantic_version": "2.0.0",
+        },
+    }
+    monkeypatch.setattr(
+        matters_service,
+        "require_matter_read_scope",
+        lambda conn, mid, aid: SimpleNamespace(matter=matter),
+    )
+    monkeypatch.setattr(feature_flags, "is_enabled", lambda *a, **k: True)
+    monkeypatch.setattr(ar_service, "_current_fingerprint", lambda conn, m: "fp-1")
+    monkeypatch.setattr(ar_repo, "latest_completed_run", lambda conn, **kw: None)
+    failed_row = {
+        "id": str(uuid4()), "status": "failed", "model_id": None,
+        "prompt_version": "v1", "source_fingerprint": "fp-1",
+        "created_at": datetime.now(UTC), "completed_at": datetime.now(UTC),
+        "error": "raw provider stack detail that must not surface",
+        "degraded": False, "skipped_findings": 0,
+    }
+    monkeypatch.setattr(ar_repo, "latest_failed_run", lambda conn, **kw: failed_row)
+
+    resp = ar_service.get_findings(
+        object(), actor_sub=str(uuid4()), matter_id=matter_id
+    )
+    assert resp.run is None
+    assert resp.last_failed_run is not None
+    assert resp.last_failed_run.status == "failed"
+    assert not hasattr(resp.last_failed_run, "error")

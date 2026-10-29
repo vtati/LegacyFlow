@@ -20,6 +20,13 @@ from .checks import Finding
 
 logger = logging.getLogger(__name__)
 
+#: Usage-dict marker set when the model's output could not be parsed
+#: into a findings object (ERR-020). The service strips it before the
+#: usage reaches the trace and marks the run degraded — previously an
+#: unparseable response silently produced zero findings under a real
+#: model_id, indistinguishable from a clean review.
+UNPARSEABLE_MARKER = "model_output_unparseable"
+
 PROMPT_VERSION = "attorney_review-v1"
 TRACE_PROMPT_TEMPLATE = "attorney_review"
 
@@ -200,4 +207,13 @@ def review_via_model(
     except (ValueError, AttributeError):
         parsed = {}
     raw = parsed.get("findings") if isinstance(parsed, dict) else None
+    if not isinstance(raw, list):
+        # ERR-020: unparseable output is a degraded model pass, not a
+        # clean zero-findings one — warn-log it and mark the usage so
+        # the caller records the run as degraded.
+        logger.warning(
+            "attorney_review model output unparseable (no findings object); "
+            "marking the run degraded"
+        )
+        return _validate(raw, snapshots), {**usage, UNPARSEABLE_MARKER: True}
     return _validate(raw, snapshots), usage

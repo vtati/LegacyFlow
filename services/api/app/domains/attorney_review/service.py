@@ -20,6 +20,8 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
+import psycopg.errors
+
 from app.core.audit import record_audit_event
 from app.core.config import get_settings
 from app.core.errors import AuthError, ConflictError, NotFoundError
@@ -404,6 +406,8 @@ def _run_out(row: dict[str, Any]) -> sch.RunOut:
         source_fingerprint=str(row["source_fingerprint"]),
         created_at=row["created_at"],
         completed_at=row.get("completed_at"),
+        degraded=bool(row.get("degraded") or False),
+        skipped_findings=int(row.get("skipped_findings") or 0),
     )
 
 
@@ -539,11 +543,16 @@ def _prepare_review(
 
 def _compute_findings(
     prepared: _PreparedReview, *, full: bool
-) -> tuple[list[Finding], str, dict[str, int] | None]:
+) -> tuple[list[Finding], str, dict[str, int] | None, bool]:
     """Compute phase: pure checks + (optionally) the model call.
 
     No database access. A provider failure degrades to the
-    deterministic findings — the review itself must not fail.
+    deterministic findings — the review itself must not fail. The
+    fourth element is ERR-020's ``degraded``: True when the model
+    layer was expected but did not complete (provider failure, or
+    unparseable output marked by the model layer). A by-design
+    deterministic run (``full=False``) or an unconfigured provider is
+    NOT degraded — the model layer was never expected to run.
     """
     findings = run_deterministic_checks(
         snapshots=prepared.snapshots,
@@ -553,6 +562,7 @@ def _compute_findings(
     )
     model_id = "deterministic_only"
     usage: dict[str, int] | None = None
+    degraded = False
     settings = get_settings()
     if (
         full
@@ -568,6 +578,8 @@ def _compute_findings(
             )
             findings.extend(model_findings)
             model_id = candidate
+            if usage is not None and usage.pop(model_review.UNPARSEABLE_MARKER, None):
+                degraded = True
         except Exception:  # provider failure must not fail the review
             logger.exception(
                 "attorney_review model layer failed for matter %s; "
@@ -575,11 +587,12 @@ def _compute_findings(
                 prepared.matter.get("id"),
             )
             usage = None
+            degraded = True
     # Idempotent by content hash across both layers.
     unique: dict[str, Finding] = {}
     for finding in findings:
         unique.setdefault(finding_hash(finding), finding)
-    return list(unique.values()), model_id, usage
+    return list(unique.values()), model_id, usage, degraded
 
 
 def _persist_review(
@@ -589,6 +602,7 @@ def _persist_review(
     findings: list[Finding],
     model_id: str,
     usage: dict[str, int] | None,
+    degraded: bool = False,
 ) -> sch.RunResponseOut:
     """Write phase: run row, disposition transitions, findings, audit."""
     matter = prepared.matter
@@ -640,6 +654,7 @@ def _persist_review(
         )
     else:
         ack_by_hash = {}
+    skipped_findings = 0
     for finding in findings:
         digest = finding_hash(finding)
         carried = ack_by_hash.get(digest)
@@ -652,26 +667,42 @@ def _persist_review(
                 "acknowledgment_note": carried.get("acknowledgment_note"),
                 "acknowledged_at": carried.get("acknowledged_at"),
             }
-        repo.insert_finding(
-            conn,
-            run_id=run_id,
-            matter_id=matter_id,
-            package_id=finding.package_id,
-            finding_hash=digest,
-            layer=finding.layer,
-            check_name=finding.check,
-            severity=finding.severity,
-            location={
-                "document": finding.document,
-                "field": finding.field,
-                "excerpt": finding.excerpt,
-            },
-            explanation=finding.explanation,
-            suggested_fix=finding.suggested_fix,
-            disposition=disposition,
-            **ack_fields,
-        )
-    completed = repo.complete_run(conn, run_id, model_id=model_id)
+        # ERR-019: per-finding savepoint — one constraint surprise must
+        # not roll back the run, its sibling findings, and the prior
+        # run's disposition transitions with it. Skips are counted on
+        # the run row (and in the audit summary) for visibility.
+        try:
+            with conn.transaction():
+                repo.insert_finding(
+                    conn,
+                    run_id=run_id,
+                    matter_id=matter_id,
+                    package_id=finding.package_id,
+                    finding_hash=digest,
+                    layer=finding.layer,
+                    check_name=finding.check,
+                    severity=finding.severity,
+                    location={
+                        "document": finding.document,
+                        "field": finding.field,
+                        "excerpt": finding.excerpt,
+                    },
+                    explanation=finding.explanation,
+                    suggested_fix=finding.suggested_fix,
+                    disposition=disposition,
+                    **ack_fields,
+                )
+        except psycopg.errors.Error:
+            logger.exception(
+                "attorney_review finding insert failed run_id=%s check=%s; skipping",
+                run_id,
+                finding.check,
+            )
+            skipped_findings += 1
+    completed = repo.complete_run(
+        conn, run_id, model_id=model_id, degraded=degraded,
+        skipped_findings=skipped_findings,
+    )
     if usage is not None:
         _record_trace(
             conn,
@@ -693,6 +724,8 @@ def _persist_review(
             "source_fingerprint": prepared.fingerprint,
             "findings_count": len(findings),
             "model_id": model_id,
+            "degraded": degraded,
+            "skipped_findings": skipped_findings,
         },
     )
     rows = repo.findings_for_run(conn, run_id)
@@ -760,7 +793,9 @@ def run_review(
             return early
         assert prepared is not None
         try:
-            findings, model_id, usage = _compute_findings(prepared, full=True)
+            findings, model_id, usage, degraded = _compute_findings(
+                prepared, full=True
+            )
             with db.transaction() as conn:
                 return _persist_review(
                     conn,
@@ -768,6 +803,7 @@ def run_review(
                     findings=findings,
                     model_id=model_id,
                     usage=usage,
+                    degraded=degraded,
                 )
         except Exception as exc:
             _record_failed_run(prepared, exc)
@@ -824,7 +860,7 @@ def _run_review_for_matter_locked(
             )
         if prepared is None:
             return
-        findings, model_id, usage = _compute_findings(
+        findings, model_id, usage, degraded = _compute_findings(
             prepared, full=not deterministic_only
         )
         with db.transaction() as conn:
@@ -834,6 +870,7 @@ def _run_review_for_matter_locked(
                 findings=findings,
                 model_id=model_id,
                 usage=usage,
+                degraded=degraded,
             )
     except Exception as exc:
         if prepared is not None:
@@ -901,16 +938,24 @@ def get_findings(
     fingerprint = _current_fingerprint(conn, matter)
     if not fingerprint:
         return sch.FindingsResponseOut(enabled=True)
+    # ERR-025: surface the latest failed run (status/timestamp via
+    # RunOut — never the raw error) alongside, or instead of, a
+    # completed run, so repeat failures are visible.
+    failed = repo.latest_failed_run(
+        conn, matter_id=matter_id, source_fingerprint=fingerprint
+    )
+    last_failed = _run_out(failed) if failed is not None else None
     run = repo.latest_completed_run(
         conn, matter_id=matter_id, source_fingerprint=fingerprint
     )
     if run is None:
-        return sch.FindingsResponseOut(enabled=True)
+        return sch.FindingsResponseOut(enabled=True, last_failed_run=last_failed)
     rows = repo.findings_for_run(conn, UUID(str(run["id"])))
     return sch.FindingsResponseOut(
         enabled=True,
         run=_run_out(run),
         findings=_findings_out(conn, matter, rows),
+        last_failed_run=last_failed,
     )
 
 
