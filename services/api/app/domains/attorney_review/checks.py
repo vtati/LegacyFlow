@@ -199,6 +199,39 @@ def _check_name_consistency(
     context = _primary_context(snapshots)
     canonical = _canonical_names(source, context)
     canonical_set = set(canonical)
+    # Names that occupy a role/name SLOT in the primary context: a
+    # one-off near-miss of one of these is a likely typo of a household
+    # name. (Mirrors the slot keys _canonical_names reads.)
+    slot_names = {
+        str(context.get(key) or "").strip()
+        for key in (
+            "testator_name", "testator_full_name", "spouse_name",
+            "executor_name", "alternate_executor_name", "agent_name",
+            "successor_agent_name", "healthcare_agent_name",
+            "successor_healthcare_agent_name", "guardian_name",
+            "alternate_guardian_name", "trustee_name",
+            "successor_trustee_name",
+        )
+    } - {""}
+    # Names recorded in the matter's facts (intake answers): a variant
+    # that appears there in that exact form is a recorded person, not a
+    # typo (FUNC-025).
+    facts_names: set[str] = set()
+    for value in (source.get("answers") or {}).values():
+        if isinstance(value, str):
+            facts_names.update(_name_sequences(value))
+
+    bodies = [str(snap.get("body_text") or "") for snap in snapshots]
+    occurrence_cache: dict[str, int] = {}
+
+    def _occurrences(window: str) -> int:
+        if window not in occurrence_cache:
+            pattern = re.compile(rf"\b{re.escape(window)}\b")
+            occurrence_cache[window] = sum(
+                len(pattern.findall(body)) for body in bodies
+            )
+        return occurrence_cache[window]
+
     findings: list[Finding] = []
     emitted: set[tuple[str, str, str]] = set()
     for snap in snapshots:
@@ -224,21 +257,56 @@ def _check_name_consistency(
                         if key in emitted:
                             continue
                         emitted.add(key)
-                        findings.append(Finding(
-                            layer=LAYER,
-                            check="name_consistency",
-                            severity=SHOULD_FIX,
-                            document=str(snap.get("template_type")),
-                            field=None,
-                            excerpt=window,
-                            explanation=(
-                                f"The name \"{window}\" in this document differs "
-                                f"from \"{name}\" used elsewhere in the plan. "
-                                "Names in legal documents should match exactly."
-                            ),
-                            suggested_fix=f"Make the spelling match: \"{name}\".",
-                            package_id=snap.get("package_id"),
-                        ))
+                        # FUNC-025 (mirroring reference_integrity's
+                        # outside-person guard): a near-miss is only a
+                        # probable typo — should_fix — when it is a
+                        # SINGLE inconsistent occurrence of a name that
+                        # occupies a role/name slot. A variant used
+                        # consistently in that exact form (>= 2
+                        # occurrences across the packet), recorded in
+                        # the facts, or aimed at a non-slot name is
+                        # likely a legitimate different person (a
+                        # beneficiary "Arjun Sharm" beside testator
+                        # "Arjun Sharma") — ask, don't instruct.
+                        likely_typo = (
+                            name in slot_names
+                            and _occurrences(window) == 1
+                            and window not in facts_names
+                        )
+                        if likely_typo:
+                            findings.append(Finding(
+                                layer=LAYER,
+                                check="name_consistency",
+                                severity=SHOULD_FIX,
+                                document=str(snap.get("template_type")),
+                                field=None,
+                                excerpt=window,
+                                explanation=(
+                                    f"The name \"{window}\" in this document differs "
+                                    f"from \"{name}\" used elsewhere in the plan. "
+                                    "Names in legal documents should match exactly."
+                                ),
+                                suggested_fix=f"Make the spelling match: \"{name}\".",
+                                package_id=snap.get("package_id"),
+                            ))
+                        else:
+                            findings.append(Finding(
+                                layer=LAYER,
+                                check="name_consistency",
+                                severity=QUESTION,
+                                document=str(snap.get("template_type")),
+                                field=None,
+                                excerpt=window,
+                                explanation=(
+                                    f"The name \"{window}\" in this document is "
+                                    f"very similar to \"{name}\" used elsewhere "
+                                    "in the plan. It may be a different person "
+                                    "with a similar name — confirm who is meant "
+                                    "before changing any spelling."
+                                ),
+                                suggested_fix=None,
+                                package_id=snap.get("package_id"),
+                            ))
     return findings
 
 
