@@ -331,6 +331,32 @@ def test_auto_confirm_batches_non_material_into_one_save(monkeypatch) -> None:
     assert turn_out.completeness_pct == 50.0
 
 
+def test_auto_confirm_never_confirms_document_distribution_keys(monkeypatch) -> None:
+    """M-1 / SEC-013 extension: bequest, residuary, trust-share and
+    digital-asset keys render DIRECTLY into documents (documents
+    service _ANSWER_SLOT_TABLE) but write no household-graph rows, so
+    the graph-sync material set missed them. A >=0.9-confidence model
+    proposal for any of them must stay proposed as a card."""
+    from uuid import uuid4
+
+    router, calls = _auto_confirm_harness(monkeypatch)
+    keys = [
+        "specific_bequests",
+        "residuary_beneficiaries",
+        "trust_marital_share",
+        "trust_initial_property",
+        "digital_asset_wishes",
+    ]
+    turn_out = _turn_out_with(
+        [(key, "Some draft value", "user_stated", 0.95) for key in keys]
+    )
+    confirmed = router._auto_confirm_proposals(turn_out, "sub", uuid4())
+    assert confirmed == 0
+    assert calls["decide"] == []
+    assert calls["save"] == []
+    assert all(p.status == "proposed" for p in turn_out.proposals)
+
+
 def test_auto_confirm_bundle_verdict_still_confirms_material_key(monkeypatch) -> None:
     """Bundle proposals carry the user's own explicit YES verdict
     (server-generated, source='bundle') — the SEC-013 block targets

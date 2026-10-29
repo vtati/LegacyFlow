@@ -129,6 +129,28 @@ _MATERIAL_SYNC_KEYS = frozenset(
     }
 )
 
+#: Document-distribution keys (M-1): these render DIRECTLY into
+#: generated documents — verified against the v2 pack (each binds
+#: ``maps_to: facts.<key>`` in the bequests / trust / final_wishes
+#: sets) and, for the bequest/trust keys, the documents service's
+#: _ANSWER_SLOT_TABLE (specific_bequests, residuary_beneficiaries,
+#: trust_initial_property -> initial_property, trust_marital_share
+#: -> marital_share) — but confirming them writes NO household-graph
+#: rows, so neither the person/nomination derivation nor the sync
+#: set above catches them. No principled pack derivation separates
+#: them: ``maps_to: facts.*`` and their clusters also cover
+#: non-material preference keys in the same sets (e.g.
+#: funeral_wishes), so the set stays explicit.
+_MATERIAL_DISTRIBUTION_KEYS = frozenset(
+    {
+        "specific_bequests",
+        "residuary_beneficiaries",
+        "trust_marital_share",
+        "trust_initial_property",
+        "digital_asset_wishes",
+    }
+)
+
 
 def _material_question_keys(pack: Any) -> set[str]:
     """The legally material question keys for a matter's pack (SEC-013).
@@ -138,9 +160,10 @@ def _material_question_keys(pack: Any) -> set[str]:
     relationship, nomination, or asset fact — i.e. the question is
     person-typed, binds to a nomination via ``maps_to``
     (``nominations.<type>.<priority>``), or feeds one of intake's
-    household-graph syncs (_MATERIAL_SYNC_KEYS).
+    household-graph syncs (_MATERIAL_SYNC_KEYS), or is a
+    document-distribution fact (_MATERIAL_DISTRIBUTION_KEYS).
     """
-    keys = set(_MATERIAL_SYNC_KEYS)
+    keys = set(_MATERIAL_SYNC_KEYS) | set(_MATERIAL_DISTRIBUTION_KEYS)
     for _set_id, _section_id, question in qs.iter_questions(pack.question_sets):
         key = str(question.get("key"))
         if str(question.get("type") or "") == "person" or str(
