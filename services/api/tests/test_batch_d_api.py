@@ -456,7 +456,14 @@ def test_complete_upload_logs_extraction_failure(
         raise RuntimeError("parser exploded (synthetic)")
 
     monkeypatch.setattr(file_extraction, "extract_text_with_status", _boom)
-    updated = dict(row, extraction_status="failed")
+    from datetime import UTC, datetime
+
+    updated = dict(
+        row,
+        extraction_status="failed",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
     monkeypatch.setattr(
         files_repo, "update_extraction", lambda conn, uid, **kw: updated
     )
