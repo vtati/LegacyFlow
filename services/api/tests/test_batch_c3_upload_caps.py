@@ -197,7 +197,7 @@ def test_pack_bundle_encrypted_member_maps_to_422(tmp_path) -> None:
         def infolist(self):
             return [_Info()]
 
-        def open(self, info):  # noqa: ANN001, ANN202
+        def open(self, info):
             raise RuntimeError("File <ZipInfo 'secret.txt'> is encrypted")
 
     with pytest.raises(ValidationAppError) as excinfo:
@@ -217,7 +217,7 @@ def test_pack_bundle_member_named_like_archive_cannot_corrupt_read(monkeypatch, 
     get_settings.cache_clear()
     captured: dict[str, object] = {}
 
-    def stub_import(conn, actor_id, pack_dir, *, expected_bundle_hash=None):  # noqa: ANN001, ANN202
+    def stub_import(conn, actor_id, pack_dir, *, expected_bundle_hash=None):
         captured["pack_dir"] = pack_dir
         # The uploaded archive must still exist, intact, as a SIBLING of
         # the extraction directory (pre-fix the extraction dir WAS the
