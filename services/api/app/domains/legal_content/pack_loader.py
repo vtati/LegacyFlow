@@ -96,6 +96,46 @@ class LoadedPack:
     raw_dir: Path | None = None
 
 
+def load_escalation_rules(
+    version_dir: Path,
+    *,
+    jurisdiction_code: str = "",
+    semantic_version: str = "",
+) -> list[EscalationRule]:
+    """Construct + validate the escalation rules in one pack directory.
+
+    This is THE rule-construction/validation code path: the pack loader
+    uses it at load time, and pack import (review/service.py) runs the
+    same function against the extracted bundle directory so an invalid
+    severity is rejected at import instead of registering a pack that
+    only fails later at load. Raises ``ConfigurationError`` on a
+    severity outside :data:`ESCALATION_SEVERITIES`.
+    """
+    rules: list[EscalationRule] = []
+    rules_path = version_dir / "escalation-rules.yaml"
+    if rules_path.is_file():
+        for item in _read_yaml(rules_path).get("rules", []):
+            severity = str(item.get("severity", "review"))
+            if severity not in ESCALATION_SEVERITIES:
+                raise ConfigurationError(
+                    f"Escalation rule {item.get('id', '')!r} in pack "
+                    f"{jurisdiction_code} {semantic_version} "
+                    f"has invalid severity {severity!r}; expected one of "
+                    f"{sorted(ESCALATION_SEVERITIES)}."
+                )
+            rules.append(
+                EscalationRule(
+                    id=str(item.get("id", "")),
+                    version=str(item.get("version", "")),
+                    when=str(item.get("when", "")),
+                    severity=severity,
+                    outcome=str(item.get("outcome", "")),
+                    user_message=item.get("user_message"),
+                )
+            )
+    return rules
+
+
 def _packs_root() -> Path:
     override = os.environ.get("CONTENT_PACKS_DIR")
     if override:
@@ -198,28 +238,11 @@ def _get_pack_cached(jurisdiction_code: str, version: str | None, packs_root: st
 
     manifest = _parse_manifest(_read_yaml(version_dir / "manifest.yaml"))
 
-    rules: list[EscalationRule] = []
-    rules_path = version_dir / "escalation-rules.yaml"
-    if rules_path.is_file():
-        for item in _read_yaml(rules_path).get("rules", []):
-            severity = str(item.get("severity", "review"))
-            if severity not in ESCALATION_SEVERITIES:
-                raise ConfigurationError(
-                    f"Escalation rule {item.get('id', '')!r} in pack "
-                    f"{manifest.jurisdiction_code} {manifest.semantic_version} "
-                    f"has invalid severity {severity!r}; expected one of "
-                    f"{sorted(ESCALATION_SEVERITIES)}."
-                )
-            rules.append(
-                EscalationRule(
-                    id=str(item.get("id", "")),
-                    version=str(item.get("version", "")),
-                    when=str(item.get("when", "")),
-                    severity=severity,
-                    outcome=str(item.get("outcome", "")),
-                    user_message=item.get("user_message"),
-                )
-            )
+    rules = load_escalation_rules(
+        version_dir,
+        jurisdiction_code=manifest.jurisdiction_code,
+        semantic_version=manifest.semantic_version,
+    )
 
     profiles: list[dict[str, Any]] = []
     profiles_path = version_dir / "execution-profiles.yaml"

@@ -785,9 +785,10 @@ def import_pack(
 ) -> PackImportResponse:
     """Import a content pack from a directory or an uploaded zip bundle.
 
-    Validates the manifest, computes the bundle hash (verified against
-    ``expected_bundle_hash`` when supplied), and registers the version in
-    ``jurisdiction_packs``. Platform admin only (SEC-009): packs are a
+    Validates the manifest and the bundle's escalation rules (via the
+    pack loader's validation path), computes the bundle hash (verified
+    against ``expected_bundle_hash`` when supplied), and registers the
+    version in ``jurisdiction_packs``. Platform admin only (SEC-009): packs are a
     global catalog, so a firm role — self-grantable via firm creation —
     must never authorize this.
     """
@@ -845,6 +846,26 @@ def _import_pack_dir(
     if not isinstance(manifest, dict):
         raise ValidationAppError("The pack manifest.yaml is not a mapping.")
     normalized = _validate_manifest(manifest)
+    # Batch-D M-2: the manifest is not the whole bundle — run the
+    # bundle's escalation rules through the pack loader's own
+    # rule-construction/validation path NOW, so an invalid severity
+    # rejects the import with 422 instead of registering a pack that
+    # only fails later at load time (501, fail-closed but not the
+    # claimed behaviour). No severity vocabulary is duplicated here:
+    # the loader owns it (ESCALATION_SEVERITIES).
+    from app.core.errors import ConfigurationError
+    from app.domains.legal_content.pack_loader import load_escalation_rules
+
+    try:
+        load_escalation_rules(
+            pack_dir,
+            jurisdiction_code=(
+                f"{normalized['country_code']}-{normalized['subdivision_code']}"
+            ),
+            semantic_version=normalized["semantic_version"],
+        )
+    except ConfigurationError as exc:
+        raise ValidationAppError(exc.detail) from exc
     # M-1: keep the stored manifest faithful to the source bundle, but
     # store effective_from in its normalized ISO form. yaml.safe_load
     # turns an UNQUOTED effective_from into a date/datetime object,
