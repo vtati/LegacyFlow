@@ -55,8 +55,74 @@ export function formatMoney(valueCents: number | null | undefined, currency = 'U
 export const STATUS_DOT_CLASS =
   'before:mr-1.5 before:inline-block before:size-1.5 before:rounded-full before:align-middle before:content-[""]';
 
+export interface SeverityDisplay {
+  /** Visible severity label — severity is never carried by color alone. */
+  label: string;
+  containerClass: string;
+  labelClass: string;
+}
+
+function titleCaseRaw(value: string): string {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Explicit severity map for consistency findings and escalations
+ * (UI-014). The backend vocabularies are closed — consistency findings:
+ * `review` / `attention`; escalations: `info` / `review` / `attention` /
+ * `blocking` — so styling is a lookup, never a regex guess. Unknown
+ * values render neutrally with the raw label title-cased.
+ */
+export function severityDisplay(severity: string): SeverityDisplay {
+  switch (severity.trim().toLowerCase()) {
+    case 'attention':
+      return {
+        label: 'Needs attention',
+        containerClass: 'border-lf-warning-200 bg-lf-warning-50',
+        labelClass: 'text-lf-warning-700',
+      };
+    case 'review':
+      return {
+        label: 'For review',
+        containerClass: 'border-lf-accent-200 bg-lf-accent-50',
+        labelClass: 'text-lf-accent-800',
+      };
+    case 'blocking':
+      return {
+        label: 'Blocking',
+        containerClass: 'border-lf-error-200 bg-lf-error-50',
+        labelClass: 'text-lf-error-700',
+      };
+    case 'info':
+      return {
+        label: 'Info',
+        containerClass: 'border-lf-sky-200 bg-lf-sky-50',
+        labelClass: 'text-lf-sky-700',
+      };
+    default:
+      return {
+        label: titleCaseRaw(severity),
+        containerClass: 'border-lf-border bg-lf-canvas-subtle',
+        labelClass: 'text-lf-text-muted',
+      };
+  }
+}
+
 export function statusBadgeClass(status: string): string {
   const normalized = status.toLowerCase();
+  // UI-014: exact severity branches BEFORE the substring fallthrough —
+  // `attention` previously got the neutral pill (indistinguishable from
+  // `info`) and `info` had no branch at all.
+  if (normalized === 'attention') {
+    return `${STATUS_DOT_CLASS} bg-lf-warning-100 text-lf-warning-700 before:bg-lf-warning-500`;
+  }
+  if (normalized === 'info') {
+    return `${STATUS_DOT_CLASS} bg-lf-sky-100 text-lf-sky-700 before:bg-lf-sky-500`;
+  }
   if (normalized.includes('approv') || normalized.includes('complet')) {
     return `${STATUS_DOT_CLASS} bg-lf-success-100 text-lf-success-700 before:bg-lf-success-600`;
   }

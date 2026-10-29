@@ -23,6 +23,10 @@ import { cn } from '@/lib/utils';
 function flagBadgeClass(severity: RuleSeverity): string {
   const normalized = severity.toLowerCase();
   if (normalized === 'blocking') return 'bg-lf-error-100 text-lf-error-700';
+  // UI-014: `attention` gets warning styling (it previously fell through
+  // to the neutral primary tint, indistinguishable from `info`).
+  if (normalized === 'attention') return 'bg-lf-warning-100 text-lf-warning-700';
+  if (normalized === 'info') return 'bg-lf-sky-100 text-lf-sky-700';
   if (normalized === 'review') return 'bg-lf-accent-100 text-lf-accent-800';
   return 'bg-lf-primary-50 text-lf-primary-800';
 }

@@ -33,6 +33,7 @@ import {
   type InterviewProposal,
   type InterviewSession,
 } from '@/lib/api-client';
+import { severityDisplay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 interface ChatMessage {
@@ -1025,31 +1026,33 @@ export function InterviewChat({ matterId }: InterviewChatProps): React.JSX.Eleme
                       No questions raised — your verified facts look consistent.
                     </p>
                   ) : (
-                    review.findings.map((f: ConsistencyFinding, i: number) => (
-                      <div
-                        key={`${f.question}-${i}`}
-                        className={cn(
-                          'rounded-lf-card border p-3',
-                          /high|critical|urgent/i.test(f.severity)
-                            ? 'border-lf-warning-200 bg-lf-warning-50'
-                            : 'border-lf-success-200 bg-lf-success-50',
-                        )}
-                      >
-                        <p
-                          className={cn(
-                            'text-xs font-medium',
-                            /high|critical|urgent/i.test(f.severity)
-                              ? 'text-lf-warning-700'
-                              : 'text-lf-success-800',
-                          )}
+                    review.findings.map((f: ConsistencyFinding, i: number) => {
+                      // UI-014: explicit severity map (backend emits only
+                      // review/attention) with the label rendered as text —
+                      // the old /high|critical|urgent/ regex matched nothing
+                      // the backend sends, so every finding rendered
+                      // success-green with no severity shown at all.
+                      const display = severityDisplay(f.severity);
+                      return (
+                        <div
+                          key={`${f.question}-${i}`}
+                          className={cn('rounded-lf-card border p-3', display.containerClass)}
                         >
-                          {f.question}
-                        </p>
-                        <p className="mt-1 text-xs text-lf-text-muted">
-                          Involves: {f.fields.map(humanizeKey).join(', ')}
-                        </p>
-                      </div>
-                    ))
+                          <p
+                            className={cn(
+                              'text-xs font-semibold uppercase tracking-wide',
+                              display.labelClass,
+                            )}
+                          >
+                            {display.label}
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-lf-text">{f.question}</p>
+                          <p className="mt-1 text-xs text-lf-text-muted">
+                            Involves: {f.fields.map(humanizeKey).join(', ')}
+                          </p>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               )}
