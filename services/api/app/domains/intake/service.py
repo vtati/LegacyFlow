@@ -1015,7 +1015,9 @@ def _sync_assets_from_answers(
                     created_by_user_id=actor_id,
                 )
                 have.add((asset_type, label))
-                logger.info("Materialized asset %s/%s (matter %s)", asset_type, label, matter_id)
+                # ERR-017 identifiers-only: the label is user-derived
+                # text — log the category + matter id, never the label.
+                logger.info("Materialized asset category=%s (matter %s)", asset_type, matter_id)
         except Exception:
             with conn.cursor() as cur:
                 cur.execute("ROLLBACK TO SAVEPOINT lf_asset_sync")

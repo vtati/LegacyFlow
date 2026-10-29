@@ -239,3 +239,80 @@ def test_dispatch_service_unreachable_detail_does_not_claim_unset(
     assert excinfo.value.status == 501
     assert "unset" not in excinfo.value.detail
     assert "unavailable" in excinfo.value.detail.lower()
+
+
+# ---------------------------------------------------------------------------
+# Note (ERR-017 class): the asset-materialization INFO log must carry
+# ids/category only — never the user-derived asset label.
+# ---------------------------------------------------------------------------
+
+
+def test_asset_materialization_log_omits_label(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from app.domains.assets import repository as assets_repo
+    from app.domains.intake import service as intake_service
+
+    class _Cur:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        def execute(self, *_a: Any, **_k: Any) -> None:
+            pass
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+        @contextmanager
+        def transaction(self) -> Any:
+            yield
+
+    monkeypatch.setattr(
+        assets_repo, "list_assets_for_household", lambda *a, **k: ([], 0)
+    )
+    inserted: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        assets_repo, "insert_asset", lambda conn, **kw: inserted.append(kw) or {}
+    )
+    pack = SimpleNamespace(
+        question_sets={
+            "assets": {
+                "sections": [
+                    {
+                        "id": "s1",
+                        "questions": [
+                            {
+                                "key": "asset_categories_present",
+                                "options": [
+                                    {"value": "bank", "label": "SECRET-LABEL-TEXT"}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+    matter_id = uuid4()
+    with caplog.at_level(logging.INFO, logger="app.domains.intake.service"):
+        intake_service._sync_assets_from_answers(
+            _Conn(),
+            firm_id=uuid4(),
+            household_id=uuid4(),
+            matter_id=matter_id,
+            actor_id=uuid4(),
+            answers={"asset_categories_present": ["bank"]},
+            pack=pack,
+        )
+    assert inserted and inserted[0]["label"] == "SECRET-LABEL-TEXT"  # row keeps it
+    assert "SECRET-LABEL-TEXT" not in caplog.text  # the LOG must not
+    assert "bank_account" in caplog.text
+    assert str(matter_id) in caplog.text
