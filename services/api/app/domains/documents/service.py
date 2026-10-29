@@ -648,18 +648,30 @@ def render_template_content_with_unfilled(
 ) -> tuple[str, list[str]]:
     """Substitute ``{{placeholder}}`` tokens; return (body, unfilled names).
 
-    Known tokens are replaced from the context. The names of tokens the
-    context did NOT cover are captured from the PRE-blank body (sorted,
-    de-duplicated) so callers can flag them for attorney review; the
-    tokens themselves become ``___`` (attorney-fill blanks) so raw
-    ``{{tokens}}`` never appear in generated documents.
+    The unfilled set is TEMPLATE-driven (Batch C1 M-2): it is computed
+    BEFORE substitution, from the tokens present in the template body
+    whose keys the context does not cover. After substitution, only
+    those template tokens are blanked to ``___`` (attorney-fill blanks)
+    so callers can flag them for attorney review. ``{{…}}``-shaped text
+    arriving inside a context VALUE is data, not a placeholder: it
+    renders verbatim and is never flagged.
     """
+    # A template token is covered only when the context carries its key
+    # AND the token appears in the exact ``{{key}}`` form the
+    # substitution loop replaces (a spaced ``{{ key }}`` variant is not
+    # substituted, so it stays unfilled and blanks, as before).
+    unfilled_raw: dict[str, str] = {}  # raw token text -> token name
+    for match in _UNFILLED_TOKEN.finditer(template_body):
+        name = match.group(1)
+        raw = match.group(0)
+        if name not in context or raw != "{{" + name + "}}":
+            unfilled_raw[raw] = name
     merged = template_body
     for key, value in context.items():
         merged = merged.replace("{{" + key + "}}", value)
-    unfilled = sorted(set(_UNFILLED_TOKEN.findall(merged)))
-    merged = _BLANK_TOKEN.sub("___", merged)
-    return merged, unfilled
+    for raw in unfilled_raw:
+        merged = merged.replace(raw, "___")
+    return merged, sorted(set(unfilled_raw.values()))
 
 
 def render_template_content(template_body: str, context: dict[str, str]) -> str:
@@ -3045,7 +3057,19 @@ def generate_instruction_letter(
 
     context = _render_context(conn, matter)
     context["letter_text"] = payload.letter_text
-    body = _merge_placeholders(_template_content_body(template), context)
+    # Batch C1 M-3: route the letter merge through the same
+    # capture+flag mechanism as every other document — unfilled letter
+    # tokens escalate for attorney review instead of silently blanking.
+    body, unfilled = _merge_placeholders_with_unfilled(
+        _template_content_body(template), context
+    )
+    _flag_unfilled_placeholders(
+        conn,
+        matter=matter,
+        body=body,
+        template_name=str(template["name"]),
+        unfilled=unfilled,
+    )
     title = "Family Instruction Letter — DEMO (NONBINDING)"
     created = _render_package_versions(
         conn,

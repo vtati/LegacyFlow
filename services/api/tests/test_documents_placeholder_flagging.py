@@ -115,3 +115,42 @@ def test_known_tokens_still_substitute_and_do_not_flag() -> None:
     )
     assert body == "Hello Smiths."
     assert conn.escalations == []
+
+
+def test_value_supplied_token_text_renders_verbatim_and_does_not_flag() -> None:
+    """Batch C1 M-2: unfilled capture is TEMPLATE-driven (computed
+    pre-substitution). A context VALUE containing ``{{…}}``-shaped text
+    is data, not a template placeholder — it must render verbatim and
+    must NOT be blanked or escalated."""
+    conn = _FakeConn()
+    body, _matter = _render_and_flag(
+        conn,
+        "Household note: {{household_name}}.",
+        {"household_name": "see {{appendix}}"},
+    )
+    assert body == "Household note: see {{appendix}}."
+    assert conn.escalations == []
+
+
+def test_unfilled_template_token_blanks_and_flags_on_both_render_paths() -> None:
+    """Batch C1 M-2 (b): a genuinely unfilled template token — including
+    digit-bearing ``{{witness1_name}}`` — still blanks + escalates,
+    via both ``render_template_content_with_unfilled`` and the plain
+    ``render_template_content`` path."""
+    conn = _FakeConn()
+    body, _matter = _render_and_flag(
+        conn, "Witness: {{witness1_name}}.", {}
+    )
+    assert body == "Witness: ___."
+    assert [e["rule_id"] for e in conn.escalations] == [
+        "document_unmapped_placeholder:tmpl:witness1_name"
+    ]
+    plain = documents_service.render_template_content(
+        "Witness: {{witness1_name}}.", {}
+    )
+    assert plain == "Witness: ___."
+    # A value-supplied token survives the plain path too.
+    plain_filled = documents_service.render_template_content(
+        "Note: {{household_name}}.", {"household_name": "see {{appendix}}"}
+    )
+    assert plain_filled == "Note: see {{appendix}}."
