@@ -5,6 +5,7 @@ All tests run without any external service (no Supabase, no Postgres).
 
 from __future__ import annotations
 
+import secrets
 import time
 from collections.abc import Iterator
 
@@ -13,7 +14,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 TEST_ISSUER = "https://legacyflow-test.local/auth/v1"
-TEST_SECRET = "slice1-test-secret-not-a-real-credential-32b"
+# SEC-002: per-run generated secret — no usable literal sits in the repo.
+TEST_SECRET = secrets.token_hex(32)
 TEST_SUB = "11111111-2222-3333-4444-555555555555"
 TEST_EMAIL = "synthetic.user@example.com"
 TEST_AUDIENCE = "authenticated"

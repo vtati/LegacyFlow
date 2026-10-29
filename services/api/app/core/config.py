@@ -1,12 +1,16 @@
 """Application configuration loaded from the environment (pydantic-settings)."""
 
+import logging
 import re
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -98,6 +102,31 @@ class Settings(BaseSettings):
     # Raw turn bodies are purged this many days after the matter reaches a
     # terminal state; proposals + traces are the permanent audit record.
     INTERVIEW_TURN_RETENTION_DAYS: int = 90
+    @model_validator(mode="after")
+    def _guard_test_jwt_override(self) -> "Settings":
+        """SEC-002: the HS256 test-JWT override must never run in production.
+
+        Config errors in this codebase surface as pydantic
+        ``ValidationError`` at settings load (see test_config.py's
+        fail-fast contract for SUPABASE_SERVICE_ROLE_KEY), so raising
+        ``ValueError`` here fails startup fast. In non-production the
+        override stays available but is logged at WARNING on every load.
+        """
+        is_production = self.API_ENV == "production" or self.ENVIRONMENT == "production"
+        override_active = bool(self.TEST_JWT_ISSUER or self.TEST_JWT_SECRET)
+        if override_active and is_production:
+            raise ValueError(
+                "TEST_JWT_ISSUER/TEST_JWT_SECRET must not be set when "
+                "API_ENV or ENVIRONMENT is 'production' (SEC-002)."
+            )
+        if override_active:
+            logger.warning(
+                "TEST_JWT override is ACTIVE (non-production): HS256 test "
+                "tokens will be accepted. Never set TEST_JWT_ISSUER or "
+                "TEST_JWT_SECRET in production."
+            )
+        return self
+
     # Cost guard: hard cap on turns per interview session.
     INTERVIEW_MAX_TURNS_PER_SESSION: int = 200
     # Dictation guard: max audio upload size (8 MiB ≈ several minutes).
