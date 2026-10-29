@@ -77,7 +77,11 @@ async def complete_upload(
     request: Request,
 ) -> sch.FileUploadOut:
     """Upload the file bytes for a pending intent; marks it ready for scanning."""
-    content = await file.read()
+    # SEC-014: stream with a hard cap — never buffer an unbounded body.
+    from app.core.uploads import ensure_content_length_within, read_upload_capped
+
+    ensure_content_length_within(request.headers, sch.MAX_UPLOAD_BYTES)
+    content = await read_upload_capped(file, sch.MAX_UPLOAD_BYTES)
     with db.transaction() as conn:
         return service.complete_upload(
             conn,

@@ -404,7 +404,11 @@ async def update_funding_task(user: User, task_id: UUID, request: Request) -> sc
         # NB: starlette's form parser instantiates starlette.datastructures.UploadFile
         # (the parent class), so check against it rather than fastapi.UploadFile.
         if isinstance(maybe_file, StarletteUploadFile):
-            upload_bytes = await maybe_file.read()
+            # SEC-014: capped streaming read (files-domain 25 MB cap).
+            from app.core.uploads import read_upload_capped
+            from app.domains.files.schemas import MAX_UPLOAD_BYTES
+
+            upload_bytes = await read_upload_capped(maybe_file, MAX_UPLOAD_BYTES)
             evidence_upload = (
                 maybe_file.filename or "evidence",
                 upload_bytes,
@@ -440,7 +444,11 @@ async def attach_funding_evidence(
     file: Annotated[UploadFile, File(...)],
 ) -> sch.FundingTaskOut:
     """Upload an evidence file and attach it to the funding task."""
-    content = await file.read()
+    # SEC-014: capped streaming read (files-domain 25 MB cap).
+    from app.core.uploads import read_upload_capped
+    from app.domains.files.schemas import MAX_UPLOAD_BYTES
+
+    content = await read_upload_capped(file, MAX_UPLOAD_BYTES)
     content_type = file.content_type or "application/octet-stream"
     with db.transaction() as conn:
         return service.attach_funding_evidence(

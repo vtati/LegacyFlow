@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, File, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 
 import logging
 
@@ -468,20 +468,34 @@ def reject_proposal(
 
 
 @router.post("/matters/{matter_id}/interview/dictate", response_model=DictationOut)
-def dictate(
+async def dictate(
     matter_id: UUID,
     claims: Annotated[Claims, Depends(get_current_user)],
-    body: Annotated[bytes, Body()],
+    request: Request,
 ) -> DictationOut:
     """Transcribe audio to text. The transcript is returned, never auto-sent.
 
-    Plain ``def`` (PERF-015): the handler runs blocking DB + Whisper
-    work, so FastAPI must offload it to the threadpool — as ``async def``
-    it stalled the worker's event loop for the full transcription.
-    The raw audio body is injected as ``bytes`` (wire contract unchanged).
+    SEC-014: the raw audio body is streamed with a hard cap
+    (``DICTATION_MAX_BYTES``) instead of being buffered whole by a
+    ``bytes`` body parameter before any size check. The blocking DB +
+    Whisper work still runs off the event loop (PERF-015) — in a
+    threadpool via ``run_in_threadpool`` now that the handler itself
+    must await the streamed body. Wire contract unchanged.
     """
-    with db.transaction() as conn:
-        return service.dictate(conn, actor_sub=claims.sub, matter_id=matter_id, audio=body)
+    from starlette.concurrency import run_in_threadpool
+
+    from app.core.config import get_settings
+    from app.core.uploads import read_request_body_capped
+
+    body = await read_request_body_capped(request, get_settings().DICTATION_MAX_BYTES)
+
+    def _run() -> DictationOut:
+        with db.transaction() as conn:
+            return service.dictate(
+                conn, actor_sub=claims.sub, matter_id=matter_id, audio=body
+            )
+
+    return await run_in_threadpool(_run)
 
 
 @router.post(
@@ -506,7 +520,12 @@ def extract_document(
     """
     filename = file.filename or "upload"
     file.file.seek(0)
-    body = file.file.read()
+    # SEC-014: capped streaming read at the extraction cap (10 MB) —
+    # never buffer an unbounded body before the service sees it.
+    from app.core.uploads import read_sync_stream_capped
+    from app.domains.interview.text_extract import MAX_BYTES as EXTRACTION_MAX_BYTES
+
+    body = read_sync_stream_capped(file.file, EXTRACTION_MAX_BYTES)
     with db.transaction() as conn:
         result = extraction_service.run_extraction(
             conn,

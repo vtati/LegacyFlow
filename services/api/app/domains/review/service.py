@@ -82,6 +82,55 @@ GATE_TO_STATE: dict[str, str] = {
 # Pack manifest fields required for registration.
 PACK_STATUSES = frozenset({"draft", "internal_testing", "attorney_review", "approved", "retired"})
 
+# SEC-014 pack-bundle caps: compressed size, total extracted size, and
+# member count for an uploaded content-pack zip.
+PACK_BUNDLE_MAX_BYTES = 25 * 1024 * 1024
+PACK_BUNDLE_MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
+PACK_BUNDLE_MAX_FILES = 500
+
+
+def _extract_pack_bundle(archive_file: zipfile.ZipFile, dest: Path) -> None:
+    """Extract a pack bundle with extracted-size/count caps (SEC-014).
+
+    The declared sizes are checked up front; actual bytes are counted
+    again while streaming each member out, so a lying header cannot
+    smuggle an oversize payload past the cap. Members that would
+    escape ``dest`` are rejected. Any failure aborts the import — the
+    caller's TemporaryDirectory removes the partial extraction.
+    """
+    infos = archive_file.infolist()
+    if len(infos) > PACK_BUNDLE_MAX_FILES:
+        raise ValidationAppError(
+            f"The pack bundle contains more than {PACK_BUNDLE_MAX_FILES} files."
+        )
+    declared_total = sum(info.file_size for info in infos if not info.is_dir())
+    if declared_total > PACK_BUNDLE_MAX_EXTRACTED_BYTES:
+        raise ValidationAppError(
+            "The pack bundle's extracted size exceeds the "
+            f"{PACK_BUNDLE_MAX_EXTRACTED_BYTES // (1024 * 1024)} MB limit."
+        )
+    dest_resolved = dest.resolve()
+    extracted_total = 0
+    for info in infos:
+        target = (dest / info.filename).resolve()
+        if target != dest_resolved and dest_resolved not in target.parents:
+            raise ValidationAppError(
+                f"The pack bundle member {info.filename!r} escapes the pack directory."
+            )
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive_file.open(info) as source, target.open("wb") as out:
+            while chunk := source.read(65536):
+                extracted_total += len(chunk)
+                if extracted_total > PACK_BUNDLE_MAX_EXTRACTED_BYTES:
+                    raise ValidationAppError(
+                        "The pack bundle's extracted size exceeds the "
+                        f"{PACK_BUNDLE_MAX_EXTRACTED_BYTES // (1024 * 1024)} MB limit."
+                    )
+                out.write(chunk)
+
 
 def _out[M: BaseModel](row: dict[str, Any], model: type[M]) -> M:
     return model.model_validate(row)
@@ -737,12 +786,21 @@ def import_pack(
         filename = (bundle.filename or "").lower()
         if not filename.endswith(".zip"):
             raise ValidationAppError("The uploaded bundle must be a .zip archive.")
+        # SEC-014: the compressed bytes are read with a hard cap, and
+        # the archive's extracted size + file count are bounded BEFORE
+        # and DURING extraction — an unbounded extractall is a zip-bomb
+        # primitive. Extraction is member-by-member into the temp dir
+        # (which is cleaned up on any failure), never extractall.
+        from app.core.uploads import read_sync_stream_capped
+
+        bundle.file.seek(0)
+        bundle_bytes = read_sync_stream_capped(bundle.file, PACK_BUNDLE_MAX_BYTES)
         with tempfile.TemporaryDirectory(prefix="legacyflow-pack-") as tmp:
             archive = Path(tmp) / "bundle.zip"
-            archive.write_bytes(bundle.file.read())
+            archive.write_bytes(bundle_bytes)
             try:
                 with zipfile.ZipFile(archive) as archive_file:
-                    archive_file.extractall(tmp)
+                    _extract_pack_bundle(archive_file, Path(tmp))
             except zipfile.BadZipFile as exc:
                 raise ValidationAppError("The uploaded bundle is not a valid zip archive.") from exc
             return _import_pack_dir(

@@ -69,6 +69,15 @@ class NotFoundError(AppError):
     detail = "The requested resource was not found."
 
 
+class PayloadTooLargeError(AppError):
+    """Request body exceeds the endpoint's size cap (HTTP 413, SEC-014)."""
+
+    type = "urn:legacyflow:error:payload_too_large"
+    title = "Payload too large"
+    status = 413
+    detail = "The request body exceeds the size limit for this endpoint."
+
+
 class ValidationAppError(AppError):
     """Request failed domain validation (HTTP 422)."""
 

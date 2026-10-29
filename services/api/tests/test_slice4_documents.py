@@ -1451,7 +1451,9 @@ def test_funding_evidence_oversize_rejected(db, api_client):
         files={"evidence_file": ("big.pdf", oversize, "application/pdf")},
         headers=auth(CLIENT_A),
     )
-    assert response.status_code == 422, response.text
+    # SEC-014's router cap rejects at 413 before the service's own
+    # 422 cap (defense in depth) is reached.
+    assert response.status_code == 413, response.text
 
 
 def test_funding_evidence_unknown_magic_rejected(db, api_client):
