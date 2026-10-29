@@ -128,3 +128,50 @@ def test_ai_ensure_open_escalation_uses_isolated_insert(
         outcome="attorney_review",
     )
     assert calls == ["isolated"]
+
+
+# ---------------------------------------------------------------------------
+# M-4: attorney auto-run futures must not be silently discarded — a
+# done-callback logs any exception escaping the worker target.
+# ---------------------------------------------------------------------------
+
+
+def test_auto_run_future_callback_logs_escaping_exception(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    from app.domains.documents import router as documents_router
+
+    def _raising_worker(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("synthetic escape from auto-run worker")
+
+    monkeypatch.setattr(
+        documents_router, "_auto_run_attorney_review_worker", _raising_worker
+    )
+    with caplog.at_level(logging.ERROR, logger="app.domains.documents.router"):
+        future = documents_router._auto_run_attorney_review(uuid4(), str(uuid4()))
+        with pytest.raises(RuntimeError):
+            future.result(timeout=10)
+        # The done-callback runs on the completing thread; poll briefly
+        # for its log record before asserting.
+        import time
+
+        for _ in range(50):
+            if any(r.levelno >= logging.ERROR for r in caplog.records):
+                break
+            time.sleep(0.1)
+    assert any(
+        r.levelno >= logging.ERROR and r.exc_info for r in caplog.records
+    ), "done-callback must logger.exception the escaped exception"
+
+
+def test_auto_run_done_callback_ignores_success() -> None:
+    import concurrent.futures
+
+    from app.domains.documents import router as documents_router
+
+    callback = documents_router._log_auto_run_future_failure
+    future: concurrent.futures.Future[None] = concurrent.futures.Future()
+    future.set_result(None)
+    callback(future)  # must not raise

@@ -16,6 +16,7 @@ import concurrent.futures
 import contextvars
 import functools
 import json
+import logging
 import threading
 from typing import Annotated
 from uuid import UUID
@@ -31,6 +32,8 @@ from . import schemas as sch
 from . import service
 
 router = APIRouter(tags=["documents"])
+
+logger = logging.getLogger(__name__)
 
 User = Annotated[Claims, Depends(get_current_user)]
 
@@ -54,6 +57,24 @@ def _get_attorney_review_executor() -> concurrent.futures.ThreadPoolExecutor:
                     thread_name_prefix="attorney-review",
                 )
     return _ATTORNEY_REVIEW_EXECUTOR
+
+
+def _log_auto_run_future_failure(future: concurrent.futures.Future[None]) -> None:
+    """Done-callback for attorney-review auto-run futures (Batch-D M-4).
+
+    The worker target already blanket-catches internally, so an
+    exception reaching the future means a regression ESCAPED that catch
+    (or the context/partial plumbing itself failed). Callers discard
+    the future, so without this callback such a failure would vanish
+    silently; log it at ERROR with the traceback instead.
+    """
+    if future.cancelled():
+        logger.error("attorney_review auto-run future was cancelled")
+        return
+    try:
+        future.result()
+    except Exception:
+        logger.exception("attorney_review auto-run future failed unexpectedly")
 
 
 def _auto_run_attorney_review(
@@ -81,7 +102,7 @@ def _auto_run_attorney_review(
     that triggered them. Returns the Future (callers may ignore it).
     """
     ctx = contextvars.copy_context()
-    return _get_attorney_review_executor().submit(
+    future = _get_attorney_review_executor().submit(
         ctx.run,
         functools.partial(
             _auto_run_attorney_review_worker,
@@ -90,6 +111,8 @@ def _auto_run_attorney_review(
             deterministic_only=deterministic_only,
         ),
     )
+    future.add_done_callback(_log_auto_run_future_failure)
+    return future
 
 
 def _auto_run_attorney_review_worker(
