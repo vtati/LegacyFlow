@@ -171,6 +171,55 @@ describe('AttorneyReviewPanel', () => {
     expect(input.className).toContain('sm:h-9');
   });
 
+  it('shows the judgment-pass note whenever the run is degraded — even with findings (ERR-020)', () => {
+    render(
+      <AttorneyReviewPanel
+        data={{
+          enabled: true,
+          run: { ...baseData.run!, degraded: true },
+          findings: baseData.findings,
+        }}
+        onAcknowledge={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/judgment pass hasn.t run yet/i)).toBeTruthy();
+    expect(screen.getByText(/deterministic checks only/i)).toBeTruthy();
+    // Findings still render alongside the note.
+    expect(screen.getAllByText(/Neha Kapur/).length).toBeGreaterThan(0);
+  });
+
+  it('treats a deterministic_only run as degraded even with findings (ERR-020)', () => {
+    render(
+      <AttorneyReviewPanel
+        data={{
+          enabled: true,
+          run: { ...baseData.run!, model_id: 'deterministic_only' },
+          findings: baseData.findings,
+        }}
+        onAcknowledge={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/judgment pass hasn.t run yet/i)).toBeTruthy();
+  });
+
+  it('shows a failed-attempt state when the last run failed and none completed (ERR-025)', () => {
+    render(
+      <AttorneyReviewPanel
+        data={{
+          enabled: true,
+          run: null,
+          findings: [],
+          last_failed_run: { ...baseData.run!, status: 'failed' },
+        }}
+        onAcknowledge={vi.fn()}
+        onRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/last pre-review attempt failed/i)).toBeTruthy();
+    expect(screen.getByText(/try again/i)).toBeTruthy();
+    expect(screen.queryByText(/No pre-review has run/i)).toBeNull();
+  });
+
   it('shows a clean result when a completed run found nothing', () => {
     render(
       <AttorneyReviewPanel

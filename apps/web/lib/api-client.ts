@@ -968,12 +968,18 @@ export interface AttorneyReviewRun {
   source_fingerprint: string;
   created_at: string;
   completed_at: string | null;
+  /** ERR-020 (additive, Batch D): true when the model/judgment layer did
+   * not complete for this run — the run is deterministic checks only. */
+  degraded?: boolean;
 }
 
 export interface AttorneyReviewFindings {
   enabled: boolean;
   run: AttorneyReviewRun | null;
   findings: AttorneyReviewFinding[];
+  /** ERR-025 (additive, Batch D): the latest failed run, present when no
+   * completed run exists for the current packet. */
+  last_failed_run?: AttorneyReviewRun | null;
 }
 
 export interface AttorneyReviewRunResult {

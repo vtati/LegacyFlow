@@ -147,6 +147,13 @@ export function AttorneyReviewPanel({
 }: AttorneyReviewPanelProps): React.JSX.Element | null {
   if (!data || !data.enabled) return null;
 
+  // ERR-020: a run is degraded when the API flags it (Batch D) — older
+  // payloads signal the same state via model_id. A degraded run must
+  // never render identically to a full clean run, findings or not.
+  const isDegraded =
+    data.run != null &&
+    (data.run.degraded === true || data.run.model_id === 'deterministic_only');
+
   return (
     <section
       aria-label="Automated pre-review"
@@ -172,7 +179,25 @@ export function AttorneyReviewPanel({
         </p>
       )}
 
-      {!data.run && (
+      {/* ERR-025: a failed last attempt is not "never attempted" — say
+          so and offer the retry instead of the no-run copy. */}
+      {!data.run && data.last_failed_run && (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-lf-text-muted">
+            The last pre-review attempt failed — try again.
+            {variant === 'family'
+              ? ' Your drafts are unaffected, and the pre-review also runs automatically when you submit.'
+              : ''}
+          </p>
+          {onRun && (
+            <Button type="button" variant="outline" onClick={onRun}>
+              Run pre-review
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!data.run && !data.last_failed_run && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <p className="text-sm text-lf-text-muted">
             {variant === 'firm'
@@ -187,20 +212,26 @@ export function AttorneyReviewPanel({
         </div>
       )}
 
-      {data.run && data.findings.length === 0 && (
-        data.run.model_id === 'deterministic_only' ? (
-          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-text-muted">
-            <CircleCheck className="size-4" aria-hidden="true" />
-            {variant === 'firm'
-              ? 'No issues found by the automated checks. The judgment pass hasn’t run on this packet yet — it runs at submit, or you can run the full pre-review now.'
-              : 'No issues found by the automated checks. The fuller judgment pass runs when you submit your drafts for attorney review.'}
-          </p>
-        ) : (
-          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-success-700">
-            <CircleCheck className="size-4" aria-hidden="true" />
-            No issues found by the automated pre-review.
-          </p>
-        )
+      {/* ERR-020: the degraded note shows whenever the current run is
+          degraded — not only when findings are empty. */}
+      {data.run && isDegraded && (
+        <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-text-muted">
+          <CircleCheck className="size-4 shrink-0" aria-hidden="true" />
+          {data.findings.length === 0
+            ? variant === 'firm'
+              ? 'No issues found by the automated checks. The judgment pass hasn’t run yet — deterministic checks only; it runs at submit, or you can run the full pre-review now.'
+              : 'No issues found by the automated checks. The judgment pass hasn’t run yet — deterministic checks only. The judgment pass runs when you submit your drafts for attorney review.'
+            : variant === 'firm'
+              ? 'The judgment pass hasn’t run yet — deterministic checks only. The findings below are from the deterministic checks.'
+              : 'The judgment pass hasn’t run yet — deterministic checks only. The findings below are from the automated checks; the judgment pass runs when you submit your drafts for attorney review.'}
+        </p>
+      )}
+
+      {data.run && data.findings.length === 0 && !isDegraded && (
+        <p role="status" className="mt-3 flex items-center gap-2 text-sm text-lf-success-700">
+          <CircleCheck className="size-4" aria-hidden="true" />
+          No issues found by the automated pre-review.
+        </p>
       )}
 
       {groupByDocument(data.findings).map((group) => (
