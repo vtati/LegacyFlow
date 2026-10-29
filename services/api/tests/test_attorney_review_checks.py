@@ -726,6 +726,64 @@ def test_reference_integrity_near_miss_name_is_should_fix() -> None:
     assert typo[0].severity == "should_fix"
 
 
+def test_reference_integrity_camelcase_surname_matches_household_person() -> None:
+    """Phase-3 triage (2026-10-29): a camelCase surname must be read as
+    ONE token. The production packet's residuary answer named
+    "Elena PhaseThree" — the spouse person record holds exactly that
+    name — but the name-sequence extraction truncated the surname
+    mid-token to "Elena Phase" and flagged her as not in the household
+    records."""
+    persons = [
+        {"id": TESTATOR_ID, "full_name": "Marcus PhaseThree", "kind": "adult",
+         "date_of_birth": "1985-04-12"},
+        {"id": SPOUSE_ID, "full_name": "Elena PhaseThree", "kind": "adult",
+         "date_of_birth": "1987-09-03"},
+    ]
+    context = _context()
+    context["testator_name"] = "Marcus PhaseThree"
+    context["spouse_name"] = "Elena PhaseThree"
+    context["residuary_beneficiaries"] = (
+        "Everything to my wife Elena PhaseThree, "
+        "then equally to our three children"
+    )
+    will = _snapshot(
+        "will",
+        "LAST WILL AND TESTAMENT OF Marcus PhaseThree\n"
+        "I give the residue to my wife Elena PhaseThree.",
+        context=context,
+    )
+    run = _run(snapshots=[will], source=_source(persons=persons))
+    assert _by_check(run, "reference_integrity") == []
+    assert _by_check(run, "name_consistency") == []
+
+
+def test_reference_integrity_camelcase_near_miss_is_still_should_fix() -> None:
+    """The camelCase fix must not blind the check: a one-letter-off
+    camelCase surname in the residuary is still a probable typo of the
+    household person and stays a should_fix."""
+    persons = [
+        {"id": TESTATOR_ID, "full_name": "Marcus PhaseThree", "kind": "adult",
+         "date_of_birth": "1985-04-12"},
+        {"id": SPOUSE_ID, "full_name": "Elena PhaseThree", "kind": "adult",
+         "date_of_birth": "1987-09-03"},
+    ]
+    context = _context()
+    context["testator_name"] = "Marcus PhaseThree"
+    context["spouse_name"] = "Elena PhaseThree"
+    context["residuary_beneficiaries"] = (
+        "Everything to my wife Elena PhaseThre, "
+        "then equally to our three children"
+    )
+    will = _snapshot("will", "LAST WILL", context=context)
+    findings = _by_check(
+        _run(snapshots=[will], source=_source(persons=persons)),
+        "reference_integrity",
+    )
+    typo = [f for f in findings if "Elena PhaseThre" in (f.excerpt or "")]
+    assert len(typo) == 1
+    assert typo[0].severity == "should_fix"
+
+
 def test_childless_packet_children_list_blank_is_by_design() -> None:
     """Review N2: the renderer writes children_list="___" BY DESIGN
     for a childless family, and has_minor_children is a required

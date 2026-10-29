@@ -56,7 +56,14 @@ _FAMILY_SLOTS = frozenset({
 })
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
-_NAME_SEQ_RE = re.compile(r"[A-Z][a-z]+(?: [A-Z][a-z]+)+")
+#: A name word may carry internal capitalised segments (camelCase
+#: surnames: "PhaseThree", "McDonald") — each segment after the first
+#: starts with a capital followed by lowercase. Without this, the
+#: sequence regex truncated such a surname mid-token ("Elena
+#: PhaseThree" extracted as "Elena Phase") and reference_integrity
+#: flagged a household person as unknown (Phase-3 triage, 2026-10-29).
+_NAME_WORD = r"[A-Z][a-z]+(?:[A-Z][a-z]+)*"
+_NAME_SEQ_RE = re.compile(rf"{_NAME_WORD}(?: {_NAME_WORD})+")
 _WITNESS_SIG_RE = re.compile(r"witness[^\n]{0,30}signature|signature[^\n]{0,30}witness", re.I)
 _TESTATOR_SIG_RE = re.compile(r"signature[^\n]{0,40}testator|testator[^\n]{0,40}signature", re.I)
 #: The v2 templates lay signature blocks out as a rule line followed by
