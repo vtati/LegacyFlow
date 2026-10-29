@@ -301,3 +301,173 @@ def test_json_formatter_merges_extra_fields() -> None:
     assert payload["level"] == "ERROR"
     assert payload["message"] == "unhandled"
     assert payload["service"] == "legacyflow-api"
+
+
+# ---------------------------------------------------------------------------
+# ERR-007: broker enqueue failure (Redis down) -> 501, not raw 500
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_broker_connection_error_becomes_501(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import authz
+    from app.domains.privacy import service as privacy_service
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6399/0")
+    monkeypatch.setattr(authz, "get_user_firm_id", lambda conn, uid: uuid4())
+    monkeypatch.setattr(authz, "require_firm_role", lambda *a, **k: None)
+
+    def _down(redis_url: str) -> None:
+        raise ConnectionError("redis unreachable (synthetic)")
+
+    monkeypatch.setattr(privacy_service, "enqueue_reminder_dispatch", _down)
+    with pytest.raises(privacy_service.WorkerBrokerUnavailableError) as excinfo:
+        privacy_service.dispatch_due_reminders(object(), actor_sub=str(uuid4()))
+    assert excinfo.value.status == 501
+
+
+def test_enqueue_reminder_dispatch_translates_broker_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dispatch module itself converts a broker ConnectionError
+    into the 501 error (not a raw exception escaping as a 500)."""
+    import sys
+    import types
+
+    from app.domains.privacy import dispatch
+
+    class _Broker:
+        def __init__(self, url: str) -> None:
+            pass
+
+        def enqueue(self, message: Any) -> None:
+            raise ConnectionError("redis unreachable (synthetic)")
+
+    fake_dramatiq = types.ModuleType("dramatiq")
+    fake_dramatiq.Message = lambda **kw: kw  # type: ignore[attr-defined]
+    fake_brokers = types.ModuleType("dramatiq.brokers")
+    fake_redis = types.ModuleType("dramatiq.brokers.redis")
+    fake_redis.RedisBroker = _Broker  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dramatiq", fake_dramatiq)
+    monkeypatch.setitem(sys.modules, "dramatiq.brokers", fake_brokers)
+    monkeypatch.setitem(sys.modules, "dramatiq.brokers.redis", fake_redis)
+
+    with pytest.raises(dispatch.WorkerBrokerUnavailableError) as excinfo:
+        dispatch.enqueue_reminder_dispatch("redis://localhost:6399/0")
+    assert excinfo.value.status == 501
+
+
+# ---------------------------------------------------------------------------
+# ERR-010: text_extract must not log raw upload filenames
+# ---------------------------------------------------------------------------
+
+
+def test_text_extract_logs_extension_not_filename(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app.domains.interview import text_extract
+
+    monkeypatch.setattr(
+        text_extract, "_extract_pdf", lambda data: [text_extract.ExtractedPage(1, "")]
+    )
+
+    def _no_ocr(data: bytes, count: int) -> Any:
+        raise RuntimeError("tesseract binary not found")
+
+    monkeypatch.setattr(text_extract, "_ocr_pdf_pages", _no_ocr)
+    with caplog.at_level(logging.INFO, logger="app.domains.interview.text_extract"):
+        result = text_extract.extract_text(b"%PDF-fake", "Medical-Records-Jane-Public.pdf")
+    assert result.ocr_unavailable is True
+    for record in caplog.records:
+        assert "Jane-Public" not in record.getMessage()
+        assert "Medical-Records" not in record.getMessage()
+
+
+# ---------------------------------------------------------------------------
+# ERR-015: JWKS fetch failure logs at ERROR with a distinct message
+# ---------------------------------------------------------------------------
+
+
+def test_jwks_fetch_failure_logs_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import httpx
+
+    from app.core import security
+    from app.core.errors import AuthError
+
+    security._jwks_cache.clear()
+
+    def _down(url: str, timeout: float = 0) -> Any:
+        raise httpx.ConnectError("connection refused (synthetic)")
+
+    monkeypatch.setattr(httpx, "get", _down)
+    with caplog.at_level(logging.ERROR, logger="app.core.security"):
+        with pytest.raises(AuthError):
+            security._fetch_jwks("https://example.invalid/auth/v1/.well-known/jwks.json")
+    assert any(
+        r.levelno >= logging.ERROR and "JWKS fetch failed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
+# ERR-023: vault extraction failure must be exception-logged
+# ---------------------------------------------------------------------------
+
+
+def test_complete_upload_logs_extraction_failure(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from types import SimpleNamespace
+
+    from app.domains.files import extraction as file_extraction
+    from app.domains.files import repository as files_repo
+    from app.domains.files import service as files_service
+
+    upload_id = uuid4()
+    row = {
+        "id": str(upload_id),
+        "firm_id": str(uuid4()),
+        "household_id": str(uuid4()),
+        "matter_id": None,
+        "uploader_user_id": str(uuid4()),
+        "original_filename": "doc.pdf",
+        "stored_path": "client-uploads/doc.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 4,
+        "scan_status": "pending",
+        "scan_detail": None,
+    }
+    monkeypatch.setattr(
+        files_service,
+        "get_upload_scope",
+        lambda conn, uid, aid: SimpleNamespace(upload=row),
+    )
+    monkeypatch.setattr(files_service, "_require_upload_write", lambda scope: None)
+    monkeypatch.setattr(
+        files_service,
+        "_storage_backend",
+        lambda: SimpleNamespace(upload=lambda *a, **k: None),
+    )
+
+    def _boom(content: bytes, mime: str) -> Any:
+        raise RuntimeError("parser exploded (synthetic)")
+
+    monkeypatch.setattr(file_extraction, "extract_text_with_status", _boom)
+    updated = dict(row, extraction_status="failed")
+    monkeypatch.setattr(
+        files_repo, "update_extraction", lambda conn, uid, **kw: updated
+    )
+    monkeypatch.setattr(files_service, "record_audit_event", lambda *a, **k: uuid4())
+
+    with caplog.at_level(logging.ERROR, logger="app.domains.files.service"):
+        out = files_service.complete_upload(
+            object(), actor_sub=str(uuid4()), upload_id=upload_id, content=b"%PDF"
+        )
+    assert out.extraction_status == "failed"
+    assert any(
+        r.levelno >= logging.ERROR and r.exc_info and str(upload_id) in r.getMessage()
+        for r in caplog.records
+    ), "extraction failure must be exception-logged with the upload id"

@@ -16,7 +16,10 @@ from app.core.errors import (
     ValidationAppError,
 )
 from app.domains.privacy import repository as repo
-from app.domains.privacy.dispatch import enqueue_reminder_dispatch
+from app.domains.privacy.dispatch import (
+    WorkerBrokerUnavailableError,
+    enqueue_reminder_dispatch,
+)
 from app.domains.privacy.schemas import (
     DataExportOut,
     DeletionRequestCreate,
@@ -25,19 +28,6 @@ from app.domains.privacy.schemas import (
     NotificationPreferencesUpdate,
     ReminderDispatchOut,
 )
-
-
-class WorkerBrokerUnavailableError(AppError):
-    """Raised when no worker broker is configured for this deployment."""
-
-    type = "urn:legacyflow:error:worker_broker_unavailable"
-    title = "Worker broker unavailable"
-    status = 501
-    detail = (
-        "Reminder dispatch is not configured for this deployment "
-        "(REDIS_URL is unset). Configure the shared Dramatiq broker to "
-        "enqueue worker runs."
-    )
 
 
 def _user_id_or_raise(sub: str) -> UUID:
@@ -168,7 +158,15 @@ def dispatch_due_reminders(
     redis_url = os.environ.get("REDIS_URL")
     if not redis_url:
         raise WorkerBrokerUnavailableError()
-    enqueue_reminder_dispatch(redis_url)
+    try:
+        enqueue_reminder_dispatch(redis_url)
+    except WorkerBrokerUnavailableError:
+        raise
+    except Exception as exc:
+        # ERR-007 belt-and-braces: the dispatch helper already translates
+        # broker failures; any other enqueue failure still maps to the
+        # documented 501, never a raw 500.
+        raise WorkerBrokerUnavailableError() from exc
     record_audit_event(
         conn,
         action="reminders.dispatch_requested",
