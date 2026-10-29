@@ -32,6 +32,56 @@ def insert_household(
         return dict(cur.fetchone())
 
 
+def _ensure_self_serve_member(conn: Any, *, household_id: UUID, user_id: UUID) -> None:
+    """Ensure ``user_id`` has a primary_client + active member row.
+
+    Idempotent (L-1): a correct row is left untouched; a row in a
+    different role/status for this (household, user) is corrected in
+    place (the household is the caller's own self-serve household, so
+    they are its primary client by definition); a missing row is
+    inserted with the same shape as the normal create path, with
+    ON CONFLICT DO NOTHING against
+    ``uq_household_members_household_user`` so a concurrent healer
+    cannot duplicate it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT relationship_role, access_status FROM household_members
+            WHERE household_id = %s AND user_id = %s
+            """,
+            (str(household_id), str(user_id)),
+        )
+        member = cur.fetchone()
+    if member is not None:
+        if (
+            str(member["relationship_role"]) == "primary_client"
+            and str(member["access_status"]) == "active"
+        ):
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE household_members
+                SET relationship_role = 'primary_client', access_status = 'active'
+                WHERE household_id = %s AND user_id = %s
+                """,
+                (str(household_id), str(user_id)),
+            )
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO household_members
+              (household_id, user_id, person_id, relationship_role, access_status, invited_by)
+            VALUES (%s, %s, NULL, 'primary_client', 'active', %s)
+            ON CONFLICT (household_id, user_id) WHERE user_id IS NOT NULL
+            DO NOTHING
+            """,
+            (str(household_id), str(user_id), str(user_id)),
+        )
+
+
 def find_or_create_self_serve_household(
     conn: Any,
     *,
@@ -106,7 +156,14 @@ def find_or_create_self_serve_household(
             existing = cur.fetchone()
         if existing is None:  # pragma: no cover — conflict implies a row
             raise RuntimeError("Self-serve household conflict without an existing row.")
-        return dict(existing)
+        household = dict(existing)
+        # L-1: a pre-existing self-serve household may have NO member
+        # row for its creator (e.g. an ops-created household) — without
+        # one the caller is stranded (the fast-path SELECT above joins
+        # on that row, and household access checks need it). Heal it:
+        # ensure the caller's primary_client + active row exists.
+        _ensure_self_serve_member(conn, household_id=UUID(str(household["id"])), user_id=user_id)
+        return household
     household = dict(inserted)
     insert_household_member(
         conn,
