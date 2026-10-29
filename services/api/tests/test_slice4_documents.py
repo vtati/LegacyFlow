@@ -1315,6 +1315,73 @@ def test_amendment_duplicate_pending_is_idempotent(db, api_client):
     assert len(listed.json()) == 1
 
 
+def test_amendment_dedupe_key_includes_template_types(db, api_client):
+    """m-1 (Batch C3 follow-up): the dedupe key is description AND
+    affected_template_types (normalized/sorted) — the same description
+    aimed at different documents is a DIFFERENT request."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    _set_matter_status(db, matter_id, "PLAN_IMPLEMENTED")
+    first = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={"description": "Update the beneficiaries.",
+              "affected_template_types": ["will"]},
+        headers=auth(CLIENT_A),
+    )
+    assert first.status_code == 201, first.text
+    second = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={"description": "Update the beneficiaries.",
+              "affected_template_types": ["trust"]},
+        headers=auth(CLIENT_A),
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] != first.json()["id"]
+
+    # Same description + same types modulo order/case → idempotent.
+    third = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={"description": "update the beneficiaries.",
+              "affected_template_types": ["Will"]},
+        headers=auth(CLIENT_A),
+    )
+    assert third.status_code == 201, third.text
+    assert third.json()["id"] == first.json()["id"]
+
+    listed = api_client.get(f"/v1/matters/{matter_id}/amendments", headers=auth(CLIENT_A))
+    assert len(listed.json()) == 2
+
+
+def test_amendment_idempotent_return_writes_audit_event(db, api_client):
+    """m-1: when the idempotent path serves an existing request, an
+    audit event records that the return happened (the create path's
+    'requested' event alone would leave the replay invisible)."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    _set_matter_status(db, matter_id, "PLAN_IMPLEMENTED")
+    payload = {"description": "Change the trustee.",
+               "affected_template_types": ["trust"]}
+    first = api_client.post(
+        f"/v1/matters/{matter_id}/amendments", json=payload, headers=auth(CLIENT_A)
+    )
+    assert first.status_code == 201, first.text
+
+    def _audit_count(action: str) -> int:
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM audit_events WHERE action = %s AND matter_id = %s",
+                (action, matter_id),
+            )
+            return cur.fetchone()["n"]
+
+    assert _audit_count("document_amendment.idempotent_return") == 0
+    second = api_client.post(
+        f"/v1/matters/{matter_id}/amendments", json=payload, headers=auth(CLIENT_A)
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first.json()["id"]
+    db.commit()
+    assert _audit_count("document_amendment.idempotent_return") == 1
+
+
 def test_vault_share_expiry_bounds(db, api_client):
     """SEC-005/FUNC-016: >90 days → 422; exactly 90 days OK; naive
     datetime → 422; omitted still defaults to ~30 days."""

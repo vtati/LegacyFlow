@@ -3553,9 +3553,11 @@ def create_amendment_request(
     SIGNING_IN_PROGRESS, FUNDING_IN_PROGRESS or PLAN_IMPLEMENTED (the
     lifecycle states from document release onward). Earlier states get
     409 ``amendment_requires_released_plan``. An identical PENDING
-    request (same matter, same description modulo case/whitespace)
-    is returned as-is instead of duplicated, so client retries are
-    idempotent.
+    request (same matter, same description modulo case/whitespace AND
+    the same affected_template_types modulo order/case — m-1: the same
+    words aimed at different documents are a different request) is
+    returned as-is instead of duplicated, so client retries are
+    idempotent; the idempotent return writes its own audit event.
     """
     actor_id = _actor_id(actor_sub)
     scope = authz.get_matter_scope(conn, matter_id, actor_id)
@@ -3575,6 +3577,9 @@ def create_amendment_request(
     def _normalize(text: str) -> str:
         return " ".join(str(text).split()).casefold()
 
+    def _normalize_types(types: Any) -> tuple[str, ...]:
+        return tuple(sorted({_normalize(str(t)) for t in (types or []) if str(t).strip()}))
+
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -3585,7 +3590,27 @@ def create_amendment_request(
             (str(matter_id),),
         )
         for existing in cur.fetchall():
-            if _normalize(existing["description"]) == _normalize(payload.description):
+            if (
+                _normalize(existing["description"]) == _normalize(payload.description)
+                and _normalize_types(existing["affected_template_types"])
+                == _normalize_types(payload.affected_template_types)
+            ):
+                record_audit_event(
+                    conn,
+                    action="document_amendment.idempotent_return",
+                    resource_type="matters",
+                    actor_user_id=actor_id,
+                    actor_type="user",
+                    firm_id=UUID(str(matter["firm_id"])),
+                    matter_id=matter_id,
+                    resource_id=existing["id"],
+                    after_summary={
+                        "description": payload.description[:200],
+                        "affected_template_types": list(
+                            _normalize_types(payload.affected_template_types)
+                        ),
+                    },
+                )
                 return sch.AmendmentRequestOut(
                     id=existing["id"],
                     matter_id=existing["matter_id"],
