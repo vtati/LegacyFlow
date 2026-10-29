@@ -158,12 +158,15 @@ def download_file(token: Annotated[str, Query(...)]) -> StreamingResponse:
         row = service.authorize_download(conn, token=token)
     stored_path = str(row["stored_path"])
 
-    # Prefer a signed URL when the backend supports it (Supabase).
-    signed = service.storage_signed_url(stored_path, expires_in=900)
-    if signed:
+    # SEC-015: this route is reached with a bearer token in the query
+    # string; ``Referrer-Policy: no-referrer`` keeps the token-bearing
+    # URL out of any Referer header a browser might send onward.
+    if signed := service.storage_signed_url(stored_path, expires_in=900):
         from fastapi.responses import RedirectResponse
 
-        return RedirectResponse(url=signed, status_code=302)
+        return RedirectResponse(
+            url=signed, status_code=302, headers={"Referrer-Policy": "no-referrer"}
+        )
 
     path = service.resolve_stored_path(stored_path)
     if not path.is_file():
@@ -174,5 +177,8 @@ def download_file(token: Annotated[str, Query(...)]) -> StreamingResponse:
     return StreamingResponse(
         _iter_file(path),
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Referrer-Policy": "no-referrer",
+        },
     )
