@@ -129,6 +129,14 @@ class _Record:
     expires_at: float
 
 
+# ERR-013 (DEFERRED, document-only — deep review 2026-10-29): this store
+# is per-process memory, and production runs multiple uvicorn workers
+# (railway.toml --workers 4) per instance, so a retried mutating request
+# landing on another worker can double-execute. Accepted for now: the
+# web client sends no Idempotency-Key today, and the known header users
+# are small JSON posts whose operations are largely re-checkable.
+# Eventual fix: a shared store (Redis) keyed identically, when
+# multi-instance idempotency becomes load-bearing.
 _store: dict[tuple[str, str], _Record] = {}
 _store_lock = threading.Lock()
 

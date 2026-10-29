@@ -1,6 +1,15 @@
 /**
  * Typed client for the LegacyFlow family API (Tracks B/C contract).
  *
+ * PERF-013 (DEFERRED, document-only — deep review 2026-10-29): this
+ * client is hand-rolled fetch with no request caching or dedup, so
+ * identical reference-data GETs repeat across pages and navigations
+ * (middleware likewise calls supabase.auth.getUser() per protected
+ * navigation). Accepted for now: data volumes are small and freshness
+ * matters more than call count at current scale. Eventual fix: adopt
+ * a query-cache layer (e.g. react-query) for reference data with
+ * explicit stale times, keeping mutations on this client.
+ *
  * Token-agnostic by design: the JWT comes from the `getToken` callback so the
  * client never reaches into auth internals. The shared `api` / `firmApi`
  * exports below wire the browser auth adapter's access token (the Supabase

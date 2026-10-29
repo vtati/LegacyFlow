@@ -180,6 +180,15 @@ def _parse_manifest(data: dict[str, Any]) -> PackManifest:
     )
 
 
+# PERF-014 (DEFERRED, document-only — deep review 2026-10-29): these
+# lru_caches have no TTL or invalidation, and clear_pack_cache() has no
+# production caller — a re-imported or edited pack is not picked up
+# until the process restarts. Accepted for now: the caches are bounded
+# (not a leak), pack changes ship via deploys (which restart the
+# process), and the API runs multiple workers whose caches would age
+# independently anyway. Eventual fix: call clear_pack_cache() from the
+# pack-import path, or add a TTL/mtime check if imports must take
+# effect without a restart.
 @lru_cache(maxsize=32)
 def _list_packs_cached(packs_root: str) -> tuple[PackManifest, ...]:
     root = Path(packs_root)
