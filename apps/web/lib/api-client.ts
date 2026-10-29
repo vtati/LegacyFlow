@@ -1008,8 +1008,11 @@ export interface SigningRequirement {
 }
 
 export interface SigningAttestation {
-  id: string;
+  /** API's canonical name for the checklist item key that was attested. */
+  statement_key: string;
+  /** Same value as statement_key, under the web client's name for it. */
   requirement_id: string;
+  attested: boolean;
   attested_at: string;
   attested_by_user_id: string;
 }

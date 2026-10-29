@@ -307,6 +307,7 @@ def _checklist_out(row: dict[str, Any]) -> sch.SigningChecklistOut:
     attestations = [
         sch.AttestationOut(
             statement_key=entry["statement_key"],
+            requirement_id=entry["statement_key"],
             attested=bool(entry["attested"]),
             attested_at=entry["attested_at"],
             attested_by_user_id=entry["attested_by_user_id"],
@@ -2672,10 +2673,15 @@ def record_attestation(
     checklist = dict(row["checklist"] or {})
     if isinstance(checklist, str):
         checklist = json.loads(checklist)
+    # Batch F1 attest contract: the web shape's requirement_id IS the
+    # checklist item key; the schema resolves both shapes to one key
+    # and one attested flag (a confirmed acknowledgement attests True).
+    statement_key = payload.resolved_statement_key
+    attested = payload.resolved_attested
     valid_keys = {item["key"] for item in checklist.get("items", []) if item.get("key")}
-    if valid_keys and payload.statement_key not in valid_keys:
+    if valid_keys and statement_key not in valid_keys:
         raise ValidationAppError(
-            f"Unknown statement key {payload.statement_key!r} for this checklist."
+            f"Unknown statement key {statement_key!r} for this checklist."
         )
     attestations = [dict(a) for a in checklist.get("attestations", [])]
     # FUNC-010: the attestation time is stamped by the SERVER at record
@@ -2683,12 +2689,12 @@ def record_attestation(
     # compatibility) is ignored — it must never be stored verbatim.
     attested_at = datetime.now(UTC)
     entry = {
-        "statement_key": payload.statement_key,
-        "attested": payload.attested,
+        "statement_key": statement_key,
+        "attested": attested,
         "attested_at": attested_at.isoformat(),
         "attested_by_user_id": str(actor_id),
     }
-    attestations = [a for a in attestations if a["statement_key"] != payload.statement_key]
+    attestations = [a for a in attestations if a["statement_key"] != statement_key]
     attestations.append(entry)
     checklist["attestations"] = attestations
     repo.update_checklist(conn, checklist_id, checklist)
@@ -2701,10 +2707,11 @@ def record_attestation(
         firm_id=UUID(str(matter["firm_id"])),
         matter_id=UUID(str(matter["id"])),
         resource_id=checklist_id,
-        after_summary={"statement_key": payload.statement_key, "attested": payload.attested},
+        after_summary={"statement_key": statement_key, "attested": attested},
     )
     return sch.AttestationOut(
         statement_key=str(entry["statement_key"]),
+        requirement_id=str(entry["statement_key"]),
         attested=bool(entry["attested"]),
         attested_at=attested_at,
         attested_by_user_id=actor_id,

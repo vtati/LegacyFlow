@@ -1260,6 +1260,70 @@ def test_attestation_server_stamps_time_ignoring_client_value(db, api_client):
     assert datetime.fromisoformat(stored[0]["attested_at"]) >= before - timedelta(seconds=5)
 
 
+def test_attestation_accepts_family_web_payload(db, api_client):
+    """Batch F1 (attest contract): the family web signing page sends
+    exactly {requirement_id, acknowledgement} — see
+    apps/web/app/(app)/family/signing/page.tsx, which calls
+    api.attest(checklist.id, {requirement_id: requirement.key,
+    acknowledgement: ACKNOWLEDGEMENT}). That payload 422'd against the
+    old {statement_key, attested, attested_at} schema, so the web
+    signing flow could never attest. The API now derives
+    statement_key from requirement_id, treats the confirmed
+    acknowledgement as attested=True, and stamps attested_at itself.
+    """
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    checklist = api_client.post(
+        f"/v1/matters/{matter_id}/signing-checklists", headers=auth(STAFF_A)
+    ).json()
+
+    before = datetime.now(UTC)
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={
+            "requirement_id": "witness_signatures",
+            "acknowledgement": (
+                "I have read this requirement and understand I must follow "
+                "my attorney’s instructions for it."
+            ),
+        },
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["statement_key"] == "witness_signatures"
+    # The web client maps attestations by requirement_id, so the
+    # response (and the checklist read model) must carry it too.
+    assert body["requirement_id"] == "witness_signatures"
+    assert body["attested"] is True
+    assert body["attested_by_user_id"] == CLIENT_A
+    stamped = datetime.fromisoformat(body["attested_at"])
+    assert stamped >= before - timedelta(seconds=5)
+    assert stamped <= datetime.now(UTC) + timedelta(seconds=5)
+
+    response = api_client.get(
+        f"/v1/signing-checklists/{checklist['id']}", headers=auth(CLIENT_A)
+    )
+    stored = response.json()["attestations"]
+    assert len(stored) == 1
+    assert stored[0]["requirement_id"] == "witness_signatures"
+    assert stored[0]["statement_key"] == "witness_signatures"
+
+    # An unknown requirement_id is rejected, same as an unknown
+    # statement_key on the legacy shape.
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={
+            "requirement_id": "not_a_requirement",
+            "acknowledgement": (
+                "I have read this requirement and understand I must follow "
+                "my attorney’s instructions for it."
+            ),
+        },
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 422
+
+
 def test_attestation_trusted_contact_forbidden(db, api_client):
     """FUNC-010: trusted_contact is a read-only household role → 403."""
     _firm_id, household_id, matter_id = setup_firm_household_matter(db)

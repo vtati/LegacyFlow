@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Exactly the document_templates_template_type_check set (migration
 # 20261006040000). The Literal lagged the DB at 4 values, which would have
@@ -143,16 +143,62 @@ class SigningChecklistGenerate(BaseModel):
 
 
 class AttestationIn(BaseModel):
-    statement_key: str = Field(min_length=1, max_length=128)
-    attested: bool
-    # Accepted for schema compatibility with older clients but IGNORED:
-    # the server stamps attested_at at record time (FUNC-010) so a
-    # client can never backdate an attestation.
+    """Attestation request — two shapes, one resolved meaning.
+
+    Current contract (family web signing flow): the client sends
+    ``{requirement_id, acknowledgement}`` — the requirement id is the
+    checklist item key it is attesting, and the acknowledgement is the
+    non-certifying text the user confirmed. The server DERIVES
+    ``statement_key`` from ``requirement_id`` and treats the confirmed
+    acknowledgement as ``attested=True``; ``attested_at`` is always
+    server-stamped (FUNC-010), never client-supplied.
+
+    Legacy contract, kept for backward compatibility with the original
+    API callers: ``{statement_key, attested, attested_at?}`` — the
+    ``attested_at`` is accepted but IGNORED (server-stamped, FUNC-010,
+    so a client can never backdate an attestation).
+    """
+
+    requirement_id: str | None = Field(default=None, min_length=1, max_length=128)
+    acknowledgement: str | None = Field(default=None, min_length=1, max_length=1000)
+    statement_key: str | None = Field(default=None, min_length=1, max_length=128)
+    attested: bool | None = None
     attested_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _resolve_contract(self) -> AttestationIn:
+        if (
+            self.requirement_id is not None
+            and self.statement_key is not None
+            and self.requirement_id != self.statement_key
+        ):
+            raise ValueError("requirement_id and statement_key must match when both are sent.")
+        if self.requirement_id is None and self.statement_key is None:
+            raise ValueError("requirement_id (or legacy statement_key) is required.")
+        if self.attested is None and self.requirement_id is None:
+            raise ValueError("attested is required with the legacy statement_key shape.")
+        return self
+
+    @property
+    def resolved_statement_key(self) -> str:
+        """The checklist item key being attested, from either shape."""
+        key = self.requirement_id or self.statement_key
+        assert key is not None  # enforced by _resolve_contract
+        return key
+
+    @property
+    def resolved_attested(self) -> bool:
+        """Explicit legacy flag, or True for a confirmed acknowledgement."""
+        return True if self.attested is None else self.attested
 
 
 class AttestationOut(BaseModel):
     statement_key: str
+    # Same value as statement_key, under the name the web client uses
+    # (its SigningAttestation type and signing pages map attestations
+    # by requirement_id). Both names are emitted so legacy API
+    # consumers and the web client read the same payload.
+    requirement_id: str
     attested: bool
     attested_at: datetime
     attested_by_user_id: UUID

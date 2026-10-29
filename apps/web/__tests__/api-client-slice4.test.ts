@@ -220,8 +220,17 @@ describe('Family API — signing and funding (Slice 4)', () => {
       method: 'GET',
     });
 
-    respondWith({ id: 'att-1', requirement_id: 'req-1' });
-    await family.attest('checklist-1', {
+    // Response mirrors the real API AttestationOut shape (Batch F1
+    // attest contract): no id; the attested item key arrives as both
+    // statement_key and requirement_id, with a server-stamped time.
+    respondWith({
+      statement_key: 'req-1',
+      requirement_id: 'req-1',
+      attested: true,
+      attested_at: '2026-10-29T00:00:00Z',
+      attested_by_user_id: 'user-1',
+    });
+    const attestation = await family.attest('checklist-1', {
       requirement_id: 'req-1',
       acknowledgement: 'I have read this requirement.',
     });
@@ -230,6 +239,8 @@ describe('Family API — signing and funding (Slice 4)', () => {
       method: 'POST',
       body: { requirement_id: 'req-1', acknowledgement: 'I have read this requirement.' },
     });
+    expect(attestation.requirement_id).toBe('req-1');
+    expect(attestation.statement_key).toBe('req-1');
   });
 
   it('lists and updates funding tasks', async () => {
