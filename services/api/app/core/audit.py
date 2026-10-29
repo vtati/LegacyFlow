@@ -67,9 +67,9 @@ def record_audit_event(
                 resource_type,
                 str(resource_id) if resource_id else None,
                 str(correlation_id) if correlation_id else None,
-                json.dumps(before_summary) if before_summary is not None else None,
-                json.dumps(after_summary) if after_summary is not None else None,
-                json.dumps(metadata or {}),
+                json.dumps(before_summary, default=str) if before_summary is not None else None,
+                json.dumps(after_summary, default=str) if after_summary is not None else None,
+                json.dumps(metadata or {}, default=str),
             ),
         )
     return event_id

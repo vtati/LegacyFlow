@@ -229,3 +229,75 @@ def test_minor_materialization_log_contains_no_name(
         message = record.getMessage()
         assert "Aarav" not in message and "Diya" not in message, message
         assert "Sharma" not in message, message
+
+
+# ---------------------------------------------------------------------------
+# ERR-006: audit json.dumps must tolerate datetime/UUID/Decimal
+# ---------------------------------------------------------------------------
+
+
+def test_record_audit_event_serializes_non_json_scalars() -> None:
+    import json as _json
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from app.core.audit import record_audit_event
+
+    captured: dict[str, Any] = {}
+
+    class _Cur:
+        def __enter__(self) -> "_Cur":
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        def execute(self, sql: str, params: tuple = ()) -> None:
+            captured["params"] = params
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+    event_id = record_audit_event(
+        _Conn(),
+        action="test.action",
+        resource_type="matter",
+        actor_user_id=uuid4(),
+        actor_type="user",
+        after_summary={
+            "when": datetime(2026, 10, 29, tzinfo=UTC),
+            "ref": uuid4(),
+            "amount": Decimal("12.50"),
+        },
+    )
+    assert event_id is not None
+    json_params = [p for p in captured["params"] if isinstance(p, str) and p.startswith("{")]
+    assert json_params, "expected JSON summary params"
+    parsed = _json.loads(json_params[0])
+    assert parsed["amount"] == "12.50"
+    assert "2026-10-29" in parsed["when"]
+
+
+# ---------------------------------------------------------------------------
+# ERR-018: JSONFormatter must merge extra={} fields
+# ---------------------------------------------------------------------------
+
+
+def test_json_formatter_merges_extra_fields() -> None:
+    import json as _json
+
+    from app.core.logging import JSONFormatter
+
+    record = logging.LogRecord(
+        name="app.main", level=logging.ERROR, pathname=__file__, lineno=1,
+        msg="unhandled", args=(), exc_info=None,
+    )
+    record.path = "/v1/matters"
+    record.rule_id = "r1"
+    payload = _json.loads(JSONFormatter().format(record))
+    assert payload["path"] == "/v1/matters"
+    assert payload["rule_id"] == "r1"
+    assert payload["level"] == "ERROR"
+    assert payload["message"] == "unhandled"
+    assert payload["service"] == "legacyflow-api"
