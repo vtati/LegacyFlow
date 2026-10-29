@@ -47,7 +47,6 @@ export default function GlobalError({
                 Try again
               </button>
               {/* A plain anchor: the router may be part of what failed. */}
-              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
               <a
                 href="/"
                 className="inline-flex h-10 items-center justify-center rounded-lf-control border border-lf-border bg-lf-canvas-elevated px-4 py-2 text-sm font-medium text-lf-text hover:bg-lf-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-accent-500"
