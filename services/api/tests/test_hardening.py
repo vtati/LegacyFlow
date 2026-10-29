@@ -195,6 +195,99 @@ def test_idempotency_ignores_safe_methods(client, fresh_limits) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Batch C3 follow-up M-1: idempotency body capture must stay bounded
+# (SEC-014). The middleware is outermost, so an Idempotency-Key on an
+# upload-class or oversize request must not resurrect unbounded
+# buffering: upload-class requests skip idempotency entirely, and
+# non-upload bodies are capped (413) BEFORE the downstream app runs.
+# ---------------------------------------------------------------------------
+
+
+def _idempotency_stub_client():
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    from app.core.idempotency import IdempotencyMiddleware
+
+    calls = {"count": 0}
+
+    async def echo(request):  # type: ignore[no-untyped-def]
+        body = await request.body()
+        calls["count"] += 1
+        return JSONResponse({"calls": calls["count"], "bytes": len(body)})
+
+    app = Starlette(routes=[
+        Route("/v1/matters", echo, methods=["POST"]),
+        Route("/v1/matters/{matter_id}/interview/dictate", echo, methods=["POST"]),
+    ])
+    app.add_middleware(IdempotencyMiddleware)
+    clear_idempotency_store()
+    return TestClient(app, raise_server_exceptions=False), calls
+
+
+def test_idempotency_oversize_json_body_rejected_before_app(test_settings_env) -> None:
+    stub, calls = _idempotency_stub_client()
+    headers = {"Idempotency-Key": "oversize-key"}  # gitleaks:allow
+    body = b'{"name":"' + b"x" * 1_100_000 + b'"}'
+    response = stub.post(
+        "/v1/matters", content=body,
+        headers={**headers, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 413, response.text
+    assert response.json()["type"] == "urn:legacyflow:error:payload_too_large"
+    assert calls["count"] == 0  # downstream never saw the oversize body
+
+
+def test_idempotency_chunked_oversize_body_rejected_before_app(test_settings_env) -> None:
+    stub, calls = _idempotency_stub_client()
+    headers = {"Idempotency-Key": "chunked-oversize-key"}  # gitleaks:allow
+
+    def chunks():
+        yield b"x" * 600_000
+        yield b"x" * 600_000
+
+    response = stub.post(
+        "/v1/matters", content=chunks(),
+        headers={**headers, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 413, response.text
+    assert calls["count"] == 0
+
+
+def test_idempotency_skips_upload_class_multipart_requests(test_settings_env) -> None:
+    stub, calls = _idempotency_stub_client()
+    headers = {"Idempotency-Key": "upload-key"}  # gitleaks:allow
+    payload = b"x" * 1_100_000  # over the JSON cap; uploads have their own caps
+    first = stub.post(
+        "/v1/matters/abc/interview/dictate",
+        files={"file": ("audio.wav", payload, "audio/wav")},
+        headers=headers,
+    )
+    second = stub.post(
+        "/v1/matters/abc/interview/dictate",
+        files={"file": ("audio.wav", payload, "audio/wav")},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    # Passed through untouched both times: no capture, no replay.
+    assert calls["count"] == 2
+    assert "Idempotent-Replayed" not in second.headers
+
+
+def test_idempotency_stub_json_replay_still_works(test_settings_env) -> None:
+    stub, calls = _idempotency_stub_client()
+    headers = {"Idempotency-Key": "stub-replay-key"}  # gitleaks:allow
+    first = stub.post("/v1/matters", json={"name": "synthetic"}, headers=headers)
+    second = stub.post("/v1/matters", json={"name": "synthetic"}, headers=headers)
+    assert first.status_code == 200, first.text
+    assert second.headers.get("Idempotent-Replayed") == "true"
+    assert calls["count"] == 1
+
+
+# ---------------------------------------------------------------------------
 # Response headers / request ID
 # ---------------------------------------------------------------------------
 

@@ -21,6 +21,22 @@ unauthenticated attempt.
 Bodies are never logged (contract rule 9); only the key presence and the
 replay/conflict outcome are observable.
 
+Body-capture safety (SEC-014, Batch C3 follow-up M-1): this middleware is
+outermost, so its capture must never become an unbounded-buffering
+primitive. Idempotency is only meaningful for JSON mutations — the web
+client sends no ``Idempotency-Key`` header at all today, and the known
+header users are small JSON posts — so:
+
+- upload-class requests (multipart content types, and the known
+  upload/dictate route suffixes) SKIP idempotency handling entirely and
+  stream through untouched; their endpoints enforce their own capped
+  streaming reads (app.core.uploads);
+- every other captured body is capped at ``_MAX_CAPTURED_BODY_BYTES``
+  (1 MB): an oversize ``Content-Length`` is refused (413) from the
+  header alone, and a chunked/lying body is refused (413) while
+  streaming, having buffered at most the cap plus one chunk, and the
+  downstream app is never invoked.
+
 Single-instance limitation: the store lives in process memory. The scale
 path is a shared store (Redis) keyed the same way; the middleware contract
 is unchanged.
@@ -46,9 +62,62 @@ _IDEMPOTENT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _MAX_KEY_LENGTH = 256
 _MAX_RECORDED_BODY_BYTES = 1_000_000
 _MAX_RECORDS = 10_000
+#: Hard cap on the request body this middleware will buffer for
+#: fingerprinting (M-1). Sized at the recorded-response cap: legitimate
+#: idempotent JSON mutations are far smaller, and anything larger is
+#: not replayable through this middleware anyway.
+_MAX_CAPTURED_BODY_BYTES = 1_000_000
+
+#: Route suffixes whose requests carry upload bytes rather than JSON
+#: mutations (files complete, interview dictate/extractions, funding
+#: evidence, pack-bundle import). Multipart content types are also
+#: upload-class regardless of path.
+_UPLOAD_PATH_SUFFIXES = ("/dictate", "/extractions", "/complete", "/evidence", "/import")
 
 _CONFLICT_TYPE = "urn:legacyflow:error:idempotency_key_conflict"
 _INVALID_KEY_TYPE = "urn:legacyflow:error:invalid_idempotency_key"
+_TOO_LARGE_TYPE = "urn:legacyflow:error:payload_too_large"
+
+
+def _is_upload_class(request: Request) -> bool:
+    """True for requests that stream upload bytes (never idempotency-captured)."""
+    content_type = (request.headers.get("content-type") or "").lower()
+    if content_type.startswith("multipart/"):
+        return True
+    return request.url.path.endswith(_UPLOAD_PATH_SUFFIXES)
+
+
+def _declared_content_length(request: Request) -> int | None:
+    raw = request.headers.get("content-length")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _read_body_capped(receive: Receive) -> bytes | None:
+    """Read the ASGI request body, returning None once it exceeds the cap.
+
+    Buffers at most the cap plus the chunk that crosses it; the caller
+    refuses with 413 without invoking the downstream app.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        message = await receive()
+        if message["type"] == "http.disconnect":
+            return b"".join(chunks)
+        if message["type"] != "http.request":
+            continue
+        chunk = bytes(message.get("body", b""))
+        total += len(chunk)
+        if total > _MAX_CAPTURED_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+        if not message.get("more_body", False):
+            return b"".join(chunks)
 
 
 @dataclass
@@ -185,11 +254,46 @@ class IdempotencyMiddleware:
             )(scope, receive, send)
             return
 
+        if _is_upload_class(request):
+            # Upload-class requests are not idempotent-replayable and
+            # must stream through their endpoints' own capped reads —
+            # never buffered here (M-1).
+            await self.app(scope, receive, send)
+            return
+
+        declared = _declared_content_length(request)
+        if declared is not None and declared > _MAX_CAPTURED_BODY_BYTES:
+            await _problem(
+                413,
+                "Payload too large",
+                "The request body exceeds the 1 MB limit for "
+                "idempotency-tracked requests.",
+                _TOO_LARGE_TYPE,
+            )(scope, receive, send)
+            return
+
         store_key = (client_identity(request), key)
-        body = await request.body()
+        captured = await _read_body_capped(receive)
+        if captured is None:
+            await _problem(
+                413,
+                "Payload too large",
+                "The request body exceeds the 1 MB limit for "
+                "idempotency-tracked requests.",
+                _TOO_LARGE_TYPE,
+            )(scope, receive, send)
+            return
+        body = captured
+
+        replayed = False
 
         async def receive_once() -> Message:
-            # The body was already consumed above; replay it downstream.
+            # The body was already consumed above; replay it downstream
+            # exactly once, then signal end-of-body.
+            nonlocal replayed
+            if replayed:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            replayed = True
             return {"type": "http.request", "body": body, "more_body": False}
 
         fingerprint = _fingerprint(request, body)
