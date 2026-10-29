@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, UploadFile
 
 import logging
 
@@ -361,13 +361,18 @@ def reject_proposal(
 
 
 @router.post("/matters/{matter_id}/interview/dictate", response_model=DictationOut)
-async def dictate(
+def dictate(
     matter_id: UUID,
-    request: Request,
     claims: Annotated[Claims, Depends(get_current_user)],
+    body: Annotated[bytes, Body()],
 ) -> DictationOut:
-    """Transcribe audio to text. The transcript is returned, never auto-sent."""
-    body = await request.body()
+    """Transcribe audio to text. The transcript is returned, never auto-sent.
+
+    Plain ``def`` (PERF-015): the handler runs blocking DB + Whisper
+    work, so FastAPI must offload it to the threadpool — as ``async def``
+    it stalled the worker's event loop for the full transcription.
+    The raw audio body is injected as ``bytes`` (wire contract unchanged).
+    """
     with db.transaction() as conn:
         return service.dictate(conn, actor_sub=claims.sub, matter_id=matter_id, audio=body)
 
@@ -376,7 +381,7 @@ async def dictate(
     "/matters/{matter_id}/interview/sessions/{session_id}/extractions",
     response_model=ExtractionOut,
 )
-async def extract_document(
+def extract_document(
     matter_id: UUID,
     session_id: UUID,
     claims: Annotated[Claims, Depends(get_current_user)],
@@ -386,9 +391,15 @@ async def extract_document(
 
     Extracted values become ``document_extracted`` proposals awaiting user
     verification — never auto-accepted.
+
+    Plain ``def`` (PERF-015): extraction runs blocking DB + LLM work, so
+    FastAPI must offload it to the threadpool — as ``async def`` it
+    stalled the worker's event loop for the full model call. The upload
+    is read through the sync file object for the same reason.
     """
     filename = file.filename or "upload"
-    body = await file.read()
+    file.file.seek(0)
+    body = file.file.read()
     with db.transaction() as conn:
         result = extraction_service.run_extraction(
             conn,
