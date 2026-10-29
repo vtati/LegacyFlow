@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useFocusTrap } from '@/lib/hooks/use-focus-trap';
 import { cn } from '@/lib/utils';
 
 interface ModalProps {
@@ -13,14 +14,6 @@ interface ModalProps {
   description?: string;
   children: React.ReactNode;
 }
-
-/**
- * Elements that can receive keyboard focus, in DOM order.
- * Used by the focus trap; excludes disabled and inert elements.
- */
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), ' +
-  'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Accessible modal dialog: Escape closes, backdrop click closes, focus lands
@@ -39,58 +32,10 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = `modal-title-${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
 
-  useEffect(() => {
-    if (!open) return;
-    // Remember the trigger so focus can return to it on close.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key === 'Tab') {
-        // Trap Tab navigation inside the dialog.
-        const dialog = dialogRef.current;
-        if (!dialog) return;
-        const focusable = Array.from(
-          dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-        ).filter((element) => element.offsetParent !== null);
-        if (focusable.length === 0) {
-          event.preventDefault();
-          return;
-        }
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const active = document.activeElement;
-        if (event.shiftKey) {
-          // The title (tabIndex={-1}) receives initial focus but is excluded
-          // from FOCUSABLE_SELECTOR; treat it as the first boundary so
-          // Shift+Tab from it wraps to the last control instead of escaping
-          // the dialog.
-          if (active === first || active === titleRef.current) {
-            event.preventDefault();
-            last.focus();
-          }
-        } else if (active === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    titleRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      // Return focus to the trigger that opened the dialog.
-      previouslyFocused?.focus?.();
-    };
-  }, [open, onClose]);
+  // Focus trap / Escape / scroll-lock / focus-return live in the shared
+  // hook (UI-004) — the title (tabIndex={-1}) is the initial-focus
+  // element and counts as the first trap boundary.
+  useFocusTrap(open, dialogRef, { onEscape: onClose, initialFocusRef: titleRef });
 
   if (!open || !mounted) return null;
 

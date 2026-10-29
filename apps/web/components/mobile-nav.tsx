@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { PRODUCT_NAME } from '@/lib/constants';
+import { useFocusTrap } from '@/lib/hooks/use-focus-trap';
 import { SECTION_TITLES, type AppSection } from '@/lib/nav';
 import { SectionNav } from '@/components/section-nav';
 
@@ -27,6 +28,7 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
   const pathname = usePathname();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -35,22 +37,11 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
     setOpen(false);
   }, [pathname]);
 
-  // While open: close on Escape, lock body scroll, move focus into the dialog.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      triggerRef.current?.focus();
-    };
-  }, [open, close]);
+  // While open: the shared focus trap (UI-004, extracted from Modal)
+  // traps Tab inside the drawer, closes on Escape, locks body scroll,
+  // moves focus to the close button, and returns focus to the trigger
+  // (the element focused before the drawer opened) on close.
+  useFocusTrap(open, drawerRef, { onEscape: close, initialFocusRef: closeRef });
 
   return (
     <div className="md:hidden">
@@ -68,6 +59,7 @@ export function MobileNav({ section }: MobileNavProps): React.JSX.Element {
       {open
         ? createPortal(
             <div
+          ref={drawerRef}
           className="fixed inset-0 z-50"
           role="dialog"
           aria-modal="true"
