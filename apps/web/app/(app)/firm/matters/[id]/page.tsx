@@ -18,6 +18,7 @@ import { SigningTab } from '@/components/firm/signing-tab';
 import { FundingTab } from '@/components/firm/funding-tab';
 import { api, firmApi, type HouseholdResponse, type MatterDetail } from '@/lib/api-client';
 import { formatStatus, statusBadgeClass } from '@/lib/format';
+import { useRovingTabs } from '@/lib/hooks/use-roving-tabs';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -70,6 +71,18 @@ export default function FirmMatterDetailPage({
   // (e.g. approving document_release → DOCUMENTS_RELEASED). Refetch so the
   // header badge, the decision panel, and the Gates tab's matterStatus prop
   // all reflect the new status instead of going stale.
+  // UI-017: tab keyboard pattern (arrows/Home/End + roving tabindex);
+  // the aria wiring (aria-controls / panel aria-labelledby) was already
+  // in place — the keyboard half was missing.
+  const tabbing = useRovingTabs(
+    TABS.length,
+    TABS.findIndex((item) => item.id === tab),
+    (index) => {
+      const next = TABS[index];
+      if (next) setTab(next.id);
+    },
+  );
+
   const handleMatterChanged = useCallback(() => {
     firmApi
       .getMatter(matterId)
@@ -155,16 +168,19 @@ export default function FirmMatterDetailPage({
           <div
             role="tablist"
             aria-label="Matter sections"
+            onKeyDown={tabbing.onKeyDown}
             className="flex flex-wrap gap-1 border-b border-lf-border"
           >
-            {TABS.map((item) => (
+            {TABS.map((item, index) => (
               <button
                 key={item.id}
+                ref={tabbing.refFor(index)}
                 type="button"
                 role="tab"
                 aria-selected={tab === item.id}
                 aria-controls={`tab-panel-${item.id}`}
                 id={`tab-${item.id}`}
+                tabIndex={tabbing.tabIndexFor(index)}
                 onClick={() => setTab(item.id)}
                 className={cn(
                   '-mb-px border-b-2 px-4 py-2.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',

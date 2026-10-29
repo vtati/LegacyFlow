@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { AlertTriangle, FlaskConical, Loader2, MailCheck } from 'lucide-react';
 import { LogoMark } from '@/components/logo-mark';
 import { getAuthAdapter, isMockAuth } from '@/lib/auth';
+import { useRovingTabs } from '@/lib/hooks/use-roving-tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,6 +43,11 @@ function GoogleIcon(): React.JSX.Element {
 
 type Tab = 'password' | 'magic';
 
+const LOGIN_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+  { id: 'password', label: 'Password' },
+  { id: 'magic', label: 'Magic link' },
+];
+
 function nextPath(): string {
   if (typeof window === 'undefined') return '/family/home';
   return new URLSearchParams(window.location.search).get('next') ?? '/family/home';
@@ -59,6 +65,20 @@ export function LoginForm(): React.JSX.Element {
   const [magicSent, setMagicSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  // UI-017: WAI-ARIA tab keyboard pattern (arrows/Home/End + roving
+  // tabindex) shared with the firm matter tabs.
+  const tabbing = useRovingTabs(
+    LOGIN_TABS.length,
+    LOGIN_TABS.findIndex((t) => t.id === tab),
+    (index) => {
+      const next = LOGIN_TABS[index];
+      if (next) {
+        setTab(next.id);
+        setError(null);
+      }
+    },
+  );
 
   const magicForm = useForm<MagicLinkValues>({ resolver: zodResolver(magicLinkSchema) });
   const passwordForm = useForm<PasswordSignInValues>({ resolver: zodResolver(passwordSignInSchema) });
@@ -162,19 +182,19 @@ export function LoginForm(): React.JSX.Element {
         <div
           role="tablist"
           aria-label="Email sign-in method"
+          onKeyDown={tabbing.onKeyDown}
           className="grid grid-cols-2 gap-1 rounded-lf-control bg-lf-canvas p-1"
         >
-          {(
-            [
-              { id: 'password', label: 'Password' },
-              { id: 'magic', label: 'Magic link' },
-            ] as const
-          ).map((t) => (
+          {LOGIN_TABS.map((t, index) => (
             <button
               key={t.id}
+              ref={tabbing.refFor(index)}
+              id={`login-tab-${t.id}`}
               type="button"
               role="tab"
               aria-selected={tab === t.id}
+              aria-controls={`login-panel-${t.id}`}
+              tabIndex={tabbing.tabIndexFor(index)}
               onClick={() => {
                 setTab(t.id);
                 setError(null);
@@ -197,7 +217,8 @@ export function LoginForm(): React.JSX.Element {
             noValidate
             className="flex flex-col gap-3"
             role="tabpanel"
-            aria-label="Sign in with password"
+            id="login-panel-password"
+            aria-labelledby="login-tab-password"
           >
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="password-email">Email address</Label>
@@ -268,6 +289,8 @@ export function LoginForm(): React.JSX.Element {
         ) : magicSent ? (
           <div
             role="status"
+            id="login-panel-magic"
+            aria-labelledby="login-tab-magic"
             className="flex flex-col items-center gap-2 rounded-lf-control border border-lf-success-300 bg-lf-success-50 px-4 py-6 text-center"
           >
             <MailCheck className="size-8 text-lf-success-700" aria-hidden="true" />
@@ -292,7 +315,8 @@ export function LoginForm(): React.JSX.Element {
             noValidate
             className="flex flex-col gap-3"
             role="tabpanel"
-            aria-label="Sign in with magic link"
+            id="login-panel-magic"
+            aria-labelledby="login-tab-magic"
           >
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="magic-email">Email address</Label>

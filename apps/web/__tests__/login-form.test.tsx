@@ -56,6 +56,41 @@ describe('LoginForm', () => {
     expect(screen.getByRole('button', { name: 'Email me a sign-in link' })).toBeDefined();
   });
 
+  it('implements the tab keyboard pattern: arrows/Home/End, roving tabindex, aria pairing (UI-017)', async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    const passwordTab = screen.getByRole('tab', { name: 'Password' });
+    const magicTab = screen.getByRole('tab', { name: 'Magic link' });
+
+    // Roving tabindex: only the selected tab is in the tab order.
+    expect(passwordTab).toHaveAttribute('tabindex', '0');
+    expect(magicTab).toHaveAttribute('tabindex', '-1');
+
+    // id / aria-controls / aria-labelledby pairing with the panels.
+    expect(passwordTab.id).toBeTruthy();
+    const panelId = passwordTab.getAttribute('aria-controls');
+    expect(panelId).toBeTruthy();
+    const panel = document.getElementById(panelId!);
+    expect(panel?.getAttribute('aria-labelledby')).toBe(passwordTab.id);
+
+    // ArrowRight moves selection and focus.
+    passwordTab.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(magicTab).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(magicTab);
+    expect(magicTab).toHaveAttribute('tabindex', '0');
+    expect(passwordTab).toHaveAttribute('tabindex', '-1');
+
+    // ArrowLeft wraps back; Home/End jump to the ends.
+    await user.keyboard('{ArrowLeft}');
+    expect(passwordTab).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(passwordTab);
+    await user.keyboard('{End}');
+    expect(magicTab).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{Home}');
+    expect(passwordTab).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('shows the mock "sent" state after a valid magic-link submit', async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
