@@ -97,6 +97,21 @@ def matter_out(row: dict[str, Any]) -> MatterOut:
     pct = data.get("completeness_pct")
     data["completeness_pct"] = int(pct) if pct is not None else 0
     data["title"] = data.get("title") or ""
+    snapshot = data.get("jurisdiction_snapshot")
+    if snapshot is not None and not isinstance(snapshot, dict):
+        # Legacy rows can carry a JSON-scalar snapshot; the public shape
+        # allows only an object or null — never let it fail validation.
+        snapshot = None
+        data["jurisdiction_snapshot"] = None
+    if not data.get("jurisdiction_code") and isinstance(snapshot, dict):
+        # Raw-row paths (detail, transition, submit, assign) load the
+        # matter with no jurisdictions join, so jurisdiction_code is
+        # absent; the snapshot recorded at creation carries the same
+        # code the list path derives from its join. A joined value,
+        # when present, always wins so list semantics never change.
+        code = snapshot.get("jurisdiction_code")
+        if isinstance(code, str) and code.strip():
+            data["jurisdiction_code"] = code.strip()
     household_name = data.get("household_name")
     if data.get("household_id") is not None:
         # Always populate the household summary when the link exists —
@@ -326,7 +341,13 @@ def get_matter_detail(conn: Any, *, actor_sub: str, matter_id: UUID) -> MatterDe
     household = repo.get_household(conn, UUID(str(scope.matter["household_id"])))
     if household is None:
         raise NotFoundError("Matter not found.")
-    matter = matter_out(scope.matter)
+    matter_row = dict(scope.matter)
+    if matter_row.get("household_name") is None:
+        # The scope query loads the raw row (no households join), so
+        # feed the serializer the name from the household row already
+        # in hand — the same injection create/transition perform.
+        matter_row["household_name"] = household.get("display_name")
+    matter = matter_out(matter_row)
     return MatterDetailResponse(
         matter=matter,
         household=MatterHouseholdSummary(
