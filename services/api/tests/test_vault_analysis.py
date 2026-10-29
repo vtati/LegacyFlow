@@ -63,7 +63,7 @@ def test_extraction_truncates():
     assert len(text) <= extraction.MAX_EXTRACT_CHARS
 
 
-def test_classify_deed():
+def test_classify_deed(_settings_env):
     result = analysis.analyze_with_llm(
         "GENERAL WARRANTY DEED Grantor: Robert Smith  Grantee: Mary Smith  "
         "Property address: 456 Elm Street, Fairfax, Virginia 22030",
@@ -78,7 +78,7 @@ def test_classify_deed():
     assert 0.0 <= result["confidence"] <= 1.0
 
 
-def test_classify_will():
+def test_classify_will(_settings_env):
     result = analysis.analyze_with_llm(
         "LAST WILL AND TESTAMENT of John Doe. I appoint Jane Doe as Executor.",
         "will.pdf",
@@ -86,7 +86,7 @@ def test_classify_will():
     assert result["document_type"] == "will"
 
 
-def test_classify_trust():
+def test_classify_trust(_settings_env):
     result = analysis.analyze_with_llm(
         "DECLARATION OF REVOCABLE LIVING TRUST known as the Smith Family Trust. "
         "I, John Smith, of Fairfax, Virginia.",
@@ -95,7 +95,7 @@ def test_classify_trust():
     assert result["document_type"] == "trust"
 
 
-def test_classify_insurance():
+def test_classify_insurance(_settings_env):
     result = analysis.analyze_with_llm(
         "Life insurance policy. Carrier: Acme Life. Policy number: AB-12345. "
         "Face amount: $500,000.",
@@ -107,7 +107,7 @@ def test_classify_insurance():
     assert "Face amount" in labels
 
 
-def test_classify_unknown_is_other():
+def test_classify_unknown_is_other(_settings_env):
     result = analysis.analyze_with_llm(
         "Meeting notes about the quarterly picnic planning committee.",
         "notes.pdf",
@@ -204,6 +204,17 @@ import pytest as _pytest
 
 @_pytest.fixture()
 def _settings_env(monkeypatch):
+    """Supply the dummy service-role key Settings legitimately requires.
+
+    ``Settings.SUPABASE_SERVICE_ROLE_KEY`` is a required field by
+    design — deployments must fail fast when it is missing (contract
+    pinned in test_config.py) — so any test that reaches
+    ``get_settings()`` (e.g. the ``test_classify_*`` tests via
+    ``analysis.analyze_with_llm``) must declare the variable. The
+    empty string is the documented test dummy (Slice-1 semantics:
+    required-but-empty, no admin calls are made); the production
+    Settings side is correct and is NOT relaxed for tests.
+    """
     from app.core.config import get_settings
 
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
