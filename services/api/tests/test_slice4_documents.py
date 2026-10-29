@@ -1614,3 +1614,44 @@ def test_send_reminders_failure_logs_at_error_level(db, monkeypatch, caplog):
     ]
     assert errors, "per-reminder failure must produce an ERROR-level log record"
     assert errors[0].exc_info is not None
+
+
+def test_funding_evidence_file_id_must_belong_to_same_matter(db, api_client):
+    """m-4 (Batch C3 follow-up): update_funding_task's evidence_file_id
+    branch previously accepted ANY upload from the same firm. The
+    referenced upload must belong to the funding task's own matter —
+    a cross-matter (same-firm) id reads as not-found (404), matching
+    the codebase's existence-oracle convention."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "real_estate", "Synthetic Cabin")
+    task_id = _make_funding_task(db, api_client, matter_id)
+    other_matter_id = insert_matter(db, firm_id, household_id)
+
+    def _upload(for_matter: str) -> str:
+        upload_id = str(uuid4())
+        _exec(
+            db,
+            "INSERT INTO file_uploads (id, firm_id, household_id, matter_id,"
+            " uploader_user_id, original_filename, stored_path, mime_type,"
+            " size_bytes, scan_status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'clean')",
+            (upload_id, firm_id, household_id, for_matter, CLIENT_A,
+             "deed.pdf", f"/tmp/{upload_id}.pdf", "application/pdf", 10),
+        )
+        return upload_id
+
+    other_upload = _upload(other_matter_id)
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        json={"evidence_file_id": other_upload},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 404, response.text
+
+    own_upload = _upload(matter_id)
+    response = api_client.patch(
+        f"/v1/funding-tasks/{task_id}",
+        json={"evidence_file_id": own_upload},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["evidence_file_id"] == own_upload

@@ -2901,8 +2901,16 @@ def update_funding_task(
         evidence_file_id = UUID(str(upload["id"]))
     elif evidence_file_id is not None:
         existing_upload = repo.get_file_upload(conn, evidence_file_id)
-        if existing_upload is None or UUID(str(existing_upload["firm_id"])) != UUID(
-            str(matter["firm_id"])
+        # m-4: the upload must belong to THIS task's matter, not merely
+        # the same firm — a cross-matter id is reported as not-found,
+        # matching the codebase's existence-oracle convention (an
+        # upload with matter_id NULL belongs to no matter and fails
+        # this check too).
+        if (
+            existing_upload is None
+            or UUID(str(existing_upload["firm_id"])) != UUID(str(matter["firm_id"]))
+            or existing_upload.get("matter_id") is None
+            or UUID(str(existing_upload["matter_id"])) != UUID(str(matter["id"]))
         ):
             raise NotFoundError("Evidence file not found.")
 
