@@ -54,6 +54,7 @@ CLIENT_A = "a3333333-3333-3333-3333-333333333333"
 COLLAB_A = "a4444444-4444-4444-4444-444444444444"
 DEPENDENT_A = "a5555555-5555-5555-5555-555555555555"
 AUDITOR_A = "a6666666-6666-6666-6666-666666666666"
+TRUSTED_A = "a7777777-7777-7777-7777-777777777777"
 ADMIN_B = "b1111111-1111-1111-1111-111111111111"
 
 USERS = {
@@ -75,7 +76,7 @@ DEMO_TEXT = "DRAFT — NOT LEGALLY VALID"
 
 TRUNCATE_TABLES = (
     "document_templates, document_packages, document_versions,"
-    " signing_checklists, funding_tasks, vault_shares, reminders,"
+    " signing_checklists, funding_tasks, vault_shares, reminders, amendment_requests,"
     " file_uploads, notification_outbox, audit_events, escalations,"
     " intake_answers, matter_status_history, matters, invitations,"
     " nominations, planning_decisions, relationships, persons,"
@@ -753,7 +754,10 @@ def test_attestation_household_non_certifying(db, api_client):
     ).json()
 
     attested_at = datetime.now(UTC).isoformat()
-    for sub in (CLIENT_A, COLLAB_A, DEPENDENT_A):
+    # FUNC-010 (Batch C3): only household writers (primary_client /
+    # collaborator) and firm staff may attest — read-only household
+    # roles (dependent / trusted_contact) and auditors get 403.
+    for sub in (CLIENT_A, COLLAB_A):
         response = api_client.post(
             f"/v1/signing-checklists/{checklist['id']}/attest",
             json={
@@ -769,17 +773,17 @@ def test_attestation_household_non_certifying(db, api_client):
         assert body["attested"] is True
         assert body["attested_by_user_id"] == sub
 
-    # firm staff cannot attest on a household checklist
-    response = api_client.post(
-        f"/v1/signing-checklists/{checklist['id']}/attest",
-        json={
-            "statement_key": "witness_signatures",
-            "attested": True,
-            "attested_at": attested_at,
-        },
-        headers=auth(STAFF_A),
-    )
-    assert response.status_code == 403
+    for sub in (DEPENDENT_A, AUDITOR_A):
+        response = api_client.post(
+            f"/v1/signing-checklists/{checklist['id']}/attest",
+            json={
+                "statement_key": "witness_signatures",
+                "attested": True,
+                "attested_at": attested_at,
+            },
+            headers=auth(sub),
+        )
+        assert response.status_code == 403, response.text
 
     # unknown statement keys are rejected
     response = api_client.post(
@@ -1194,3 +1198,176 @@ def test_funding_task_list_returns_stored_digest(db, api_client):
     assert response.status_code == 200, response.text
     listed = response.json()
     assert listed[0]["evidence"]["sha256"] == expected
+
+
+# ---------------------------------------------------------------------------
+# Batch C3 regressions (deep-review 2026-10-29): FUNC-010 / FUNC-011 /
+# SEC-005 / FUNC-016
+# ---------------------------------------------------------------------------
+
+
+def test_attestation_server_stamps_time_ignoring_client_value(db, api_client):
+    """FUNC-010: a backdated client-supplied attested_at must NOT be
+    stored — the server stamps the record time."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    checklist = api_client.post(
+        f"/v1/matters/{matter_id}/signing-checklists", headers=auth(STAFF_A)
+    ).json()
+
+    before = datetime.now(UTC)
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={
+            "statement_key": "witness_signatures",
+            "attested": True,
+            "attested_at": "2001-01-01T00:00:00+00:00",
+        },
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 201, response.text
+    stamped = datetime.fromisoformat(response.json()["attested_at"])
+    assert stamped >= before - timedelta(seconds=5)
+    assert stamped <= datetime.now(UTC) + timedelta(seconds=5)
+
+    # the stored checklist entry carries the server stamp too
+    response = api_client.get(
+        f"/v1/signing-checklists/{checklist['id']}", headers=auth(CLIENT_A)
+    )
+    stored = response.json()["attestations"]
+    assert len(stored) == 1
+    assert datetime.fromisoformat(stored[0]["attested_at"]) >= before - timedelta(seconds=5)
+
+
+def test_attestation_trusted_contact_forbidden(db, api_client):
+    """FUNC-010: trusted_contact is a read-only household role → 403."""
+    _firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    create_user(db, TRUSTED_A)
+    add_household_member(db, household_id, TRUSTED_A, "trusted_contact")
+    checklist = api_client.post(
+        f"/v1/matters/{matter_id}/signing-checklists", headers=auth(STAFF_A)
+    ).json()
+    response = api_client.post(
+        f"/v1/signing-checklists/{checklist['id']}/attest",
+        json={
+            "statement_key": "witness_signatures",
+            "attested": True,
+            "attested_at": datetime.now(UTC).isoformat(),
+        },
+        headers=auth(TRUSTED_A),
+    )
+    assert response.status_code == 403, response.text
+
+
+def _set_matter_status(db, matter_id: str, status: str) -> None:
+    _exec(db, "UPDATE matters SET status = %s WHERE id = %s", (status, matter_id))
+
+
+def test_amendment_requires_post_release_status(db, api_client):
+    """FUNC-011: amendments only once documents are released / the plan
+    is implemented; an intake-stage matter gets 409 with a clear code."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    # fixture matter is INTAKE_IN_PROGRESS
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={"description": "Change the executor.", "affected_template_types": ["will"]},
+        headers=auth(CLIENT_A),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "amendment_requires_released_plan"
+
+    for status in ("DOCUMENTS_RELEASED", "PLAN_IMPLEMENTED"):
+        _set_matter_status(db, matter_id, status)
+        response = api_client.post(
+            f"/v1/matters/{matter_id}/amendments",
+            json={
+                "description": f"Amendment while {status}.",
+                "affected_template_types": ["will"],
+            },
+            headers=auth(CLIENT_A),
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["status"] == "pending"
+
+
+def test_amendment_duplicate_pending_is_idempotent(db, api_client):
+    """FUNC-011: an identical pending request (same normalized
+    description) returns the existing request instead of duplicating."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    _set_matter_status(db, matter_id, "PLAN_IMPLEMENTED")
+    first = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={"description": "Change the executor.", "affected_template_types": ["will"]},
+        headers=auth(CLIENT_A),
+    )
+    assert first.status_code == 201, first.text
+    second = api_client.post(
+        f"/v1/matters/{matter_id}/amendments",
+        json={
+            "description": "  change   THE executor. ",
+            "affected_template_types": ["will"],
+        },
+        headers=auth(CLIENT_A),
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first.json()["id"]
+
+    listed = api_client.get(f"/v1/matters/{matter_id}/amendments", headers=auth(CLIENT_A))
+    assert len(listed.json()) == 1
+
+
+def test_vault_share_expiry_bounds(db, api_client):
+    """SEC-005/FUNC-016: >90 days → 422; exactly 90 days OK; naive
+    datetime → 422; omitted still defaults to ~30 days."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+
+    too_far = (datetime.now(UTC) + timedelta(days=91)).isoformat()
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/vault-shares",
+        json={"label": "too far", "expires_at": too_far},
+        headers=auth(ATTORNEY_A),
+    )
+    assert response.status_code == 422, response.text
+
+    exactly = (datetime.now(UTC) + timedelta(days=90)).isoformat()
+    created = _create_vault_share(
+        api_client, ATTORNEY_A, matter_id, label="exactly 90", expires_at=exactly
+    )
+    assert created["expires_at"] is not None
+
+    naive = (datetime.now(UTC) + timedelta(days=10)).replace(tzinfo=None).isoformat()
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/vault-shares",
+        json={"label": "naive", "expires_at": naive},
+        headers=auth(ATTORNEY_A),
+    )
+    assert response.status_code == 422, response.text
+
+    created = _create_vault_share(api_client, ATTORNEY_A, matter_id, label="defaulted")
+    expires = datetime.fromisoformat(created["expires_at"])
+    delta = expires - datetime.now(UTC)
+    assert timedelta(days=29) < delta <= timedelta(days=30)
+
+
+def test_vault_share_service_rejects_naive_and_overlong(db):
+    """SEC-005 defense in depth: the service itself rejects naive /
+    >90-day expiries even when the schema is bypassed (model_construct)."""
+    from app.core.errors import ValidationAppError
+    from app.domains.documents import schemas as documents_schemas
+
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    naive_payload = documents_schemas.VaultShareCreate.model_construct(
+        label="naive", expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(days=5)
+    )
+    with pytest.raises(ValidationAppError):
+        documents_service.create_vault_share(
+            db, actor_sub=ATTORNEY_A, matter_id=matter_id, payload=naive_payload
+        )
+    db.rollback()
+    far_payload = documents_schemas.VaultShareCreate.model_construct(
+        label="far", expires_at=datetime.now(UTC) + timedelta(days=365)
+    )
+    with pytest.raises(ValidationAppError):
+        documents_service.create_vault_share(
+            db, actor_sub=ATTORNEY_A, matter_id=matter_id, payload=far_payload
+        )
+    db.rollback()

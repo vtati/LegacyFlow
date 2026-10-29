@@ -145,7 +145,10 @@ class SigningChecklistGenerate(BaseModel):
 class AttestationIn(BaseModel):
     statement_key: str = Field(min_length=1, max_length=128)
     attested: bool
-    attested_at: datetime
+    # Accepted for schema compatibility with older clients but IGNORED:
+    # the server stamps attested_at at record time (FUNC-010) so a
+    # client can never backdate an attestation.
+    attested_at: datetime | None = None
 
 
 class AttestationOut(BaseModel):

@@ -2625,9 +2625,15 @@ def record_attestation(
     row = repo.get_checklist(conn, checklist_id)
     if row is None:
         raise NotFoundError("Signing checklist not found.")
-    scope = authz.get_matter_scope(conn, UUID(str(row["matter_id"])), actor_id)
-    if scope.via != "household":
-        raise AuthorizationError("Only household members may record attestations.")
+    # FUNC-010: attesting is a WRITE — firm staff or household
+    # primary_client/collaborator only. Read-only household roles
+    # (dependent / trusted_contact) and firm auditors get 403; callers
+    # with no access at all get 404 (existence-oracle rule).
+    from ...domains.matters import service as matters_service
+
+    scope = matters_service.require_matter_write_scope(
+        conn, UUID(str(row["matter_id"])), actor_id
+    )
 
     matter = scope.matter
     checklist = dict(row["checklist"] or {})
@@ -2639,10 +2645,14 @@ def record_attestation(
             f"Unknown statement key {payload.statement_key!r} for this checklist."
         )
     attestations = [dict(a) for a in checklist.get("attestations", [])]
+    # FUNC-010: the attestation time is stamped by the SERVER at record
+    # time. The client-supplied attested_at (kept on the schema for
+    # compatibility) is ignored — it must never be stored verbatim.
+    attested_at = datetime.now(UTC)
     entry = {
         "statement_key": payload.statement_key,
         "attested": payload.attested,
-        "attested_at": payload.attested_at.isoformat(),
+        "attested_at": attested_at.isoformat(),
         "attested_by_user_id": str(actor_id),
     }
     attestations = [a for a in attestations if a["statement_key"] != payload.statement_key]
@@ -2663,7 +2673,7 @@ def record_attestation(
     return sch.AttestationOut(
         statement_key=str(entry["statement_key"]),
         attested=bool(entry["attested"]),
-        attested_at=payload.attested_at,
+        attested_at=attested_at,
         attested_by_user_id=actor_id,
     )
 
