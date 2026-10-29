@@ -887,10 +887,13 @@ def transition_pack(
     """
     actor_id = matters_service.caller_id(actor_sub)
     authz.require_platform_admin(actor_id)
-    # Audit context only: the caller's firm when they have one.
+    # Audit context only: the caller's firm when they have one. A
+    # platform admin with no firm membership raises AuthorizationError
+    # — that is the only intended "no firm" case (L-2); real DB errors
+    # must surface, not be swallowed as firm_id=None.
     try:
         firm_id: UUID | None = authz.get_user_firm_id(conn, actor_id)
-    except Exception:
+    except AuthorizationError:
         firm_id = None
     row = repo.get_jurisdiction_pack_by_ref(conn, pack_ref)
     if row is None:
