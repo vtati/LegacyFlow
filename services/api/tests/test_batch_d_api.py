@@ -14,7 +14,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # ERR-016a: pack escalation-rule severities validated at load
 # ---------------------------------------------------------------------------
@@ -246,7 +245,7 @@ def test_record_audit_event_serializes_non_json_scalars() -> None:
     captured: dict[str, Any] = {}
 
     class _Cur:
-        def __enter__(self) -> "_Cur":
+        def __enter__(self) -> _Cur:
             return self
 
         def __exit__(self, *exc: Any) -> bool:
@@ -615,9 +614,9 @@ def _stub_openai_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_compute_findings_degraded_on_provider_failure(
     monkeypatch: pytest.MonkeyPatch, test_settings_env: None
 ) -> None:
+    from app.core.config import get_settings
     from app.domains.attorney_review import model_review
     from app.domains.attorney_review import service as ar_service
-    from app.core.config import get_settings
 
     _stub_openai_settings(monkeypatch)
     try:
@@ -641,9 +640,9 @@ def test_compute_findings_degraded_on_provider_failure(
 def test_compute_findings_unparseable_marks_degraded(
     monkeypatch: pytest.MonkeyPatch, test_settings_env: None
 ) -> None:
+    from app.core.config import get_settings
     from app.domains.attorney_review import model_review
     from app.domains.attorney_review import service as ar_service
-    from app.core.config import get_settings
 
     _stub_openai_settings(monkeypatch)
     try:
@@ -670,9 +669,9 @@ def test_compute_findings_unparseable_marks_degraded(
 def test_compute_findings_clean_full_run_not_degraded(
     monkeypatch: pytest.MonkeyPatch, test_settings_env: None
 ) -> None:
+    from app.core.config import get_settings
     from app.domains.attorney_review import model_review
     from app.domains.attorney_review import service as ar_service
-    from app.core.config import get_settings
 
     _stub_openai_settings(monkeypatch)
     try:
@@ -696,7 +695,6 @@ def test_compute_findings_clean_full_run_not_degraded(
 def test_model_review_unparseable_logs_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    import json as _json
 
     from app.domains.attorney_review import model_review
 

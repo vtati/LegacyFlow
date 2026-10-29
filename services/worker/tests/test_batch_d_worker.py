@@ -10,12 +10,10 @@ import shutil
 import tempfile
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # PERF-021: module-level connection pool
@@ -198,9 +196,15 @@ def test_drain_outbox_db_error_row_does_not_roll_back_sent_row(
         assert ledger == {"sent": 1, "failed": 1}
         with psycopg.connect(batch_dsn) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT status, attempts FROM notification_outbox WHERE id=%s", (str(good_id),))
+                cur.execute(
+                    "SELECT status, attempts FROM notification_outbox WHERE id=%s",
+                    (str(good_id),),
+                )
                 assert cur.fetchone() == ("sent", 1)
-                cur.execute("SELECT status, attempts FROM notification_outbox WHERE id=%s", (str(poison_id),))
+                cur.execute(
+                    "SELECT status, attempts FROM notification_outbox WHERE id=%s",
+                    (str(poison_id),),
+                )
                 assert cur.fetchone() == ("pending", 1)
     finally:
         with psycopg.connect(batch_dsn, autocommit=True) as conn:
@@ -234,13 +238,17 @@ def test_scan_pending_db_error_row_does_not_roll_back_scanned_row(
                         " ON CONFLICT (id) DO NOTHING",
                         (str(rid), str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()), str(p)),
                     )
-                    cur.execute("UPDATE file_uploads SET scan_status='pending' WHERE id=%s", (str(rid),))
+                    cur.execute(
+                        "UPDATE file_uploads SET scan_status='pending' WHERE id=%s",
+                        (str(rid),),
+                    )
         with psycopg.connect(batch_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute("DROP TRIGGER IF EXISTS trg_fail_scan ON file_uploads")
                 cur.execute(
                     "CREATE TRIGGER trg_fail_scan BEFORE UPDATE ON file_uploads"
-                    f" FOR EACH ROW WHEN (OLD.id = '{poison_id}') EXECUTE FUNCTION fail_row_update()"
+                    f" FOR EACH ROW WHEN (OLD.id = '{poison_id}')"
+                    " EXECUTE FUNCTION fail_row_update()"
                 )
         ledger = scan_pending_uploads(batch_size=25)
         assert ledger["scanned"] == 1 and ledger["clean"] == 1
@@ -292,7 +300,8 @@ def test_dispatch_failure_logs_exception_and_counts_failed(
         with psycopg.connect(batch_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "TRUNCATE reminders, notification_preferences, notification_outbox, audit_events"
+                    "TRUNCATE reminders, notification_preferences,"
+                    " notification_outbox, audit_events"
                 )
         user = uuid.uuid4()
         good_id = _insert_due_reminder(batch_dsn, user)
@@ -338,7 +347,8 @@ def test_dispatch_suppressed_count_folded_into_selection(
         with psycopg.connect(batch_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "TRUNCATE reminders, notification_preferences, notification_outbox, audit_events"
+                    "TRUNCATE reminders, notification_preferences,"
+                    " notification_outbox, audit_events"
                 )
         _insert_due_reminder(batch_dsn, uuid.uuid4())
         opted_out = uuid.uuid4()
@@ -377,7 +387,9 @@ def test_actor_retry_options_are_explicit() -> None:
         assert actor.options.get("max_backoff") is not None, actor.actor_name
         assert actor.options.get("max_age") is not None, actor.actor_name
     # Scans tolerate more retries than dispatch/notification drains.
-    assert actors.scan_file.options["max_retries"] > actors.send_due_reminders.options["max_retries"]
+    scan_retries = actors.scan_file.options["max_retries"]
+    dispatch_retries = actors.send_due_reminders.options["max_retries"]
+    assert scan_retries > dispatch_retries
     # Reminders run every 15 minutes: a message older than that is stale.
     assert actors.send_due_reminders.options["max_age"] == 15 * 60 * 1000
     # The dead-letter sink itself never retries (no exhaustion loop).

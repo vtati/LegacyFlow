@@ -15,14 +15,12 @@ production trigger.
 from __future__ import annotations
 
 import logging
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
-
-import json
-import urllib.request
-import urllib.error
 
 from worker.db import get_connection
 from worker.settings import get_worker_settings
