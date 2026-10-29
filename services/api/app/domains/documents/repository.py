@@ -357,8 +357,21 @@ def update_package_render(
 
 
 def next_version_number(conn: Any, package_id: UUID) -> int:
-    """Return the next version number for a package (1-based)."""
+    """Return the next version number for a package (1-based).
+
+    FUNC-006: SELECT MAX+1 raced under concurrency — two render
+    transactions both computed the same number and the loser's insert
+    died on the (package_id, version) unique constraint as a 500. Take
+    a transaction-scoped advisory lock keyed on the package first: it
+    is held until the caller's transaction commits, which spans the
+    compute + the following insert_version on the same connection, so
+    concurrent renders for one package serialize.
+    """
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (str(package_id),),
+        )
         cur.execute(
             "SELECT COALESCE(MAX(version), 0) AS max_version"
             " FROM document_versions WHERE package_id = %s",
