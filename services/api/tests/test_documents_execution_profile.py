@@ -181,6 +181,48 @@ def test_zero_profile_pack_non_will_fails_closed(tmp_path, monkeypatch):
         pack_loader.clear_pack_cache()
 
 
+def test_content_pack_files_missing_pack_root_logs(tmp_path, monkeypatch, caplog):
+    """Batch C1 M-6(a): pack root missing/not a directory must warn."""
+    root = tmp_path / "content-packs"
+    root.mkdir()
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(root))
+    with caplog.at_level(logging.WARNING):
+        assert documents_service._content_pack_files("us-va") is None
+    assert any("us-va" in r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_content_pack_files_unmatched_version_logs_and_uses_newest(
+    packs_dir, caplog
+):
+    """Batch C1 M-6(c): requested version with no manifest match falls
+    back to the newest directory — loudly, naming requested vs used."""
+    with caplog.at_level(logging.WARNING):
+        loaded = documents_service._content_pack_files("us-va", "9.9.9")
+    assert loaded is not None
+    profiles_doc, _playbooks = loaded
+    assert profiles_doc["execution_profiles"][0]["id"] == "VA-WILL-V2"
+    messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("9.9.9" in m and "v2" in m for m in messages), messages
+
+
+def test_content_pack_files_yaml_import_error_logs(tmp_path, monkeypatch, caplog):
+    """Batch C1 M-6(b): a yaml ImportError must warn, not silently
+    return None."""
+    import sys
+
+    root = tmp_path / "content-packs"
+    _write_pack(root, "v0", "0.1.0", "VA-WILL-V0")
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(root))
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    with caplog.at_level(logging.WARNING):
+        assert documents_service._content_pack_files("us-va") is None
+    assert any(
+        "yaml" in r.getMessage().lower()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING
+    )
+
+
 def test_content_pack_files_numeric_version_sort(tmp_path, monkeypatch):
     """Directory scanning (frozen-artifact path) must order v2 < v10."""
     root = tmp_path / "content-packs"

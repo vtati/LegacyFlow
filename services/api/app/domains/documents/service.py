@@ -2199,9 +2199,19 @@ def _content_pack_files(
     """
     pack_root = _repo_root()
     if pack_root is None:
+        logger.warning(
+            "documents: no content-packs directory on disk; pack %s "
+            "unavailable, callers will fall back",
+            pack_id,
+        )
         return None
     pack_root = pack_root / "content-packs" / pack_id
     if not pack_root.is_dir():
+        logger.warning(
+            "documents: pack root %s is missing or not a directory; "
+            "callers will fall back",
+            pack_root,
+        )
         return None
     # Numeric-aware sort: lexicographic ordering puts v10 before v2
     # (FUNC-009).
@@ -2220,8 +2230,14 @@ def _content_pack_files(
     try:
         import yaml
     except ImportError:
+        logger.warning(
+            "documents: yaml is not importable; pack %s files cannot be "
+            "read, callers will fall back",
+            pack_id,
+        )
         return None
     chosen = version_dirs[-1]
+    version_matched = False
     if version:
         # Version directories are named v0/v1/v2 — the SEMANTIC version
         # lives in each directory's manifest.yaml (the same resolution
@@ -2242,7 +2258,14 @@ def _content_pack_files(
                 continue
             if str(manifest.get("semantic_version")) == version:
                 chosen = candidate
+                version_matched = True
                 break
+        if not version_matched:
+            logger.warning(
+                "documents: pack %s has no manifest matching requested "
+                "version %s; using newest version directory %s instead",
+                pack_id, version, chosen.name,
+            )
     profiles_file = chosen / "execution-profiles.yaml"
     playbooks_file = chosen / "funding-playbooks.yaml"
     if not profiles_file.is_file() or not playbooks_file.is_file():
@@ -2255,6 +2278,11 @@ def _content_pack_files(
     try:
         import yaml
     except ImportError:
+        logger.warning(
+            "documents: yaml is not importable; pack %s files cannot be "
+            "read, callers will fall back",
+            pack_id,
+        )
         return None
     try:
         profiles_doc = yaml.safe_load(profiles_file.read_text(encoding="utf-8")) or {}
