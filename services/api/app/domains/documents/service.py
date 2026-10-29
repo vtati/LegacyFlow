@@ -576,34 +576,47 @@ def render_demo_pdf(title: str, body: str, watermark_text: str | None) -> bytes:
     text.textLine(title)
     text.setFont("Helvetica", 11)
     text.textLine("")
+    # FUNC-018: track whether the current page's text object carries any
+    # body lines. The old code called showPage() unconditionally at the
+    # end, so a body that ended exactly on a page break emitted a
+    # trailing chrome-only blank page.
+    page_has_body = False
     max_width = width - 2 * inch
     for raw_paragraph in body.split("\n\n"):
+        # Deferred page break: only start a new page when another
+        # paragraph actually exists to put on it. Breaking eagerly
+        # (the old after-paragraph check) left a fresh chrome-only page
+        # pending, which save() then emitted as a trailing blank page.
+        if page_has_body and text.getY() < inch:
+            pdf.drawText(text)
+            pdf.showPage()
+            draw_chrome()
+            text = pdf.beginText(inch, height - 1.2 * inch)
+            text.setFont("Helvetica", 11)
+            page_has_body = False
         words = raw_paragraph.strip().split()
         line = ""
         for word in words:
             candidate = f"{line} {word}".strip()
             if pdf.stringWidth(candidate, "Helvetica", 11) > max_width and line:
                 text.textLine(line)
+                page_has_body = True
                 line = word
             else:
                 line = candidate
         if line:
             text.textLine(line)
+            page_has_body = True
         text.textLine("")
-        if text.getY() < inch:
-            pdf.drawText(text)
-            pdf.showPage()
-            draw_chrome()
-            text = pdf.beginText(inch, height - 1.2 * inch)
-            text.setFont("Helvetica", 11)
-    if watermark_text is not None:
+    if watermark_text is not None and page_has_body:
         text.setFont("Helvetica-Oblique", 9)
         text.textLine(
             "This is a draft document only. It is not legal advice and "
             "creates no attorney-client relationship."
         )
-    pdf.drawText(text)
-    pdf.showPage()
+    if page_has_body:
+        pdf.drawText(text)
+        pdf.showPage()
     pdf.save()
     return buffer.getvalue()
 
@@ -932,6 +945,29 @@ def compute_source_fingerprint(conn: Any, matter: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Jurisdiction → local timezone for the ``{{today}}`` document date
+#: (FUNC-015). An 11pm-ET render must date the document with the ET
+#: date, not the UTC date. Unknown jurisdictions default to Eastern —
+#: the platform's current footprint is US East Coast.
+_JURISDICTION_TIMEZONES: dict[str, str] = {
+    "US-VA": "America/New_York",
+    "US-DC": "America/New_York",
+    "US-MD": "America/New_York",
+    "US-NC": "America/New_York",
+}
+
+
+def _today_for_jurisdiction(
+    jurisdiction_code: str, *, now: datetime | None = None
+) -> str:
+    """Today's date in the jurisdiction's local timezone."""
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(_JURISDICTION_TIMEZONES.get(jurisdiction_code, "America/New_York"))
+    instant = now if now is not None else datetime.now(UTC)
+    return instant.astimezone(tz).strftime("%B %d, %Y")
+
+
 def create_package(
     conn: Any,
     *,
@@ -1031,7 +1067,7 @@ def _render_context(conn: Any, matter: dict[str, Any]) -> dict[str, str]:
         code = str(jurisdiction["country_code"])
         subdivision = str(jurisdiction.get("subdivision_code") or "")
         jurisdiction_code = f"{code}-{subdivision}".rstrip("-")
-    today = datetime.now(UTC).strftime("%B %d, %Y")
+    today = _today_for_jurisdiction(jurisdiction_code)
     context = {
         "household_name": household_name,
         "matter_name": matter_name,
