@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,8 +16,14 @@ import dramatiq
 from worker.broker import get_broker
 from worker.db import get_connection
 from worker.dead_letter import write_dead_letter
+from worker.logging import configure_logging
 from worker.scanning import perform_file_scan
 from worker.settings import get_worker_settings
+
+# ERR-012: the dramatiq entrypoint (`dramatiq worker.actors`) imports
+# this module first — configure JSON logging here so every worker log
+# line carries the API's shape from the first broker warning onward.
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +92,25 @@ def _write_to_sandbox(rendered: dict[str, Any], outbox_id: UUID) -> None:
 
     This is the email sandbox: a local JSON file per message. Real email is
     never sent here.
+
+    ERR-011: the write is atomic — a temp file in the SAME directory is
+    written and then ``os.replace``d over the target, so a crash mid-write
+    never leaves a truncated notification file that a later reader (or a
+    retried drain) could mistake for a complete render.
     """
     path = _sandbox_path(outbox_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rendered, indent=2, default=str), encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{outbox_id}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(rendered, indent=2, default=str))
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 @dramatiq.actor(

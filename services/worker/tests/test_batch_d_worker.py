@@ -453,3 +453,124 @@ def test_migrations_dead_letters_and_partial_indexes() -> None:
     assert "on file_uploads (created_at)" in idx and "scan_status = 'pending'" in idx
     assert "on notification_outbox (created_at)" in idx and "status = 'pending'" in idx
     assert "on reminders (scheduled_for)" in idx and "sent_at is null" in idx.lower()
+
+
+# ---------------------------------------------------------------------------
+# ERR-004: non-404 storage failures must not strand rows in 'pending'
+# ---------------------------------------------------------------------------
+
+
+def test_perform_file_scan_storage_error_is_terminal(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    import types
+    import urllib.error
+    import urllib.request
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    import worker.scanning as scanning
+    from worker.scanning import perform_file_scan
+
+    fake_settings = types.SimpleNamespace(
+        STORAGE_BACKEND="supabase",
+        SUPABASE_URL="https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY="svc-key",
+        STORAGE_DIR="/tmp/legacyflow-uploads",
+    )
+    monkeypatch.setattr(scanning, "get_worker_settings", lambda: fake_settings)
+
+    def _boom(req: object, timeout: int = 0) -> Any:
+        raise urllib.error.URLError("storage unreachable (synthetic)")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _boom)
+
+    upload_id = uuid.uuid4()
+    with psycopg.connect(batch_dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO file_uploads (id, firm_id, household_id, uploader_user_id,"
+                " original_filename, stored_path, mime_type)"
+                " VALUES (%s, %s, %s, %s, 'x.pdf', 'client-uploads/docs/x.pdf',"
+                " 'application/pdf') ON CONFLICT (id) DO NOTHING",
+                (str(upload_id), str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())),
+            )
+            cur.execute(
+                "UPDATE file_uploads SET scan_status='pending', scan_detail=NULL WHERE id=%s",
+                (str(upload_id),),
+            )
+    with psycopg.connect(batch_dsn, row_factory=dict_row) as conn:
+        with conn.transaction():
+            with caplog.at_level(logging.ERROR, logger="worker.scanning"):
+                outcome = perform_file_scan(conn, upload_id)
+    assert outcome == {"scanned": 1, "status": "quarantined"}
+    with psycopg.connect(batch_dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT scan_status, scan_detail FROM file_uploads WHERE id=%s",
+                (str(upload_id),),
+            )
+            status, detail = cur.fetchone()
+    assert status == "quarantined"  # terminal, fail-closed — not 'pending'
+    assert detail and "URLError" in detail
+    assert any(
+        r.levelno >= logging.ERROR and r.exc_info for r in caplog.records
+    ), "storage failure must be exception-logged"
+
+
+# ---------------------------------------------------------------------------
+# ERR-011: sandbox writes are atomic (temp file + os.replace)
+# ---------------------------------------------------------------------------
+
+
+def test_write_to_sandbox_is_atomic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from worker import actors
+    from worker.settings import get_worker_settings
+
+    monkeypatch.setenv("NOTIFICATION_SANDBOX_DIR", str(tmp_path))
+    get_worker_settings.cache_clear()
+    try:
+        def _forbidden(self: Path, *a: Any, **k: Any) -> Any:
+            raise AssertionError("direct write_text on the target is not atomic")
+
+        monkeypatch.setattr(Path, "write_text", _forbidden)
+        outbox_id = uuid.uuid4()
+        actors._write_to_sandbox({"hello": "world"}, outbox_id)
+        target = tmp_path / f"{outbox_id}.json"
+        assert target.is_file()
+        import json as _json
+
+        assert _json.loads(target.read_text()) == {"hello": "world"}
+        leftovers = [p for p in tmp_path.iterdir() if p != target]
+        assert leftovers == [], f"temp files left behind: {leftovers}"
+    finally:
+        get_worker_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# ERR-012: worker logs are JSON, same shape as the API's
+# ---------------------------------------------------------------------------
+
+
+def test_worker_json_formatter_matches_api_shape() -> None:
+    import json as _json
+    import logging
+
+    from worker.logging import JSONFormatter
+
+    record = logging.LogRecord(
+        name="worker.actors", level=logging.ERROR, pathname=__file__, lineno=1,
+        msg="dead letter %s", args=("m1",), exc_info=None,
+    )
+    record.message_id = "m1"  # an extra={} field, as dramatiq code logs
+    payload = _json.loads(JSONFormatter().format(record))
+    assert payload["level"] == "ERROR"
+    assert payload["message"] == "dead letter m1"
+    assert payload["logger"] == "worker.actors"
+    assert payload["service"] == "legacyflow-worker"
+    assert payload["message_id"] == "m1"
+    assert "timestamp" in payload

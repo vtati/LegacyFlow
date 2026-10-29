@@ -167,6 +167,32 @@ def perform_file_scan(
         header_bytes = _download_stored_header(str(row["stored_path"]))
     except FileNotFoundError:
         return {"scanned": 0, "status": "missing"}
+    except Exception as exc:
+        # ERR-004: a non-404 storage failure (URLError, timeout, HTTP
+        # 5xx) must not strand the row in 'pending' forever — the
+        # scan_file actor previously let it propagate and every retry
+        # re-read the same failing storage. Record the terminal,
+        # fail-closed outcome the schema supports ('quarantined' keeps
+        # the file out of the download path) with the error class in
+        # scan_detail so the runbook can alert on it; the batch path
+        # counts it as quarantined the same way.
+        logger.exception(
+            "scan_file storage read failed for upload %s; marking quarantined", upload_id
+        )
+        detail = (
+            f"storage read failed ({type(exc).__name__}); "
+            "quarantined pending operator review"
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE file_uploads
+                SET scan_status = 'quarantined', scan_detail = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (detail, str(upload_id)),
+            )
+        return {"scanned": 1, "status": "quarantined"}
     result = (scanner or DevScanner()).scan(header_bytes, str(row["mime_type"] or ""))
     new_status = "clean" if result.clean else "quarantined"
     with conn.cursor() as cur:
