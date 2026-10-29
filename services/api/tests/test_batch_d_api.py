@@ -181,3 +181,51 @@ def test_evaluate_loop_degrades_on_one_bad_insert(
     assert persisted == ["r-good", "r-good2"]
     assert [t.rule_id for t in out.triggered] == ["r-good", "r-bad", "r-good2"]
     assert any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# ERR-017: materialization logs must not contain person names
+# ---------------------------------------------------------------------------
+
+
+def test_minor_materialization_log_contains_no_name(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from contextlib import contextmanager
+
+    from app.domains.household import repository as household_repo
+    from app.domains.intake import service as intake_service
+
+    class _Cur:
+        def execute(self, *_a: Any, **_k: Any) -> None:
+            pass
+
+        def fetchone(self) -> None:
+            return None
+
+    class _Conn:
+        @contextmanager
+        def cursor(self) -> Any:
+            yield _Cur()
+
+    monkeypatch.setattr(
+        household_repo, "list_persons_for_household", lambda c, hid: []
+    )
+    monkeypatch.setattr(
+        household_repo,
+        "insert_person",
+        lambda c, **kw: {"id": str(uuid4())},
+    )
+    answers = {
+        "has_minor_children": True,
+        "minor_children_details": "Aarav Sharma (12), Diya Sharma (9)",
+    }
+    with caplog.at_level(logging.INFO, logger="app.domains.intake.service"):
+        intake_service._sync_minors_from_answers(
+            _Conn(), household_id=uuid4(), answers=answers
+        )
+    assert caplog.records, "expected materialization log lines"
+    for record in caplog.records:
+        message = record.getMessage()
+        assert "Aarav" not in message and "Diya" not in message, message
+        assert "Sharma" not in message, message

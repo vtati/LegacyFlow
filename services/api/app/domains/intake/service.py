@@ -234,11 +234,14 @@ def _sync_nominations_from_answers(
                     priority=priority,
                     notes=f"From interview answer: {key}",
                 )
+                # ERR-017: never log the nominee's name (PII) — the
+                # nomination type, question key, and matter id carry
+                # the triage signal (contract rule 9).
                 logger.info(
-                    "Auto-created %s nomination for %s (matter %s)",
+                    "Auto-created %s nomination (matter %s, key %s)",
                     nomination_type,
-                    value,
                     matter_id,
+                    key,
                 )
                 with conn.cursor() as cur:
                     cur.execute("RELEASE SAVEPOINT lf_nom_sync")
@@ -419,7 +422,12 @@ def _sync_minors_from_answers(
                     ),
                 )
                 known.add(name.lower())
-                logger.info("Materialized minor person %s (household %s)", name, household_id)
+                # ERR-017: a minor's full name must never land in logs
+                # (PII, contract rule 9) — household id + question key only.
+                logger.info(
+                    "Materialized minor person (household %s, key minor_children_details)",
+                    household_id,
+                )
         except Exception:
             with conn.cursor() as cur:
                 cur.execute("ROLLBACK TO SAVEPOINT lf_minor_sync")
