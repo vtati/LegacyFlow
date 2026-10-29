@@ -26,6 +26,12 @@ describe('statusBadgeClass severity branches (UI-014)', () => {
     expect(statusBadgeClass('blocking')).toContain('bg-lf-error-100');
     expect(statusBadgeClass('review')).toContain('bg-lf-accent-100');
   });
+
+  it('trims surrounding whitespace before matching, like severityDisplay', () => {
+    expect(statusBadgeClass(' attention ')).toContain('bg-lf-warning-100');
+    expect(statusBadgeClass(' info ')).toContain('bg-lf-sky-100');
+    expect(statusBadgeClass('  blocking\t')).toContain('bg-lf-error-100');
+  });
 });
 
 describe('severityDisplay (interview consistency findings, UI-014)', () => {

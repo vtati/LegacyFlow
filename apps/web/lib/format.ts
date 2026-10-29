@@ -113,7 +113,7 @@ export function severityDisplay(severity: string): SeverityDisplay {
 }
 
 export function statusBadgeClass(status: string): string {
-  const normalized = status.toLowerCase();
+  const normalized = status.trim().toLowerCase();
   // UI-014: exact severity branches BEFORE the substring fallthrough —
   // `attention` previously got the neutral pill (indistinguishable from
   // `info`) and `info` had no branch at all.
