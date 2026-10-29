@@ -401,6 +401,92 @@ def list_matter_files(conn: Any, *, actor_sub: str, matter_id: UUID) -> list[sch
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _PreparedAnalysis:
+    """Frozen inputs for one vault analysis (PERF-016): assembled in a
+    short read transaction so the LLM call runs with NO transaction
+    open, then persisted in a second short transaction."""
+
+    actor_id: UUID
+    upload_id: UUID
+    firm_id: UUID
+    matter_id: UUID | None
+    extracted_text: str
+    original_filename: str
+    correlation_id: UUID | None = None
+
+
+def _prepare_analysis(
+    conn: Any,
+    *,
+    actor_sub: str,
+    upload_id: UUID,
+    correlation_id: UUID | None = None,
+) -> _PreparedAnalysis:
+    """Read phase: scope + extraction readiness, frozen for compute."""
+    actor_id = caller_id(actor_sub)
+    scope = get_upload_scope(conn, upload_id, actor_id)
+    _require_upload_read(scope)
+
+    row = scope.upload
+    if str(row.get("extraction_status")) != "done" or not row.get("extracted_text"):
+        raise ValidationAppError(
+            "Text extraction is unavailable for this file, so it cannot be analyzed."
+        )
+    return _PreparedAnalysis(
+        actor_id=actor_id,
+        upload_id=upload_id,
+        firm_id=UUID(str(row["firm_id"])),
+        matter_id=UUID(str(row["matter_id"])) if row.get("matter_id") else None,
+        extracted_text=str(row["extracted_text"]),
+        original_filename=str(row["original_filename"]),
+        correlation_id=correlation_id,
+    )
+
+
+def _persist_analysis(
+    conn: Any, prepared: _PreparedAnalysis, result: dict[str, Any]
+) -> sch.FileAnalysisOut:
+    """Write phase: persist the analysis + audit event."""
+    updated = repo.update_analysis(
+        conn,
+        prepared.upload_id,
+        document_type=result["document_type"],
+        ai_summary=result["summary"],
+        key_facts=result["key_facts"],
+        suggested_tags=result["suggested_tags"],
+        confidence=result["confidence"],
+        analysis_source=result["source"],
+    )
+    record_audit_event(
+        conn,
+        action="files.analyzed",
+        resource_type="file_upload",
+        actor_user_id=prepared.actor_id,
+        actor_type="user",
+        firm_id=prepared.firm_id,
+        matter_id=prepared.matter_id,
+        resource_id=prepared.upload_id,
+        correlation_id=prepared.correlation_id,
+        metadata={
+            "document_type": result["document_type"],
+            "confidence": result["confidence"],
+            "key_facts": len(result["key_facts"]),
+            "analysis_source": result["source"],
+        },
+    )
+    return sch.FileAnalysisOut(
+        upload_id=prepared.upload_id,
+        document_type=result["document_type"],
+        summary=result["summary"],
+        key_facts=[sch.KeyFact.model_validate(kf) for kf in result["key_facts"]],
+        suggested_tags=result["suggested_tags"],
+        confidence=result["confidence"],
+        analyzed_at=updated["analyzed_at"],
+        analysis_source=result["source"],
+    )
+
+
 def analyze_upload(
     conn: Any,
     *,
@@ -413,57 +499,40 @@ def analyze_upload(
     Requires extracted text (422 when extraction is unavailable/failed).
     Firm staff+ or any household member may analyze. Suggested tags are
     merged into the file's tag list; the analysis is persisted and returned.
+
+    Single-connection composition of the phases (direct callers); the
+    request path uses :func:`analyze_upload_phased` so the LLM call
+    never holds a transaction (PERF-016).
     """
-    actor_id = caller_id(actor_sub)
-    scope = get_upload_scope(conn, upload_id, actor_id)
-    _require_upload_read(scope)
-
-    row = scope.upload
-    if str(row.get("extraction_status")) != "done" or not row.get("extracted_text"):
-        raise ValidationAppError(
-            "Text extraction is unavailable for this file, so it cannot be analyzed."
-        )
-
+    prepared = _prepare_analysis(
+        conn, actor_sub=actor_sub, upload_id=upload_id, correlation_id=correlation_id
+    )
     result = file_analysis.analyze_with_llm(
-        str(row["extracted_text"]), str(row["original_filename"])
+        prepared.extracted_text, prepared.original_filename
     )
-    updated = repo.update_analysis(
-        conn,
-        upload_id,
-        document_type=result["document_type"],
-        ai_summary=result["summary"],
-        key_facts=result["key_facts"],
-        suggested_tags=result["suggested_tags"],
-        confidence=result["confidence"],
-        analysis_source=result["source"],
+    return _persist_analysis(conn, prepared, result)
+
+
+def analyze_upload_phased(
+    *,
+    actor_sub: str,
+    upload_id: UUID,
+    correlation_id: UUID | None = None,
+) -> sch.FileAnalysisOut:
+    """Request-path entry (PERF-016): short read transaction, LLM call
+    with no transaction open, short write transaction — the
+    attorney_review prepare/compute/persist pattern."""
+    from app.core import db
+
+    with db.transaction() as conn:
+        prepared = _prepare_analysis(
+            conn, actor_sub=actor_sub, upload_id=upload_id, correlation_id=correlation_id
+        )
+    result = file_analysis.analyze_with_llm(
+        prepared.extracted_text, prepared.original_filename
     )
-    record_audit_event(
-        conn,
-        action="files.analyzed",
-        resource_type="file_upload",
-        actor_user_id=actor_id,
-        actor_type="user",
-        firm_id=UUID(str(row["firm_id"])),
-        matter_id=UUID(str(row["matter_id"])) if row.get("matter_id") else None,
-        resource_id=upload_id,
-        correlation_id=correlation_id,
-        metadata={
-            "document_type": result["document_type"],
-            "confidence": result["confidence"],
-            "key_facts": len(result["key_facts"]),
-            "analysis_source": result["source"],
-        },
-    )
-    return sch.FileAnalysisOut(
-        upload_id=upload_id,
-        document_type=result["document_type"],
-        summary=result["summary"],
-        key_facts=[sch.KeyFact.model_validate(kf) for kf in result["key_facts"]],
-        suggested_tags=result["suggested_tags"],
-        confidence=result["confidence"],
-        analyzed_at=updated["analyzed_at"],
-        analysis_source=result["source"],
-    )
+    with db.transaction() as conn:
+        return _persist_analysis(conn, prepared, result)
 
 
 def add_upload_tags(

@@ -105,13 +105,13 @@ def analyze_upload(
     confidence. Suggested tags are merged into the file's tag list.
     Requires extracted text — 422 when extraction is unavailable.
     """
-    with db.transaction() as conn:
-        return service.analyze_upload(
-            conn,
-            actor_sub=user.sub,
-            upload_id=upload_id,
-            correlation_id=_correlation_id(request),
-        )
+    # Phased (PERF-016): the service manages short prepare/persist
+    # transactions itself so the LLM call holds no transaction.
+    return service.analyze_upload_phased(
+        actor_sub=user.sub,
+        upload_id=upload_id,
+        correlation_id=_correlation_id(request),
+    )
 
 
 @router.post("/files/{upload_id}/tags", response_model=sch.FileUploadOut)

@@ -63,6 +63,73 @@ def test_history_messages_logs_error_and_counts_skips(monkeypatch, caplog) -> No
     assert "1" in errors[0].getMessage()
 
 
+def test_analyze_upload_phased_calls_llm_outside_transaction(monkeypatch) -> None:
+    """PERF-016 (vault analysis): the phased analyze path must run the
+    LLM call with no DB transaction open — proven by a tracking
+    transaction factory standing in for app.core.db.transaction while
+    prepare/persist run through it."""
+    import contextlib
+    from uuid import uuid4
+
+    from app.core import db as core_db
+    from app.domains.files import service
+
+    class _Tracker:
+        def __init__(self) -> None:
+            self.open = 0
+            self.opened_total = 0
+
+        @contextlib.contextmanager
+        def transaction(self):
+            self.open += 1
+            self.opened_total += 1
+            try:
+                yield object()
+            finally:
+                self.open -= 1
+
+    tracker = _Tracker()
+    monkeypatch.setattr(core_db, "transaction", tracker.transaction)
+
+    prepared = service._PreparedAnalysis(
+        actor_id=uuid4(),
+        upload_id=uuid4(),
+        firm_id=uuid4(),
+        matter_id=None,
+        extracted_text="GENERAL WARRANTY DEED ...",
+        original_filename="deed.pdf",
+        correlation_id=None,
+    )
+    monkeypatch.setattr(
+        service, "_prepare_analysis", lambda conn, **kw: prepared
+    )
+    seen: dict[str, int] = {}
+
+    def _fake_llm(text: str, filename: str) -> dict:
+        seen["open_at_call"] = tracker.open
+        return {
+            "document_type": "deed",
+            "summary": "s",
+            "key_facts": [],
+            "suggested_tags": [],
+            "confidence": 0.9,
+            "source": "rules",
+        }
+
+    monkeypatch.setattr(service.file_analysis, "analyze_with_llm", _fake_llm)
+    sentinel = object()
+    monkeypatch.setattr(
+        service, "_persist_analysis", lambda conn, prep, result: sentinel
+    )
+
+    out = service.analyze_upload_phased(
+        actor_sub="sub", upload_id=prepared.upload_id
+    )
+    assert out is sentinel
+    assert seen["open_at_call"] == 0, "LLM called with a transaction open"
+    assert tracker.opened_total == 2, "expected prepare + persist transactions only"
+
+
 def test_turn_out_history_incomplete_defaults_false() -> None:
     from uuid import uuid4
 
