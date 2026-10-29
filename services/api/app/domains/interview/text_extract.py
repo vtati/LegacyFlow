@@ -207,10 +207,14 @@ def extract_text(file_bytes: bytes, filename: str) -> ExtractedDocument:
                 ocr_used = any(p.text for p in raw_pages)
             except RuntimeError as exc:
                 ocr_unavailable = True
-                logger.info("OCR unavailable for %s: %s", filename, exc)
+                # ERR-010: never log the raw upload filename (it can
+                # carry the user's own naming/PII) — kind only.
+                logger.info("OCR unavailable for %s document: %s", kind, exc)
             except Exception:
                 ocr_unavailable = True
-                logger.warning("OCR crashed for %s; treating as unreadable", filename)
+                logger.warning(
+                    "OCR crashed for %s document; treating as unreadable", kind
+                )
     else:
         raw_pages = _extract_docx(file_bytes)
     pages, truncated = _cap_pages(raw_pages)

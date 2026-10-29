@@ -64,7 +64,10 @@ def _fetch_jwks(url: str) -> dict[str, Any]:
         response.raise_for_status()
         document = response.json()
     except httpx.HTTPError as exc:
-        # Never include token material in the message.
+        # ERR-015: an auth-service outage must be distinguishable from
+        # bad credentials in logs — ERROR with a distinct event message
+        # (the URL is the JWKS endpoint, never token material).
+        logger.error("JWKS fetch failed for %s: %s", url, type(exc).__name__)
         raise AuthError("The authentication service is unreachable.") from exc
     if not isinstance(document, dict):
         raise AuthError("The authentication service returned an invalid key set.")

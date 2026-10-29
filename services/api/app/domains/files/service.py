@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,8 @@ from app.domains.files.storage_backend import (
     get_storage_backend,
     split_stored_path,
 )
+
+logger = logging.getLogger(__name__)
 
 # Download tokens live 15 minutes (Track B4 contract).
 DOWNLOAD_TOKEN_TTL_SECONDS = 900
@@ -365,6 +368,9 @@ def complete_upload(
             content, str(row["mime_type"] or "")
         )
     except Exception:
+        # ERR-023: was a silent swallow — the 'failed' status recorded
+        # the outcome but nothing in the logs explained why.
+        logger.exception("vault text extraction failed for upload %s", upload_id)
         extracted, extraction_status = "", "failed"
     row = repo.update_extraction(
         conn,
