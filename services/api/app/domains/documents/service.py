@@ -2921,10 +2921,18 @@ def create_vault_share(
     raw_token = secrets.token_urlsafe(32)
     token_hash = _hash_vault_token(raw_token)
     expires_at = payload.expires_at or (datetime.now(UTC) + timedelta(days=30))
+    # SEC-005 / FUNC-016 (defense in depth — the schema enforces the
+    # same rules): a naive datetime is REJECTED, never silently assumed
+    # to be UTC, and a bearer share may live at most 90 days.
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= datetime.now(UTC):
+        raise ValidationAppError("expires_at must include a timezone offset.")
+    now = datetime.now(UTC)
+    if expires_at <= now:
         raise ValidationAppError("expires_at must be in the future.")
+    if expires_at > now + timedelta(days=sch.VAULT_SHARE_MAX_LIFETIME_DAYS):
+        raise ValidationAppError(
+            f"expires_at must be within {sch.VAULT_SHARE_MAX_LIFETIME_DAYS} days."
+        )
 
     row = repo.insert_vault_share(
         conn,

@@ -212,10 +212,31 @@ class FundingTaskUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+#: Maximum lifetime of a vault share (SEC-005): a share is a bearer
+#: token, so an effectively-permanent expiry must be impossible.
+VAULT_SHARE_MAX_LIFETIME_DAYS = 90
+
+
 class VaultShareCreate(BaseModel):
     label: str = Field(default="", max_length=255)
     # Optional: defaults to 30 days when omitted (the DB column is NOT NULL).
     expires_at: datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def _expires_at_bounded(cls, value: datetime | None) -> datetime | None:
+        """Reject naive datetimes (FUNC-016) and >90-day expiries (SEC-005)."""
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            raise ValueError("expires_at must include a timezone offset.")
+        from datetime import UTC, datetime, timedelta
+
+        if value > datetime.now(UTC) + timedelta(days=VAULT_SHARE_MAX_LIFETIME_DAYS):
+            raise ValueError(
+                f"expires_at must be within {VAULT_SHARE_MAX_LIFETIME_DAYS} days."
+            )
+        return value
 
 
 class VaultShareCreateOut(BaseModel):
