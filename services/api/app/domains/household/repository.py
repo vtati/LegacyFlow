@@ -46,6 +46,15 @@ def find_or_create_self_serve_household(
     there is ``primary_client`` + ``active``; otherwise a fresh household
     (origin ``'self_serve'``) plus a ``primary_client`` member row for
     the caller is inserted.
+
+    FUNC-020 race safety: the create path inserts with
+    ``ON CONFLICT (created_by_user_id, firm_id) WHERE origin =
+    'self_serve' DO NOTHING`` against the partial unique index
+    ``households_self_serve_unique_idx`` (migration
+    20261029120000). A concurrent winner's insert makes this insert
+    no-op (after blocking until the winner commits), and the re-SELECT
+    below then returns the winner's household — one household per
+    (user, firm), never two.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -67,13 +76,38 @@ def find_or_create_self_serve_household(
         row = cur.fetchone()
     if row is not None:
         return dict(row)
-    household = insert_household(
-        conn,
-        firm_id=firm_id,
-        display_name=display_name,
-        created_by_user_id=user_id,
-        origin="self_serve",
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO households (firm_id, display_name, created_by_user_id, origin)
+            VALUES (%s, %s, %s, 'self_serve')
+            ON CONFLICT (created_by_user_id, firm_id) WHERE origin = 'self_serve'
+            DO NOTHING
+            RETURNING *
+            """,
+            (str(firm_id), display_name, str(user_id)),
+        )
+        inserted = cur.fetchone()
+    if inserted is None:
+        # Lost the race (or a self-serve household already exists for
+        # this (user, firm)): reuse the existing row.
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM households
+                WHERE created_by_user_id = %s
+                  AND firm_id = %s
+                  AND origin = 'self_serve'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (str(user_id), str(firm_id)),
+            )
+            existing = cur.fetchone()
+        if existing is None:  # pragma: no cover — conflict implies a row
+            raise RuntimeError("Self-serve household conflict without an existing row.")
+        return dict(existing)
+    household = dict(inserted)
     insert_household_member(
         conn,
         household_id=UUID(str(household["id"])),

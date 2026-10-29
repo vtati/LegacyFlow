@@ -418,6 +418,105 @@ def test_self_serve_trial_default_firm_still_resolves(db, api_client):
     assert response.json()["firm_id"] == firm_id
 
 
+def test_find_or_create_sequential_calls_return_one_household(db):
+    # FUNC-020: two sequential find-or-create calls for the same
+    # (user, firm) must return ONE household.
+    from uuid import UUID as _UUID
+
+    from app.domains.household import repository as household_repo
+
+    firm_id = setup_default_firm(db)
+    first = household_repo.find_or_create_self_serve_household(
+        db, user_id=_UUID(FIRMLESS), firm_id=_UUID(firm_id), display_name="Race Household"
+    )
+    db.commit()
+    second = household_repo.find_or_create_self_serve_household(
+        db, user_id=_UUID(FIRMLESS), firm_id=_UUID(firm_id), display_name="Race Household"
+    )
+    db.commit()
+    assert str(first["id"]) == str(second["id"])
+    row = _one(
+        db,
+        "SELECT count(*) AS n FROM households WHERE created_by_user_id = %s AND origin = 'self_serve'",
+        (FIRMLESS,),
+    )
+    assert row["n"] == 1
+
+
+def test_find_or_create_concurrent_calls_return_one_household(db, pg_uri):
+    # FUNC-020: the double-submit / two-tabs race, interleaved
+    # deterministically — connection A provisions a household and holds
+    # its transaction OPEN (uncommitted) while connection B runs the
+    # same find-or-create. B cannot see A's household, so check-then-
+    # insert alone gives B its own household; the partial unique index +
+    # ON CONFLICT DO NOTHING + re-SELECT must make B reuse A's row once
+    # A commits.
+    import threading
+    from uuid import UUID as _UUID
+
+    from app.domains.household import repository as household_repo
+
+    firm_id = setup_default_firm(db)
+    results: dict[str, str] = {}
+    errors: dict[str, Exception] = {}
+    a_inserted = threading.Event()
+    allow_a_commit = threading.Event()
+    b_done = threading.Event()
+
+    def _call_a() -> None:
+        try:
+            with psycopg.connect(pg_uri, row_factory=dict_row) as conn:
+                row = household_repo.find_or_create_self_serve_household(
+                    conn,
+                    user_id=_UUID(FIRMLESS),
+                    firm_id=_UUID(firm_id),
+                    display_name="Race Household",
+                )
+                results["a"] = str(row["id"])
+                a_inserted.set()
+                allow_a_commit.wait(timeout=30)
+                conn.commit()
+        except Exception as exc:  # noqa: BLE001 — asserted below
+            errors["a"] = exc
+            a_inserted.set()
+
+    def _call_b() -> None:
+        try:
+            with psycopg.connect(pg_uri, row_factory=dict_row) as conn:
+                row = household_repo.find_or_create_self_serve_household(
+                    conn,
+                    user_id=_UUID(FIRMLESS),
+                    firm_id=_UUID(firm_id),
+                    display_name="Race Household",
+                )
+                conn.commit()
+                results["b"] = str(row["id"])
+        except Exception as exc:  # noqa: BLE001 — asserted below
+            errors["b"] = exc
+        finally:
+            b_done.set()
+
+    thread_a = threading.Thread(target=_call_a)
+    thread_a.start()
+    assert a_inserted.wait(timeout=30), "connection A never provisioned"
+    thread_b = threading.Thread(target=_call_b)
+    thread_b.start()
+    # Give B its chance to finish (or to block on the unique index).
+    b_done.wait(timeout=3)
+    allow_a_commit.set()
+    thread_a.join(timeout=30)
+    assert b_done.wait(timeout=30), "connection B never finished"
+    thread_b.join(timeout=30)
+    assert not errors, errors
+    assert results["a"] == results["b"]
+    row = _one(
+        db,
+        "SELECT count(*) AS n FROM households WHERE created_by_user_id = %s AND origin = 'self_serve'",
+        (FIRMLESS,),
+    )
+    assert row["n"] == 1
+
+
 def test_self_serve_unregistered_jurisdiction_is_422_no_default_firm(db, api_client):
     setup_default_firm(db)  # registers US-VA only; US-XZ stays unregistered
     response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-XZ"})
