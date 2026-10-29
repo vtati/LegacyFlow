@@ -633,8 +633,77 @@ def test_render_template_content_pure():
         {"household_name": "Synthetic Household", "today": "2026-09-27"},
     )
     assert merged == "Hello Synthetic Household, today is 2026-09-27."
-    # unknown placeholders are left intact
-    assert render_template_content("Keep {{unknown}}.", {}) == "Keep {{unknown}}."
+    # Shipped contract (FUNC-021): unknown placeholders blank to ___ —
+    # raw {{tokens}} never appear in generated documents.
+    assert render_template_content("Keep {{unknown}}.", {}) == "Keep ___."
+    # Digit-bearing tokens (e.g. the codicil's witness slots) blank too.
+    assert render_template_content("Witness {{witness1_name}}.", {}) == "Witness ___."
+
+
+def test_generate_demo_blanks_unknown_tokens_and_flags_escalations(db, api_client):
+    """End-to-end render contract: an unknown token becomes ___ in the
+    rendered output AND creates a document_unmapped_placeholder escalation
+    (captured from the pre-blank token set, FUNC-021)."""
+    _firm_id, _household_id, matter_id = setup_firm_household_matter(db)
+    # Seed every required v0 intake answer so the completeness gate passes.
+    for key, value in {
+        "marital_status": "single",
+        "primary_residence_state": "VA",
+        "has_minor_children": False,
+        "has_child_with_special_needs": False,
+        "has_prior_marriage_or_children_outside_current_relationship": False,
+        "owns_real_estate_outside_primary_jurisdiction": False,
+        "owns_or_controls_business_interest": False,
+        "expects_family_conflict": False,
+        "primary_guardian_person": "Synthetic Guardian",
+        "asset_categories_present": ["bank_account"],
+        "has_debts": False,
+    }.items():
+        _exec(
+            db,
+            "INSERT INTO intake_answers (matter_id, question_key, answer)"
+            " VALUES (%s, %s, %s::jsonb)",
+            (matter_id, key, json.dumps(value)),
+        )
+    template = create_template_via_api(
+        api_client,
+        ADMIN_B,
+        {
+            "name": "Synthetic Gap Template",
+            "template_type": "will",
+            "pack_id": "us-va",
+            "version": "1.0.0",
+            "content": (
+                "Will of {{household_name}}. Unknown: {{unknown_gap}}. "
+                "Witness: {{witness1_name}}."
+            ),
+        },
+    )
+    package = create_package_via_api(api_client, STAFF_A, matter_id, template["id"])
+    response = api_client.post(
+        f"/v1/packages/{package['id']}/generate-demo", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 201, response.text
+    versions = response.json()["versions"]
+    docx_version = next(v for v in versions if v["file_format"] == "docx")
+    response = api_client.get(docx_version["download_url"], headers=auth(ATTORNEY_A))
+    assert response.status_code == 200
+    body_text, _header_xml = docx_texts(response.content)
+    assert "{{" not in body_text
+    assert "Unknown: ___" in body_text
+    assert "Witness: ___" in body_text
+    db.rollback()  # clear any open read state before the direct query
+    rows = db.execute(
+        "SELECT rule_id FROM escalations WHERE matter_id = %s"
+        " AND rule_id LIKE %s"
+        " ORDER BY rule_id",
+        (matter_id, "document_unmapped_placeholder:%"),
+    ).fetchall()
+    rule_ids = [row["rule_id"] for row in rows]
+    assert rule_ids == [
+        "document_unmapped_placeholder:Synthetic Gap Template:unknown_gap",
+        "document_unmapped_placeholder:Synthetic Gap Template:witness1_name",
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -833,24 +833,29 @@ class TestFormLeverage:
         assert context["household_name"] == "Synthetic Household"
 
     def test_unfilled_placeholders_detected(self) -> None:
-        body = documents_service.render_template_content(
+        # FUNC-021: the unfilled set is captured from the PRE-blank body;
+        # the rendered body itself has the token blanked to ___.
+        body, unfilled = documents_service.render_template_content_with_unfilled(
             "Hello {{household_name}}, status {{marital_status}}, {{unknown_field}}.",
             {"household_name": "Smiths", "marital_status": "married"},
         )
-        assert documents_service.unfilled_placeholders(body) == ["unknown_field"]
+        assert unfilled == ["unknown_field"]
+        assert "{{unknown_field}}" not in body
 
     def test_unmapped_placeholder_becomes_attorney_question(self, db) -> None:
         ids = _setup(db)
         matter = _fetchone(db, "SELECT * FROM matters WHERE id = %s", (ids["matter_id"],))
         assert matter is not None
-        # generate_demo flags placeholders on the merged body, not the raw template.
+        # generate_demo flags placeholders from the pre-blank token set
+        # captured during the merge, not from the blanked body.
         context = documents_service._render_context(db, matter)
-        body = documents_service.render_template_content(
+        body, unfilled = documents_service.render_template_content_with_unfilled(
             "Hello {{household_name}}. Unmapped: {{mystery_field}}.", context
         )
-        assert documents_service.unfilled_placeholders(body) == ["mystery_field"]
+        assert unfilled == ["mystery_field"]
+        assert "{{mystery_field}}" not in body
         documents_service._flag_unfilled_placeholders(
-            db, matter=matter, body=body, template_name="test-template"
+            db, matter=matter, body=body, template_name="test-template", unfilled=unfilled
         )
         row = _fetchone(
             db,
@@ -861,7 +866,7 @@ class TestFormLeverage:
         assert row["outcome"] == "attorney_review"
         # Idempotent on re-run.
         documents_service._flag_unfilled_placeholders(
-            db, matter=matter, body=body, template_name="test-template"
+            db, matter=matter, body=body, template_name="test-template", unfilled=unfilled
         )
         count = _fetchone(
             db,

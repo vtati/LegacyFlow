@@ -618,26 +618,48 @@ def render_demo_pdf(title: str, body: str, watermark_text: str | None) -> bytes:
     return buffer.getvalue()
 
 
-def render_template_content(template_body: str, context: dict[str, str]) -> str:
-    """Substitute ``{{placeholder}}`` tokens.
+#: Blanking alphabet matches the flagger's (``_UNFILLED_TOKEN``):
+#: letters, digits, underscore and dot — ``{{witness1_name}}`` must blank
+#: too, never leak verbatim into a rendered document (FUNC-021).
+_BLANK_TOKEN = re.compile(r"\{\{\s*[a-zA-Z0-9_.]+\s*\}\}")
 
-    Known tokens are replaced from the context. Any remaining unfilled
-    tokens become ``___`` (attorney-fill blanks) so raw ``{{tokens}}``
-    never appear in generated documents.
+
+def render_template_content_with_unfilled(
+    template_body: str, context: dict[str, str]
+) -> tuple[str, list[str]]:
+    """Substitute ``{{placeholder}}`` tokens; return (body, unfilled names).
+
+    Known tokens are replaced from the context. The names of tokens the
+    context did NOT cover are captured from the PRE-blank body (sorted,
+    de-duplicated) so callers can flag them for attorney review; the
+    tokens themselves become ``___`` (attorney-fill blanks) so raw
+    ``{{tokens}}`` never appear in generated documents.
     """
-    import re
-
     merged = template_body
     for key, value in context.items():
         merged = merged.replace("{{" + key + "}}", value)
-    # Blank any tokens the context didn't cover.
-    merged = re.sub(r"\{\{[a-z_]+\}\}", "___", merged)
+    unfilled = sorted(set(_UNFILLED_TOKEN.findall(merged)))
+    merged = _BLANK_TOKEN.sub("___", merged)
+    return merged, unfilled
+
+
+def render_template_content(template_body: str, context: dict[str, str]) -> str:
+    """Substitute ``{{placeholder}}`` tokens (see the ``_with_unfilled``
+    variant for the contract); unfilled tokens become ``___``."""
+    merged, _unfilled = render_template_content_with_unfilled(template_body, context)
     return merged
 
 
 def _merge_placeholders(template_body: str, context: dict[str, str]) -> str:
     """Internal alias kept for readability at call sites."""
     return render_template_content(template_body, context)
+
+
+def _merge_placeholders_with_unfilled(
+    template_body: str, context: dict[str, str]
+) -> tuple[str, list[str]]:
+    """Merge and also return the pre-blank unfilled token names."""
+    return render_template_content_with_unfilled(template_body, context)
 
 
 # ---------------------------------------------------------------------------
@@ -1503,15 +1525,27 @@ def unfilled_placeholders(rendered_body: str) -> list[str]:
 
 
 def _flag_unfilled_placeholders(
-    conn: Any, *, matter: dict[str, Any], body: str, template_name: str
+    conn: Any,
+    *,
+    matter: dict[str, Any],
+    body: str,
+    template_name: str,
+    unfilled: list[str] | None = None,
 ) -> None:
     """Record unmapped template placeholders as attorney questions.
 
     A placeholder with no verified fact behind it is never silently blanked:
     each one becomes an idempotent ``attorney_review`` escalation so it lands
     in the pre-review package.
+
+    ``unfilled`` is the token set captured from the PRE-blank body by
+    ``render_template_content_with_unfilled`` — the render paths pass it
+    explicitly because the merged body has already blanked the tokens to
+    ``___``, so re-scanning the body would find nothing (FUNC-021). When
+    omitted (direct callers with an unmerged body), it is derived from
+    ``body``.
     """
-    missing = unfilled_placeholders(body)
+    missing = list(unfilled) if unfilled is not None else unfilled_placeholders(body)
     if not missing:
         return
     matter_id = UUID(str(matter["id"]))
@@ -1634,9 +1668,13 @@ def _render_demo_package(
         raise ConflictError("The package's template is missing.")
 
     context = build_template_context(conn, UUID(str(matter["id"])))
-    body = _merge_placeholders(_template_content_body(template), context)
+    body, unfilled = _merge_placeholders_with_unfilled(
+        _template_content_body(template), context
+    )
     title = f"{template['name']} — Draft"
-    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=str(template["name"]))
+    _flag_unfilled_placeholders(
+        conn, matter=matter, body=body, template_name=str(template["name"]), unfilled=unfilled
+    )
     created = _render_package_versions(
         conn,
         package_id=package_id,
@@ -1791,12 +1829,14 @@ def release_production(
     if template is None:
         raise ConflictError("The package's template is missing.")
 
-    body = _merge_placeholders(
+    body, unfilled = _merge_placeholders_with_unfilled(
         _template_content_body(template),
         build_template_context(conn, UUID(str(matter["id"]))),
     )
     title = str(template["name"])
-    _flag_unfilled_placeholders(conn, matter=matter, body=body, template_name=title)
+    _flag_unfilled_placeholders(
+        conn, matter=matter, body=body, template_name=title, unfilled=unfilled
+    )
     created = _render_package_versions(
         conn,
         package_id=package_id,
