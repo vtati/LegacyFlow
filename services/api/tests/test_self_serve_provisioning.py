@@ -382,6 +382,42 @@ def test_second_self_serve_create_reuses_same_household(db, api_client):
     assert row["n"] == 1
 
 
+def test_self_serve_suspended_default_firm_is_422_no_default_firm(db, api_client):
+    # FUNC-023: a SUSPENDED default firm must resolve to no default firm —
+    # the self-serve path degrades to the existing 422, never provisions
+    # households under a suspended firm.
+    create_all_users(db)
+    firm_id = str(uuid4())
+    _exec(
+        db,
+        "INSERT INTO firms (id, legal_name, display_name, status)"
+        " VALUES (%s, %s, %s, 'suspended')",
+        (firm_id, "Suspended Firm", "Suspended Firm"),
+    )
+    add_firm_member(db, firm_id, ADMIN_A, "firm_admin")
+    register_default_firm(db, "US-VA", firm_id)
+    response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-VA"})
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "no_default_firm_for_jurisdiction"
+
+
+def test_self_serve_trial_default_firm_still_resolves(db, api_client):
+    # FUNC-023: 'trial' is an active-class status and must keep resolving.
+    create_all_users(db)
+    firm_id = str(uuid4())
+    _exec(
+        db,
+        "INSERT INTO firms (id, legal_name, display_name, status)"
+        " VALUES (%s, %s, %s, 'trial')",
+        (firm_id, "Trial Firm", "Trial Firm"),
+    )
+    add_firm_member(db, firm_id, ADMIN_A, "firm_admin")
+    register_default_firm(db, "US-VA", firm_id)
+    response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-VA"})
+    assert response.status_code == 201, response.text
+    assert response.json()["firm_id"] == firm_id
+
+
 def test_self_serve_unregistered_jurisdiction_is_422_no_default_firm(db, api_client):
     setup_default_firm(db)  # registers US-VA only; US-XZ stays unregistered
     response = create_matter_api(api_client, FIRMLESS, {"jurisdiction_code": "US-XZ"})

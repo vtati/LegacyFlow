@@ -27,10 +27,18 @@ def get_default_firm_id(conn: Any, jurisdiction_code: str) -> UUID | None:
 
     Reads the ``jurisdiction_default_firms`` registry (D2): one default
     firm per jurisdiction, enforced by the table's primary key.
+
+    FUNC-023: the firm must be in an active-class status ('active' or
+    'trial'); a suspended default firm resolves to None so self-serve
+    matter creation degrades to the existing 422
+    ``no_default_firm_for_jurisdiction`` instead of provisioning
+    households under a suspended firm.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT firm_id FROM jurisdiction_default_firms WHERE jurisdiction_code = %s",
+            "SELECT jdf.firm_id FROM jurisdiction_default_firms jdf"
+            " JOIN firms f ON f.id = jdf.firm_id"
+            " WHERE jdf.jurisdiction_code = %s AND f.status IN ('active', 'trial')",
             (jurisdiction_code,),
         )
         row = cur.fetchone()
