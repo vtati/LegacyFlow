@@ -38,10 +38,15 @@ export function AppShell({ user, children }: AppShellProps): React.JSX.Element {
             <MobileNav section={section} />
             <Link
               href="/family/home"
+              aria-label={`${PRODUCT_NAME} home`}
               className="flex items-center gap-2 rounded-lf-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
             >
               <LogoMark className="size-8" />
-              <span className="font-lf-serif text-lg font-semibold tracking-tight text-lf-text">
+              {/* Wordmark hidden on the narrowest phones: below ~380px
+                  the header clusters (menu + mark + wordmark + save /
+                  theme / account controls) exceed the viewport by a
+                  few px and push the account button off-screen. */}
+              <span className="hidden font-lf-serif text-lg font-semibold tracking-tight text-lf-text min-[380px]:inline">
                 {PRODUCT_NAME}
               </span>
             </Link>
