@@ -77,17 +77,13 @@ def _init_sentry() -> None:
         logging.getLogger(__name__).warning("Sentry init failed; continuing without it: %s", exc)
 
 
-def _is_production(settings: Any) -> bool:
-    return settings.API_ENV == "production" or settings.ENVIRONMENT == "production"
-
-
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     settings = get_settings()
     configure_logging(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
     _init_sentry()
     # SEC-004: interactive docs / OpenAPI schema are disabled in production.
-    production = _is_production(settings)
+    production = settings.is_production
     application = FastAPI(
         title="LegacyFlow API",
         version=SERVICE_VERSION,

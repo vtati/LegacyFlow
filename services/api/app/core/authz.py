@@ -38,8 +38,7 @@ def _platform_admin_ids() -> set[str]:
 
 
 def _is_production_env() -> bool:
-    settings = get_settings()
-    return settings.API_ENV == "production" or settings.ENVIRONMENT == "production"
+    return get_settings().is_production
 
 
 def is_platform_admin(actor_id: UUID) -> bool:

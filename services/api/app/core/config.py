@@ -118,9 +118,8 @@ class Settings(BaseSettings):
         ``ValueError`` here fails startup fast. In non-production the
         override stays available but is logged at WARNING on every load.
         """
-        is_production = self.API_ENV == "production" or self.ENVIRONMENT == "production"
         override_active = bool(self.TEST_JWT_ISSUER or self.TEST_JWT_SECRET)
-        if override_active and is_production:
+        if override_active and self.is_production:
             raise ValueError(
                 "TEST_JWT_ISSUER/TEST_JWT_SECRET must not be set when "
                 "API_ENV or ENVIRONMENT is 'production' (SEC-002)."
@@ -137,6 +136,20 @@ class Settings(BaseSettings):
     INTERVIEW_MAX_TURNS_PER_SESSION: int = 200
     # Dictation guard: max audio upload size (8 MiB ≈ several minutes).
     DICTATION_MAX_BYTES: int = 8 * 1024 * 1024
+
+    @property
+    def is_production(self) -> bool:
+        """Whether this deployment is production (L-4).
+
+        Single source of truth for production detection: true when
+        ``API_ENV`` or ``ENVIRONMENT`` equals "production" ignoring
+        case. All production checks route through here instead of
+        repeating exact-string comparisons.
+        """
+        return (
+            self.API_ENV.casefold() == "production"
+            or self.ENVIRONMENT.casefold() == "production"
+        )
 
     @property
     def document_storage_dir(self) -> Path:

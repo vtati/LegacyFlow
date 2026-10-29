@@ -67,7 +67,13 @@ def _fake_settings(monkeypatch, *, allowlist: str, api_env: str = "test", enviro
     import app.core.authz as authz
 
     fake = SimpleNamespace(
-        PLATFORM_ADMIN_USER_IDS=allowlist, API_ENV=api_env, ENVIRONMENT=environment
+        PLATFORM_ADMIN_USER_IDS=allowlist,
+        API_ENV=api_env,
+        ENVIRONMENT=environment,
+        # L-4: authz reads Settings.is_production; the stub mirrors it.
+        is_production=(
+            api_env.casefold() == "production" or environment.casefold() == "production"
+        ),
     )
     monkeypatch.setattr(authz, "get_settings", lambda: fake)
 

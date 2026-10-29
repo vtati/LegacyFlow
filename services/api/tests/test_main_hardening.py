@@ -33,6 +33,32 @@ def test_production_app_has_no_docs_routes(monkeypatch: pytest.MonkeyPatch) -> N
     assert prod_client.get("/openapi.json").status_code == 404
 
 
+def test_capitalized_production_app_has_no_docs_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # L-4: main routes production detection through Settings.is_production,
+    # so a capitalized "Production" env also disables the docs.
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    monkeypatch.setenv("API_ENV", "Production")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("TEST_JWT_ISSUER", raising=False)
+    monkeypatch.delenv("TEST_JWT_SECRET", raising=False)
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        from app.main import create_app
+
+        client = TestClient(create_app(), raise_server_exceptions=False)
+    finally:
+        get_settings.cache_clear()
+    paths = {getattr(route, "path", "") for route in client.app.routes}  # type: ignore[attr-defined]
+    assert "/docs" not in paths
+    assert "/openapi.json" not in paths
+    assert "/redoc" not in paths
+
+
 def test_production_root_has_no_docs_key(monkeypatch: pytest.MonkeyPatch) -> None:
     prod_client = _prod_client(monkeypatch)
     body = prod_client.get("/").json()
