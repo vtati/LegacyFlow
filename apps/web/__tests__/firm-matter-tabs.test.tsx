@@ -48,9 +48,15 @@ import FirmMatterDetailPage from '../app/(app)/firm/matters/[id]/page';
 describe('Firm matter tabs keyboard pattern (UI-017)', () => {
   it('moves selection and focus with arrows/Home/End and roves tabindex', async () => {
     const user = userEvent.setup();
+    // React's use() needs a tracked (status-pinned) promise in this
+    // harness — a bare Promise.resolve suspends forever under jsdom.
+    const paramsPromise = Object.assign(Promise.resolve({ id: 'matter-1' }), {
+      status: 'fulfilled' as const,
+      value: { id: 'matter-1' },
+    });
     render(
       <Suspense fallback={null}>
-        <FirmMatterDetailPage params={Promise.resolve({ id: 'matter-1' })} />
+        <FirmMatterDetailPage params={paramsPromise} />
       </Suspense>,
     );
 
