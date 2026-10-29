@@ -163,3 +163,18 @@ def test_matter_out_non_dict_snapshot_never_raises():
 def test_matter_out_non_string_snapshot_code_stays_none():
     out = matter_out(_row(jurisdiction_snapshot={"jurisdiction_code": 42}))
     assert out.jurisdiction_code is None
+
+
+def test_matter_out_empty_joined_code_falls_back_to_snapshot():
+    out = matter_out(_row(jurisdiction_code=""))
+    assert out.jurisdiction_code == "US-VA"
+
+
+def test_matter_out_padded_snapshot_code_is_stripped():
+    out = matter_out(_row(jurisdiction_snapshot={"jurisdiction_code": " US-VA "}))
+    assert out.jurisdiction_code == "US-VA"
+
+
+def test_matter_out_non_dict_snapshot_serializes_as_none():
+    out = matter_out(_row(jurisdiction_snapshot="US-VA"))
+    assert out.jurisdiction_snapshot is None
