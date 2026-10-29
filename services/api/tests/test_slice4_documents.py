@@ -1043,6 +1043,28 @@ def test_generate_demo_on_released_package_is_409(db, api_client):
         assert cur.fetchone()["n"] == 0
 
 
+def test_funding_tasks_other_asset_gets_general_task(db, api_client):
+    """FUNC-014: an asset typed 'other' produces exactly one general
+    beneficiary-alignment task — never silent zero."""
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    insert_asset(db, firm_id, household_id, ADMIN_B, "other", "Synthetic Misc Asset")
+
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/funding-tasks/generate", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 201, response.text
+    tasks = response.json()
+    assert len(tasks) == 1
+    assert tasks[0]["task_type"] == "general-beneficiary-alignment"
+
+    # idempotent on regeneration
+    response = api_client.post(
+        f"/v1/matters/{matter_id}/funding-tasks/generate", headers=auth(ATTORNEY_A)
+    )
+    assert response.status_code == 201
+    assert response.json() == []
+
+
 def test_funding_tasks_unique_index_present(db):
     """FUNC-013: the (matter_id, asset_id, task_type) uniqueness guard
     exists in the schema the migrations build."""

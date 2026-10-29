@@ -2352,6 +2352,10 @@ _FALLBACK_FUNDING_PLAYBOOKS: list[dict[str, Any]] = [
 ]
 
 #: Database asset vocabulary → content-pack funding-playbook vocabulary.
+#: ``other`` maps to the ``general`` sentinel (FUNC-014): no playbook
+#: lists it as an asset type; generation resolves it to the pack's
+#: general beneficiary-alignment playbook so an ``other`` asset yields
+#: exactly one general review task instead of silently getting none.
 _ASSET_TYPE_TO_PACK_VOCAB: dict[str, str] = {
     "bank_account": "bank",
     "investment": "brokerage",
@@ -2360,7 +2364,15 @@ _ASSET_TYPE_TO_PACK_VOCAB: dict[str, str] = {
     "real_estate": "real_property",
     "business": "business",
     "vehicle": "vehicle",
+    "other": "general",
 }
+
+#: Playbook id of the general beneficiary-alignment review every pack
+#: carries; the fallback entry (same shape) is used when a pack lacks it.
+_GENERAL_PLAYBOOK_ID = "general-beneficiary-alignment"
+_BUILTIN_GENERAL_PLAYBOOK: dict[str, Any] = next(
+    pb for pb in _FALLBACK_FUNDING_PLAYBOOKS if pb["playbook_id"] == _GENERAL_PLAYBOOK_ID
+)
 
 
 def _load_execution_profile(conn: Any, matter: dict[str, Any]) -> ExecutionProfile:
@@ -2598,9 +2610,29 @@ def generate_funding_tasks(
         if not vocab:
             continue
         asset_id = UUID(str(asset["id"]))
-        for playbook in profile.funding_playbooks:
-            if vocab not in playbook.get("asset_types", []):
-                continue
+        if vocab == "general":
+            # FUNC-014: an 'other' asset gets exactly the general
+            # beneficiary-alignment task — the pack's own entry when it
+            # has one, else the built-in definition of the same shape.
+            general = next(
+                (
+                    pb
+                    for pb in profile.funding_playbooks
+                    if pb.get("playbook_id") == _GENERAL_PLAYBOOK_ID
+                ),
+                _BUILTIN_GENERAL_PLAYBOOK,
+            )
+            logger.info(
+                "documents: funding generation mapped asset %s (type 'other')"
+                " to the general beneficiary-alignment task",
+                asset_id,
+            )
+            candidates = [general]
+        else:
+            candidates = [
+                pb for pb in profile.funding_playbooks if vocab in pb.get("asset_types", [])
+            ]
+        for playbook in candidates:
             if repo.funding_task_exists(conn, matter_id, asset_id, playbook["playbook_id"]):
                 continue
             row = repo.insert_funding_task(
