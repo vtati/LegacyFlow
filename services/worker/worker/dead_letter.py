@@ -67,41 +67,63 @@ def error_class(message: dict[str, Any]) -> str | None:
 
 
 def write_dead_letter(message: dict[str, Any], retry_info: dict[str, Any]) -> bool:
-    """Insert one ``worker_dead_letters`` row; log at ERROR either way.
+    """Insert one ``worker_dead_letters`` row; return True iff persisted.
 
-    Returns True when the row was persisted. When the database is not
-    configured the ERROR log is the record (the runbook alerts on both).
+    Batch-D M-5: the log must let an alert distinguish PERSISTED from
+    LOST, so nothing is logged before the insert attempt. On success an
+    ERROR "worker dead letter persisted" fires (with actor/message id);
+    on failure a distinct ERROR "failed to persist dead letter" is
+    logged with the exception. When the database is not configured the
+    failure log is the record (the runbook alerts on it).
     """
     actor_name = str(message.get("actor_name") or "unknown")
     message_id = str(message.get("message_id") or "") or None
     err = error_class(message)
     retries = retry_info.get("retries")
+    settings = get_worker_settings()
+    if not settings.DATABASE_URL:
+        logger.error(
+            "failed to persist dead letter: DATABASE_URL is not set"
+            " actor=%s message_id=%s error_class=%s retries=%s",
+            actor_name,
+            message_id,
+            err,
+            retries,
+        )
+        return False
+    try:
+        with get_connection() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO worker_dead_letters
+                          (actor_name, message_id, args_summary, error_class, retries)
+                        VALUES (%s, %s, %s::jsonb, %s, %s)
+                        """,
+                        (
+                            actor_name,
+                            message_id,
+                            json.dumps(args_summary(message)),
+                            err,
+                            int(retries) if retries is not None else None,
+                        ),
+                    )
+    except Exception:
+        logger.exception(
+            "failed to persist dead letter:"
+            " actor=%s message_id=%s error_class=%s retries=%s",
+            actor_name,
+            message_id,
+            err,
+            retries,
+        )
+        return False
     logger.error(
-        "worker dead letter: actor=%s message_id=%s error_class=%s retries=%s",
+        "worker dead letter persisted: actor=%s message_id=%s error_class=%s retries=%s",
         actor_name,
         message_id,
         err,
         retries,
     )
-    settings = get_worker_settings()
-    if not settings.DATABASE_URL:
-        logger.error("worker dead letter NOT persisted: DATABASE_URL is not set")
-        return False
-    with get_connection() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO worker_dead_letters
-                      (actor_name, message_id, args_summary, error_class, retries)
-                    VALUES (%s, %s, %s::jsonb, %s, %s)
-                    """,
-                    (
-                        actor_name,
-                        message_id,
-                        json.dumps(args_summary(message)),
-                        err,
-                        int(retries) if retries is not None else None,
-                    ),
-                )
     return True

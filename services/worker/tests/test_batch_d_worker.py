@@ -586,3 +586,101 @@ def test_worker_json_formatter_matches_api_shape() -> None:
     assert payload["service"] == "legacyflow-worker"
     assert payload["message_id"] == "m1"
     assert "timestamp" in payload
+
+
+# ---------------------------------------------------------------------------
+# Batch-D M-5: dead-letter logging must distinguish persisted from lost —
+# the ERROR "persisted" log fires only AFTER a successful insert; an
+# insert failure logs a distinct "failed to persist" exception.
+# ---------------------------------------------------------------------------
+
+
+def _fake_dead_letter_conn(events: list[str], caplog_records: Any) -> Any:
+    from contextlib import contextmanager
+
+    class _Cur:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        def execute(self, *_a: Any, **_k: Any) -> None:
+            events.append("insert")
+            # At insert time the success log must NOT have fired yet.
+            events.append(
+                "persisted_logged_before_insert"
+                if any("dead letter persisted" in r.getMessage() for r in caplog_records)
+                else "not_yet_logged"
+            )
+
+    class _Conn:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        @contextmanager
+        def transaction(self) -> Any:
+            yield
+
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+    return _Conn()
+
+
+def test_dead_letter_persisted_log_fires_after_successful_insert(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    from types import SimpleNamespace
+
+    from worker import dead_letter
+
+    events: list[str] = []
+    monkeypatch.setattr(
+        dead_letter,
+        "get_worker_settings",
+        lambda: SimpleNamespace(DATABASE_URL="postgres://fake"),
+    )
+    monkeypatch.setattr(
+        dead_letter,
+        "get_connection",
+        lambda: _fake_dead_letter_conn(events, caplog.records),
+    )
+    message = {"actor_name": "scan_file", "message_id": "msg-9", "args": [], "kwargs": {}}
+    with caplog.at_level(logging.ERROR, logger="worker.dead_letter"):
+        assert dead_letter.write_dead_letter(message, {"retries": 3}) is True
+    assert events == ["insert", "not_yet_logged"]
+    persisted = [r for r in caplog.records if "dead letter persisted" in r.getMessage()]
+    assert persisted and persisted[0].levelno == logging.ERROR
+    assert "scan_file" in persisted[0].getMessage()
+    assert "msg-9" in persisted[0].getMessage()
+    assert not any("failed to persist" in r.getMessage() for r in caplog.records)
+
+
+def test_dead_letter_insert_failure_logs_failed_to_persist(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    from types import SimpleNamespace
+
+    from worker import dead_letter
+
+    def _down() -> Any:
+        raise RuntimeError("db down (synthetic)")
+
+    monkeypatch.setattr(
+        dead_letter,
+        "get_worker_settings",
+        lambda: SimpleNamespace(DATABASE_URL="postgres://fake"),
+    )
+    monkeypatch.setattr(dead_letter, "get_connection", _down)
+    message = {"actor_name": "scan_file", "message_id": "msg-10", "args": [], "kwargs": {}}
+    with caplog.at_level(logging.ERROR, logger="worker.dead_letter"):
+        assert dead_letter.write_dead_letter(message, {"retries": 3}) is False
+    failed = [r for r in caplog.records if "failed to persist dead letter" in r.getMessage()]
+    assert failed and failed[0].levelno == logging.ERROR and failed[0].exc_info
+    assert not any("dead letter persisted" in r.getMessage() for r in caplog.records)
