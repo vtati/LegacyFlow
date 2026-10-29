@@ -2437,6 +2437,19 @@ def _load_execution_profile(conn: Any, matter: dict[str, Any]) -> ExecutionProfi
             "falling back for plan_type=%s",
             pack_id, semantic_version, type(exc).__name__, exc, plan_type,
         )
+    if pack is not None and not (pack.execution_profiles or []):
+        # Batch C1 I-2: a pack that LOADS but declares zero execution
+        # profiles (the manifest-only us-dc/us-md/us-nc v0 packs) must
+        # be treated exactly like a missing pack. Falling through with
+        # an empty {} profile would silently stamp any plan type with
+        # the VA-WILL-V0 id and an empty checklist — the fail-closed
+        # guard exists precisely to prevent that.
+        logger.warning(
+            "documents: content pack %s version %s declares no execution "
+            "profiles; falling back for plan_type=%s",
+            pack_id, semantic_version, plan_type,
+        )
+        pack = None
     if pack is None:
         if plan_type != "will":
             raise ValidationAppError(

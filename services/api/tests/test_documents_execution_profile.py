@@ -134,6 +134,53 @@ def test_corrupt_pack_logs_warning_and_falls_back(tmp_path, monkeypatch, caplog)
         pack_loader.clear_pack_cache()
 
 
+def _write_manifest_only_pack(root: Path) -> None:
+    """A pack that LOADS but declares no execution profiles (the
+    us-dc/us-md/us-nc v0 packs are manifest-only yet declare
+    document_assembly: true)."""
+    pack_dir = root / "us-va" / "v0"
+    pack_dir.mkdir(parents=True)
+    (pack_dir / "manifest.yaml").write_text(MANIFEST.format(version="0.1.0"))
+
+
+def test_zero_profile_pack_will_uses_starter_fallback(tmp_path, monkeypatch, caplog):
+    """Batch C1 I-2: a loaded pack with execution_profiles == [] must
+    be treated exactly like a missing pack — not silently resolved to
+    an empty {} profile stamped VA-WILL-V0."""
+    root = tmp_path / "content-packs"
+    _write_manifest_only_pack(root)
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(root))
+    pack_loader.clear_pack_cache()
+    try:
+        with caplog.at_level(logging.WARNING):
+            profile = documents_service._load_execution_profile(
+                None, _matter("0.1.0", "will")
+            )
+        assert profile.profile_id == "VA-WILL-V0"
+        assert profile.document_type == "will"
+        # The starter fallback carries the real starter checklist, not
+        # the empty checklist an {} profile would produce.
+        assert profile.checklist, "starter fallback checklist must not be empty"
+        assert any(
+            r.levelno >= logging.WARNING for r in caplog.records
+        ), "zero-profile fallback must be logged"
+    finally:
+        pack_loader.clear_pack_cache()
+
+
+def test_zero_profile_pack_non_will_fails_closed(tmp_path, monkeypatch):
+    root = tmp_path / "content-packs"
+    _write_manifest_only_pack(root)
+    monkeypatch.setenv("CONTENT_PACKS_DIR", str(root))
+    pack_loader.clear_pack_cache()
+    try:
+        with pytest.raises(AppError) as excinfo:
+            documents_service._load_execution_profile(None, _matter("0.1.0", "trust"))
+        assert "trust" in str(excinfo.value.detail)
+    finally:
+        pack_loader.clear_pack_cache()
+
+
 def test_content_pack_files_numeric_version_sort(tmp_path, monkeypatch):
     """Directory scanning (frozen-artifact path) must order v2 < v10."""
     root = tmp_path / "content-packs"
