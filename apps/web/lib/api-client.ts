@@ -1184,7 +1184,9 @@ export interface FamilyApi {
     matterId: string,
     sessionId: string,
   ) => Promise<ConsistencyReview>;
-  submitMatter: (matterId: string) => Promise<MatterDetail>;
+  // POST /matters/{id}/submit returns the FLAT MatterOut, not the
+  // MatterDetail envelope — typed as MatterSummary accordingly.
+  submitMatter: (matterId: string) => Promise<MatterSummary>;
   getHousehold: (matterId: string) => Promise<HouseholdResponse>;
   createPerson: (matterId: string, input: PersonInput) => Promise<Person>;
   updatePerson: (
@@ -1411,7 +1413,7 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
         { method: 'POST' },
       ),
     submitMatter: (matterId) =>
-      call<MatterDetail>(`/matters/${matterId}/submit`, { method: 'POST' }),
+      call<MatterSummary>(`/matters/${matterId}/submit`, { method: 'POST' }),
     getHousehold: (matterId) => call<HouseholdResponse>(`/matters/${matterId}/household`),
     createPerson: (matterId, input) =>
       call<Person>(`/matters/${matterId}/persons`, { method: 'POST', body: input }),

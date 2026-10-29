@@ -14,6 +14,7 @@ import {
   type AnswerMap,
   type EvaluateResponse,
   type IntakeProgressResponse,
+  type MatterDetail,
   type MatterSummary,
   type Person,
   type QuestionSection,
@@ -31,6 +32,21 @@ interface WizardSection {
 
 interface IntakeWizardProps {
   matterId: string;
+}
+
+/**
+ * The summary embedded in the detail response can carry the generic
+ * "Household" placeholder name — its serializer only sees a joined
+ * household name when the LIST query produced the row. The same
+ * response's top-level household is built from the household row
+ * itself and always carries the real display name. Prefer it.
+ */
+function withDetailHousehold(detail: MatterDetail): MatterSummary {
+  const top = detail.household;
+  return {
+    ...detail.matter,
+    household: top?.name ? top : detail.matter.household,
+  };
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -81,7 +97,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       api.getIntakeProgress(matterId),
     ])
       .then(([matterDetail, questionSets, answersResponse, household, intakeProgress]) => {
-        setMatter(matterDetail.matter);
+        setMatter(withDetailHousehold(matterDetail));
         setSections(flattenSections(questionSets.question_sets));
         setAnswers(answersResponse.answers);
         answersRef.current = answersResponse.answers;
@@ -146,8 +162,18 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     setMissingItems([]);
     api
       .submitMatter(matterId)
-      .then((matterDetail) => {
-        setMatter(matterDetail.matter);
+      .then((updated) => {
+        // The submit endpoint returns the FLAT matter (no detail
+        // envelope), serialized without the household/jurisdiction
+        // joins — its embedded household is the "Household" placeholder
+        // and its jurisdiction_code is null. Keep the household and
+        // jurisdiction already on screen; take everything else (above
+        // all the new status) from the response.
+        setMatter((prev) => ({
+          ...updated,
+          household: prev?.household ?? updated.household,
+          jurisdiction_code: updated.jurisdiction_code ?? prev?.jurisdiction_code ?? '',
+        }));
         setSubmitted(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       })
@@ -285,9 +311,13 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        <nav aria-label="Intake sections" className="lg:sticky lg:top-24 lg:self-start">
-          <ol className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+      {/* minmax(0, …) tracks + min-w-0 panes: a grid item's automatic
+          minimum size is its min-content, so one wide child (the old
+          horizontal section-nav row) used to inflate the single mobile
+          column to ~3,900px and push the question card off-screen. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <nav aria-label="Intake sections" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+          <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-col">
             {sections.map((entry, index) => {
               // Per-SECTION progress: the set-level figure repeated under
               // every section misleads (one answer in section 1 made
@@ -298,13 +328,13 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                 progress?.sets[entry.setId];
               const isActive = index === activeIndex;
               return (
-                <li key={entry.section.id} className="shrink-0 lg:shrink">
+                <li key={entry.section.id} className="min-w-0">
                   <button
                     type="button"
                     onClick={() => goToSection(index)}
                     aria-current={isActive ? 'step' : undefined}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lf-control border px-3 py-2.5 text-left text-sm transition-colors',
+                      'flex h-full w-full items-center gap-3 rounded-lf-control border px-3 py-2.5 text-left text-sm transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500',
                       isActive
                         ? 'border-lf-primary-700 bg-lf-primary-50 font-semibold text-lf-primary-800'
@@ -357,7 +387,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
           </ol>
         </nav>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {activeSection && (
             <Card key={activeSection.section.id} className="lf-gradient-ring shadow-lf-card">
               <CardHeader>
