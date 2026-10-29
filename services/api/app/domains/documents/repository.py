@@ -535,16 +535,19 @@ def insert_funding_task(
 
     FUNC-013: the insert is guarded by the
     ``uq_funding_tasks_matter_asset_type`` unique index (NULLS NOT
-    DISTINCT, so NULL-asset tasks dedupe too) with ON CONFLICT DO
-    NOTHING — a concurrent generation that won the race turns this
-    insert into a no-op instead of a duplicate or a 500.
+    DISTINCT, so NULL-asset tasks dedupe too) — a concurrent
+    generation that won the race turns this insert into a no-op
+    instead of a duplicate or a 500. The conflict target names the
+    index columns explicitly (valid for a NULLS NOT DISTINCT index):
+    a bare ON CONFLICT DO NOTHING would also silently swallow
+    conflicts from any unrelated future unique constraint.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO funding_tasks (firm_id, matter_id, asset_id, task_type, title)
             VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (matter_id, asset_id, task_type) DO NOTHING
             RETURNING *
             """,
             (

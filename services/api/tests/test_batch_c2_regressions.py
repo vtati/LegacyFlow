@@ -416,6 +416,27 @@ def test_other_asset_yields_exactly_one_general_task(monkeypatch) -> None:
     assert len(store.rows) == 1
 
 
+def test_insert_funding_task_names_explicit_conflict_target() -> None:
+    """FUNC-013 precision (Batch C2 follow-up): the insert must name
+    the ``uq_funding_tasks_matter_asset_type`` columns as its conflict
+    target — a bare ON CONFLICT DO NOTHING would silently swallow
+    conflicts from ANY future unique constraint."""
+    from app.domains.documents import repository as docs_repo
+
+    conn = _FakeConn(next_row={"id": str(uuid4())})
+    row = docs_repo.insert_funding_task(
+        conn,
+        firm_id=uuid4(),
+        matter_id=uuid4(),
+        asset_id=None,
+        task_type="general-beneficiary-alignment",
+        title="Align beneficiary designations",
+    )
+    assert row is not None
+    sql = conn.statements[0][0]
+    assert "ON CONFLICT (matter_id, asset_id, task_type) DO NOTHING" in sql
+
+
 def test_double_generation_with_stale_exists_check_makes_no_duplicates(monkeypatch) -> None:
     asset_id = uuid4()
     assets = [{"id": asset_id, "asset_type": "bank_account", "label": "Checking"}]
