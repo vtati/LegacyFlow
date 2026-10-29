@@ -3258,10 +3258,11 @@ def send_reminders(conn: Any, *, limit: int = 100) -> dict[str, int]:
                     after_summary={"reminder_type": reminder["reminder_type"]},
                 )
         except Exception:
-            logger.warning(
+            # m-3: ERROR level (logger.exception), matching the worker
+            # copy — a warning here never fired ERROR-level alerting.
+            logger.exception(
                 "documents: reminder %s could not be queued; leaving it unsent",
                 reminder["id"],
-                exc_info=True,
             )
             continue
         queued += 1

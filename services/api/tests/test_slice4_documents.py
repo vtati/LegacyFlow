@@ -1581,3 +1581,36 @@ def test_send_reminders_counts_failed_enqueue_honestly(db, monkeypatch):
         rows = cur.fetchall()
     sent = [r for r in rows if r["sent_at"] is not None]
     assert len(sent) == 1
+
+
+def test_send_reminders_failure_logs_at_error_level(db, monkeypatch, caplog):
+    """m-3 (Batch C3 follow-up): a per-reminder failure in the API copy
+    of send_reminders must log at ERROR (logger.exception), matching
+    the worker copy, so ERROR-level alerting fires."""
+    import logging as _logging
+
+    from app.domains.review import repository as review_repo
+
+    firm_id, household_id, matter_id = setup_firm_household_matter(db)
+    scheduled_for = datetime.now(UTC) - timedelta(minutes=5)
+    _exec(
+        db,
+        "INSERT INTO reminders (firm_id, matter_id, user_id, reminder_type, scheduled_for, payload)"
+        " VALUES (%s, %s, %s, 'signing_deadline', %s, '{}'::jsonb)",
+        (firm_id, matter_id, CLIENT_A, scheduled_for),
+    )
+
+    def boom(conn, **kwargs):
+        raise RuntimeError("broker unavailable (synthetic)")
+
+    monkeypatch.setattr(review_repo, "enqueue_notification", boom)
+    with caplog.at_level(_logging.ERROR, logger="app.domains.documents.service"):
+        result = documents_service.send_reminders(db)
+    db.commit()
+    assert result == {"processed": 1, "queued": 0}
+    errors = [
+        r for r in caplog.records
+        if r.name == "app.domains.documents.service" and r.levelno >= _logging.ERROR
+    ]
+    assert errors, "per-reminder failure must produce an ERROR-level log record"
+    assert errors[0].exc_info is not None
