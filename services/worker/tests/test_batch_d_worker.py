@@ -109,6 +109,15 @@ CREATE TABLE IF NOT EXISTS audit_events (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS worker_dead_letters (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_name text NOT NULL,
+  message_id text,
+  args_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error_class text,
+  retries integer,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE OR REPLACE FUNCTION fail_row_update() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'synthetic row failure';
@@ -351,3 +360,96 @@ def test_dispatch_suppressed_count_folded_into_selection(
         assert ledger["skipped"] == 1
     finally:
         _clear_dsn()
+
+
+# ---------------------------------------------------------------------------
+# ERR-003: explicit actor retry config, broker config, dead letters
+# ---------------------------------------------------------------------------
+
+
+def test_actor_retry_options_are_explicit() -> None:
+    from worker import actors
+
+    for actor in (actors.send_notifications, actors.send_due_reminders, actors.scan_file):
+        assert actor.options.get("on_retry_exhausted") == "record_dead_letter", actor.actor_name
+        assert actor.options.get("max_retries") is not None, actor.actor_name
+        assert actor.options.get("min_backoff") is not None, actor.actor_name
+        assert actor.options.get("max_backoff") is not None, actor.actor_name
+        assert actor.options.get("max_age") is not None, actor.actor_name
+    # Scans tolerate more retries than dispatch/notification drains.
+    assert actors.scan_file.options["max_retries"] > actors.send_due_reminders.options["max_retries"]
+    # Reminders run every 15 minutes: a message older than that is stale.
+    assert actors.send_due_reminders.options["max_age"] == 15 * 60 * 1000
+    # The dead-letter sink itself never retries (no exhaustion loop).
+    assert actors.record_dead_letter.options.get("max_retries") == 0
+
+
+def test_broker_retries_middleware_is_explicit() -> None:
+    from dramatiq.middleware import Retries
+
+    from worker.broker import get_broker
+
+    broker = get_broker()
+    retries = [m for m in broker.middleware if isinstance(m, Retries)]
+    assert len(retries) == 1
+    assert retries[0].max_retries == 3
+
+
+def test_dead_letter_handler_writes_row_without_pii(
+    batch_dsn: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    import psycopg
+
+    from worker.dead_letter import write_dead_letter
+
+    _use_dsn(monkeypatch, batch_dsn)
+    try:
+        with psycopg.connect(batch_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE worker_dead_letters")
+        upload_id = str(uuid.uuid4())
+        message = {
+            "actor_name": "scan_file",
+            "message_id": "msg-123",
+            "args": [upload_id, "Jane Q Public"],
+            "kwargs": {"note": "sensitive free text"},
+            "options": {
+                "traceback": "Traceback...\nValueError: storage exploded",
+            },
+        }
+        with caplog.at_level(logging.ERROR, logger="worker.dead_letter"):
+            assert write_dead_letter(message, {"retries": 5, "max_retries": 5}) is True
+        with psycopg.connect(batch_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT actor_name, message_id, args_summary, error_class, retries"
+                    " FROM worker_dead_letters"
+                )
+                row = cur.fetchone()
+        assert row[0] == "scan_file"
+        assert row[1] == "msg-123"
+        assert row[3] == "ValueError"
+        assert row[4] == 5
+        import json as _json
+
+        summary = row[2] if isinstance(row[2], dict) else _json.loads(row[2])
+        summary_text = _json.dumps(summary)
+        assert upload_id in summary_text  # ids are allowed
+        assert "Jane Q Public" not in summary_text  # PII is not
+        assert "sensitive free text" not in summary_text
+        assert any(r.levelno >= logging.ERROR for r in caplog.records)
+    finally:
+        _clear_dsn()
+
+
+def test_migrations_dead_letters_and_partial_indexes() -> None:
+    root = Path(__file__).resolve().parents[3]
+    dead = (root / "supabase/migrations/20261029143000_worker_dead_letters.sql").read_text()
+    assert "create table worker_dead_letters" in dead
+    assert "alter table worker_dead_letters enable row level security" in dead
+    idx = (root / "supabase/migrations/20261029150000_worker_partial_indexes.sql").read_text()
+    assert "on file_uploads (created_at)" in idx and "scan_status = 'pending'" in idx
+    assert "on notification_outbox (created_at)" in idx and "status = 'pending'" in idx
+    assert "on reminders (scheduled_for)" in idx and "sent_at is null" in idx.lower()

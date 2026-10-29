@@ -13,6 +13,7 @@ import dramatiq
 
 from worker.broker import get_broker
 from worker.db import get_connection
+from worker.dead_letter import write_dead_letter
 from worker.scanning import perform_file_scan
 from worker.settings import get_worker_settings
 
@@ -21,7 +22,17 @@ logger = logging.getLogger(__name__)
 broker = get_broker()
 
 
-@dramatiq.actor(broker=broker)
+# ERR-003: retry policy is explicit per actor (broker-level fallback in
+# worker/broker.py). Batch drains are idempotent and run on schedules,
+# so their max_age matches the schedule cadence; scans get more retries
+# because storage blips are transient. Every work actor names the
+# dead-letter sink so an exhausted message is recorded, never dropped.
+_DEAD_LETTER = "record_dead_letter"
+
+
+@dramatiq.actor(
+    broker=broker, max_retries=0, min_backoff=1_000, max_backoff=10_000, max_age=60_000
+)
 def example_ping() -> dict[str, bool]:
     """Slice-1 stub actor: logs and returns ``{"pong": True}``.
 
@@ -79,7 +90,14 @@ def _write_to_sandbox(rendered: dict[str, Any], outbox_id: UUID) -> None:
     path.write_text(json.dumps(rendered, indent=2, default=str), encoding="utf-8")
 
 
-@dramatiq.actor(broker=broker)
+@dramatiq.actor(
+    broker=broker,
+    max_retries=3,
+    min_backoff=5_000,
+    max_backoff=300_000,
+    max_age=3_600_000,
+    on_retry_exhausted=_DEAD_LETTER,
+)
 def send_notifications(batch_size: int = 25) -> dict[str, int]:
     """Drain pending ``notification_outbox`` rows through the email sandbox.
 
@@ -168,7 +186,14 @@ def drain_outbox(batch_size: int = 25) -> dict[str, int]:
 _REMINDER_TEMPLATE_KEY = "reminder.due"
 
 
-@dramatiq.actor(broker=broker)
+@dramatiq.actor(
+    broker=broker,
+    max_retries=3,
+    min_backoff=5_000,
+    max_backoff=300_000,
+    max_age=900_000,
+    on_retry_exhausted=_DEAD_LETTER,
+)
 def send_due_reminders(batch_size: int = 100) -> dict[str, int]:
     """Enqueue ``reminder.due`` notifications for due, opted-in reminders.
 
@@ -391,7 +416,14 @@ def dispatch_due_reminders(batch_size: int = 100) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
-@dramatiq.actor(broker=broker)
+@dramatiq.actor(
+    broker=broker,
+    max_retries=5,
+    min_backoff=2_000,
+    max_backoff=600_000,
+    max_age=3_600_000,
+    on_retry_exhausted=_DEAD_LETTER,
+)
 def scan_file(upload_id: str) -> dict[str, Any]:
     """Scan one upload's bytes with the DevScanner magic-byte check.
 
@@ -408,3 +440,21 @@ def scan_file(upload_id: str) -> dict[str, Any]:
     with get_connection() as conn:
         with conn.transaction():
             return perform_file_scan(conn, UUID(upload_id))
+
+
+# ---------------------------------------------------------------------------
+# Dead letters (ERR-003)
+# ---------------------------------------------------------------------------
+
+
+@dramatiq.actor(broker=broker, max_retries=0, max_age=3_600_000)
+def record_dead_letter(message_data: dict[str, Any], retry_info: dict[str, Any]) -> bool:
+    """``on_retry_exhausted`` sink for every work actor.
+
+    Receives the exhausted message (as a dict) plus
+    ``{"retries": n, "max_retries": m}`` from the Retries middleware and
+    persists a structured row in ``worker_dead_letters`` (see
+    ``worker/dead_letter.py``). ``max_retries=0``: the sink itself never
+    retries, so a dead-letter failure cannot loop — it ERROR-logs.
+    """
+    return write_dead_letter(message_data, retry_info)
