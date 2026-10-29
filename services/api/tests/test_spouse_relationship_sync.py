@@ -714,16 +714,82 @@ def test_unrelated_save_skips_full_reconcile(db, monkeypatch):
     assert str(rows[0]["to_person_id"]) == str(renamed["id"])
 
 
+# ---------------------------------------------------------------------------
+# Phase-3 triage (2026-10-29): ONE bulk save carrying the whole fact
+# set — the production E2E's programmatic completion pattern.
+# ---------------------------------------------------------------------------
+
+BULK_TESTATOR = "Marcus PhaseThree"
+BULK_SPOUSE = "Elena PhaseThree"
+
+
+def test_bulk_save_with_nominations_captures_testator_and_spouse(db):
+    """A single save carrying the full married-household fact set
+    (testator + spouse + executor/guardian nominations + minor
+    children) must still capture the testator person and the spouse
+    relationship. The nomination sync creates named adult persons
+    (the executor, the guardians) inside the SAME save, before the
+    testator capture runs; those nominee adults are not the testator
+    and must not block the capture. Pre-fix, the testator-name sync's
+    create branch required NO adult person at all, so it never fired:
+    no testator person existed, the spouse sync had no anchor person,
+    no relationship row was created, and the Will rendered
+    "I am married to ___." on a provably complete 39/39 packet
+    (Phase-3 production E2E, 2026-10-29 — the Attorney Reviewer's
+    unfilled_placeholders finding on family_identification was right).
+    """
+    household_id, matter_id = build_world(db)
+    save(db, matter_id, {
+        "testator_full_name": BULK_TESTATOR,
+        "marital_status": "married",
+        "spouse_full_name": BULK_SPOUSE,
+        "has_minor_children": True,
+        "minor_children_details": (
+            "Aarav PhaseThree, age 12, Diya PhaseThree, age 9, "
+            "Kabir PhaseThree, age 6"
+        ),
+        "primary_executor_person": BULK_SPOUSE,
+        "backup_executor_person": "Amit Sharma",
+        "primary_guardian_person": "Amit Sharma",
+        "backup_guardian_person": "Neha Kapoor",
+        "healthcare_agent_person": BULK_SPOUSE,
+        "poa_agent_person": BULK_SPOUSE,
+    })
+    testator = person_by_name(db, household_id, BULK_TESTATOR)
+    assert testator is not None, "bulk save never captured the testator person"
+    spouse = person_by_name(db, household_id, BULK_SPOUSE)
+    assert spouse is not None
+    rows = spouse_rows(db, household_id)
+    assert len(rows) == 1
+    assert str(rows[0]["from_person_id"]) == str(testator["id"])
+    assert str(rows[0]["to_person_id"]) == str(spouse["id"])
+    ctx = documents_service.build_template_context(db, UUID(matter_id))
+    assert ctx.get("spouse_name") == BULK_SPOUSE
+    recital = ctx.get("family_identification") or ""
+    assert f"I am married to {BULK_SPOUSE}." in recital
+    assert "___" not in recital
+
+
 def test_unresolvable_testator_logs_warning(db, caplog):
     import logging
 
     household_id, matter_id = build_world(db)
-    # An adult person exists (so the testator-name sync does not
-    # create one), but the recorded testator name matches nobody:
+    # The primary_client membership is already linked to a person
+    # with a real name, but the recorded testator name matches nobody:
+    # a genuine identity conflict. The testator-name sync must NOT
+    # mint a second primary-client person over it (Phase-3 triage,
+    # 2026-10-29: the UNLINKED membership case now captures instead —
+    # see test_bulk_save_with_nominations_captures_testator_and_spouse),
     # the renderer-anchoring chain resolves no testator, and the
     # reconcile must say so at WARNING with the household id instead
     # of returning silently.
-    insert_person(db, household_id, TESTATOR)
+    linked_testator = insert_person(db, household_id, TESTATOR)
+    _exec(
+        db,
+        "UPDATE household_members SET person_id = %s"
+        " WHERE household_id = %s AND relationship_role = 'primary_client'",
+        (linked_testator, household_id),
+    )
     answers = dict(MARRIED_ANSWERS, testator_full_name="Rohan Sharma")
     with caplog.at_level(logging.WARNING, logger="app.domains.intake.service"):
         save(db, matter_id, answers)

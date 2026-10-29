@@ -446,9 +446,9 @@ def _sync_testator_name(
     the household's primary-client person.
 
     Rules: fill the earliest adult person whose name is empty or
-    "Unknown person"; if the household has NO adult person at all, create
-    one and link it to the primary_client membership; never overwrite a
-    real human-entered name. Best-effort + SAVEPOINT-armored like the
+    "Unknown person"; if the primary_client membership still has no
+    person linked, create one and link it; never overwrite a real
+    human-entered name. Best-effort + SAVEPOINT-armored like the
     other syncs — a failure here must never fail the answer save.
     """
     import logging
@@ -473,6 +473,43 @@ def _sync_testator_name(
             if not str(p.get("full_name") or "").strip()
             or str(p.get("full_name") or "").strip() == "Unknown person"
         ]
+        if any(
+            str(p.get("full_name") or "").strip().lower() == name.lower()
+            for p in adults
+        ):
+            return  # the confirmed name already sits on an adult person
+        # Not-yet-captured is signalled by the primary_client
+        # MEMBERSHIP having no person linked — NOT by the absence of
+        # adult persons. Nominee persons (executor, guardians) created
+        # by the sibling syncs in the same save (a bulk completion) or
+        # an earlier one are adults too, and the old "no adult person
+        # at all" create condition let them block this capture forever:
+        # no testator person, no spouse-sync anchor, and the Will
+        # rendered "I am married to ___." on a complete packet
+        # (Phase-3 production E2E, 2026-10-29). If the membership is
+        # already linked to a differently-named person, that is a
+        # genuine identity conflict — abstain rather than mint a
+        # second primary-client person.
+        try:
+            members = household_repo.list_members_for_household(
+                conn, household_id
+            )
+        except Exception:
+            members = []
+        primary_members = [
+            m
+            for m in members
+            if str(m.get("relationship_role") or "").strip().lower()
+            == "primary_client"
+        ]
+        if primary_members:
+            may_create = any(
+                not m.get("person_id") for m in primary_members
+            )
+        else:
+            # No primary_client membership row to read (legacy
+            # households): the original no-adults signal governs.
+            may_create = not adults
         with conn.cursor() as cur:
             cur.execute("SAVEPOINT lf_testator_sync")
         try:
@@ -487,7 +524,7 @@ def _sync_testator_name(
                     unknown[0]["id"],
                     household_id,
                 )
-            elif not adults:
+            elif may_create:
                 row = household_repo.insert_person(
                     conn,
                     household_id=household_id,
