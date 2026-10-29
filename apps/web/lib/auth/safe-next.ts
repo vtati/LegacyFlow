@@ -14,6 +14,10 @@
  */
 export const DEFAULT_NEXT_PATH = '/family/home';
 
+// The control-character range is the point of this pattern: it exists
+// to REJECT control characters in redirect targets (see header), so
+// the no-control-regex lint rule is disabled for this one line.
+// eslint-disable-next-line no-control-regex
 const WHITESPACE_OR_CONTROL = /[\s\x00-\x1f\x7f]/;
 
 export function safeNextPath(
