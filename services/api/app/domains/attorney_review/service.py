@@ -29,7 +29,7 @@ from app.core.errors import AuthError, ConflictError, NotFoundError
 from . import model_review
 from . import repository as repo
 from . import schemas as sch
-from .checks import Finding, finding_hash, run_deterministic_checks
+from .checks import Finding, finding_hash, run_deterministic_checks, stored_finding_hash
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +411,41 @@ def _run_out(row: dict[str, Any]) -> sch.RunOut:
     )
 
 
+def _stored_finding_hash(row: dict[str, Any]) -> str:
+    """Recompute a stored finding's hash under the CURRENT definition.
+
+    M-2 transition: rows persisted before a hash-definition change
+    carry a stored ``finding_hash`` string computed under the OLD
+    definition; trusting it would mismatch every unchanged finding en
+    masse (mass ``fixed_by_regeneration``, lost acks). The stored
+    columns carry the hash's component fields — layer, check_name,
+    severity, explanation, and location{document, field, excerpt} —
+    so the current-definition hash is recomputed from them.
+
+    Residual one-time effect: rows written before M-2 have no
+    ``subject`` in their location (subject was never persisted), so a
+    pre-M-2 person-scoped finding (date_age_arithmetic, where subject
+    distinguishes e.g. twins sharing a date of birth) recomputes with
+    an empty subject and cannot match its subject-bearing successor:
+    on the first post-M-2 run only, such a finding's ack does not
+    carry and an open/acknowledged instance transitions to
+    ``fixed_by_regeneration`` instead of ``stale``. New rows persist
+    subject inside location (see _persist_review), so recompute is
+    exact from M-2 onward.
+    """
+    location = row.get("location") or {}
+    return stored_finding_hash(
+        layer=str(row["layer"]),
+        check=str(row["check_name"]),
+        severity=str(row["severity"]),
+        document=location.get("document"),
+        field=location.get("field"),
+        subject=location.get("subject"),
+        excerpt=location.get("excerpt"),
+        explanation=row.get("explanation"),
+    )
+
+
 def _apply_disposition_transitions(
     conn: Any,
     *,
@@ -419,16 +454,18 @@ def _apply_disposition_transitions(
 ) -> dict[str, dict[str, Any]]:
     """Move the previous run's findings to their §9.5 dispositions.
 
-    Returns the previous findings by hash, so acknowledgments can carry
-    over to the identical finding in the new run.
+    Returns the previous findings by RECOMPUTED hash (M-2: never the
+    stored hash string), so acknowledgments can carry over to the
+    identical finding in the new run.
     """
     if previous_run is None:
         return {}
     previous = repo.findings_for_run(conn, UUID(str(previous_run["id"])))
     by_hash: dict[str, dict[str, Any]] = {}
     for row in previous:
-        by_hash[str(row["finding_hash"])] = row
-        if str(row["finding_hash"]) in new_hashes:
+        recomputed = _stored_finding_hash(row)
+        by_hash[recomputed] = row
+        if recomputed in new_hashes:
             repo.set_disposition(conn, UUID(str(row["id"])), "stale")
         elif str(row["disposition"]) in ("open", "acknowledged"):
             repo.set_disposition(
@@ -646,7 +683,7 @@ def _persist_review(
         )
         ack_by_hash = (
             {
-                str(row["finding_hash"]): row
+                _stored_finding_hash(row): row
                 for row in repo.findings_for_run(conn, UUID(str(same_fp_run["id"])))
             }
             if same_fp_run is not None
@@ -686,6 +723,11 @@ def _persist_review(
                         "document": finding.document,
                         "field": finding.field,
                         "excerpt": finding.excerpt,
+                        # M-2: subject is a hash component but had no
+                        # column; persisting it inside location lets
+                        # future runs recompute this row's hash exactly
+                        # (see _stored_finding_hash's residual note).
+                        "subject": finding.subject,
                     },
                     explanation=finding.explanation,
                     suggested_fix=finding.suggested_fix,

@@ -96,29 +96,109 @@ def _normalize_text(text: str | None) -> str:
     return " ".join((text or "").split()).lower()
 
 
-def finding_hash(finding: Finding) -> str:
-    """Content hash (layer + check + location + subject + evidence).
+#: Material tokens inside an explanation: statutory citations
+#: (``64.2-403``), counts/amounts/dates (``2``, ``$10,000``, ``18``) —
+#: the values a finding's evidence actually turns on, in order.
+_MATERIAL_TOKEN_RE = re.compile(r"\d+(?:\.\d+)*-\d+|\$?\d[\d,]*(?:\.\d+)?%?")
 
-    FUNC-024: severity and the normalized EXPLANATION are hashed too.
-    For execution-requirements findings the excerpt is always None and
-    the material evidence (required vs found witness counts, the
-    statutory citation) lives only in the explanation — without it, a
-    template edit that changed the evidence produced a finding with
-    the same hash, and a stale acknowledgment carried over silently.
+
+def _material_tokens(explanation: str | None) -> list[str]:
+    """Extract the material values from an explanation, in order.
+
+    Numbers/citation-like tokens and capitalised name sequences: the
+    run-varying substance of a deterministic explanation. The prose
+    around them is template wording (or, for model findings, free-text
+    paraphrase) and must not feed the hash (M-2).
+    """
+    text = explanation or ""
+    numbers = [
+        match.group(0).replace(",", "").replace("$", "").lower()
+        for match in _MATERIAL_TOKEN_RE.finditer(text)
+    ]
+    names = [_normalize_text(seq) for seq in _NAME_SEQ_RE.findall(text)]
+    return numbers + names
+
+
+def _hash_components(
+    *,
+    layer: str,
+    check: str,
+    severity: str,
+    document: str | None,
+    field: str | None,
+    subject: str | None,
+    excerpt: str | None,
+    explanation: str | None,
+) -> str:
+    """The current-definition finding hash from raw components.
+
+    Shared by :func:`finding_hash` (live findings) and the service's
+    recompute of PREVIOUS runs' stored rows (M-2 transition): stored
+    rows carry these components in their columns, so a row persisted
+    under an older hash definition can be re-hashed under the current
+    one instead of trusting its stored hash string.
     """
     payload = {
-        "layer": finding.layer,
-        "check": finding.check,
-        "document": finding.document,
-        "field": finding.field,
-        "subject": (finding.subject or "").strip().lower(),
-        "excerpt": (finding.excerpt or "").strip().lower(),
-        "severity": finding.severity,
-        "explanation": _normalize_text(finding.explanation),
+        "layer": layer,
+        "check": check,
+        "document": document,
+        "field": field,
+        "subject": (subject or "").strip().lower(),
+        "excerpt": (excerpt or "").strip().lower(),
+        "severity": severity,
+        # Deterministic explanations are templates: only their material
+        # tokens are stable evidence. Model explanations are free text
+        # paraphrased between runs, so they contribute NOTHING — the
+        # verbatim excerpt (validated as an exact quote) is the model
+        # finding's stable evidence.
+        "material": _material_tokens(explanation) if layer == LAYER else [],
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")
     ).hexdigest()
+
+
+def finding_hash(finding: Finding) -> str:
+    """Content hash over STABLE MATERIAL only (M-2, revising FUNC-024).
+
+    Structural fields (layer, check, document, field, subject, excerpt,
+    severity) plus — for deterministic checks — the material tokens
+    extracted from the explanation. FUNC-024 hashed the full prose:
+    that kept a witness-count change from carrying a stale ack (counts
+    are material tokens, so that still holds), but it also meant model
+    findings' acks effectively never carried (their explanations are
+    paraphrased between runs) and reworded findings were mislabelled
+    ``fixed_by_regeneration``.
+    """
+    return _hash_components(
+        layer=finding.layer,
+        check=finding.check,
+        severity=finding.severity,
+        document=finding.document,
+        field=finding.field,
+        subject=finding.subject,
+        excerpt=finding.excerpt,
+        explanation=finding.explanation,
+    )
+
+
+def stored_finding_hash(
+    *,
+    layer: str,
+    check: str,
+    severity: str,
+    document: str | None,
+    field: str | None,
+    subject: str | None,
+    excerpt: str | None,
+    explanation: str | None,
+) -> str:
+    """Recompute the current-definition hash for a STORED finding row."""
+    return _hash_components(
+        layer=layer, check=check, severity=severity, document=document,
+        field=field, subject=subject, excerpt=excerpt,
+        explanation=explanation,
+    )
 
 
 def _levenshtein(a: str, b: str) -> int:

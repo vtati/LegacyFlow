@@ -842,3 +842,91 @@ def test_finding_hash_changes_with_explanation_and_severity() -> None:
     assert finding_hash(base) != finding_hash(changed_evidence)
     assert finding_hash(base) != finding_hash(changed_severity)
     assert finding_hash(base) == finding_hash(whitespace_only)
+
+
+# ---------------------------------------------------------------------------
+# Batch C3 follow-up M-2: hash truthfulness — stable material only.
+# Prose paraphrases must NOT change the hash (model explanations are
+# reworded between runs; deterministic explanations are templates whose
+# only run-varying content is their material values). Material changes
+# (counts, citations) MUST change it.
+# ---------------------------------------------------------------------------
+
+
+def test_finding_hash_survives_paraphrased_explanation() -> None:
+    from app.domains.attorney_review.checks import Finding, finding_hash
+
+    base = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        explanation="The will draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 0 witness signature line(s).",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    paraphrased = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        explanation="Execution profile for the will: 2 witness signatures "
+        "are required, yet 0 signature lines appear in the draft.",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    assert finding_hash(base) == finding_hash(paraphrased)
+
+    citation_a = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="statutory_citation",
+        excerpt=None,
+        explanation="The will draft does not cite Va. Code § 64.2-403, the "
+        "statute its execution profile is based on.",
+        suggested_fix=None,
+    )
+    citation_b = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="statutory_citation",
+        excerpt=None,
+        explanation="Missing from the will draft: the citation required "
+        "by its execution profile (Va. Code § 64.2-403).",
+        suggested_fix=None,
+    )
+    assert finding_hash(citation_a) == finding_hash(citation_b)
+    citation_changed = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="statutory_citation",
+        excerpt=None,
+        explanation="Missing from the will draft: the citation required "
+        "by its execution profile (Va. Code § 64.2-452).",
+        suggested_fix=None,
+    )
+    assert finding_hash(citation_a) != finding_hash(citation_changed)
+
+
+def test_model_finding_hash_ignores_explanation_prose() -> None:
+    """Model-layer explanations are free text paraphrased between runs;
+    the verbatim excerpt is the stable evidence, so a reworded model
+    finding with identical structure + excerpt keeps its hash (and its
+    acknowledgment can carry)."""
+    from app.domains.attorney_review.checks import Finding, finding_hash
+
+    kwargs = dict(
+        layer="model", check="ambiguity", severity="question_for_attorney",
+        document="will", field=None, excerpt="my nephew, Arjun Sharm",
+    )
+    first = Finding(
+        **kwargs,
+        explanation="This name could refer to two different people.",
+        suggested_fix=None,
+    )
+    reworded = Finding(
+        **kwargs,
+        explanation="The reference is unclear — it might mean either of "
+        "two individuals mentioned in the plan.",
+        suggested_fix=None,
+    )
+    assert finding_hash(first) == finding_hash(reworded)
+    different_evidence = Finding(
+        **{**kwargs, "excerpt": "my sister, Maya Lee"},
+        explanation=first.explanation, suggested_fix=None,
+    )
+    assert finding_hash(first) != finding_hash(different_evidence)

@@ -989,3 +989,113 @@ def test_ack_not_carried_when_evidence_changes(api_client, db) -> None:
     assert "va_execution_requirements" in second
     assert "shows 0 witness" in second["va_execution_requirements"]["explanation"]
     assert second["va_execution_requirements"]["disposition"] == "open"
+
+
+# ---------------------------------------------------------------------------
+# Batch C3 follow-up M-2: deploy transition — previous-run rows stored
+# with an OLD-definition hash string must still match under the new
+# definition (recompute from stored components, never trust the stored
+# hash string), so there is no mass fixed_by_regeneration at transition.
+# ---------------------------------------------------------------------------
+
+
+def _old_definition_hash(*, layer, check, severity, document, field,
+                         subject, excerpt, explanation) -> str:
+    """The pre-M-2 hash: full normalized explanation included."""
+    import hashlib
+
+    payload = {
+        "layer": layer,
+        "check": check,
+        "document": document,
+        "field": field,
+        "subject": (subject or "").strip().lower(),
+        "excerpt": (excerpt or "").strip().lower(),
+        "severity": severity,
+        "explanation": " ".join((explanation or "").split()).lower(),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _stored_row(*, explanation: str, disposition: str = "acknowledged") -> dict:
+    """A previous-run finding row as persisted BEFORE the M-2 change:
+    old-definition hash string, components in their stored columns."""
+    return {
+        "id": str(uuid4()),
+        "finding_hash": _old_definition_hash(
+            layer="deterministic", check="va_execution_requirements",
+            severity="should_fix", document="will", field="witness_block",
+            subject=None, excerpt=None, explanation=explanation,
+        ),
+        "layer": "deterministic",
+        "check_name": "va_execution_requirements",
+        "severity": "should_fix",
+        "location": {"document": "will", "field": "witness_block", "excerpt": None},
+        "explanation": explanation,
+        "disposition": disposition,
+        "acknowledged_by_user_id": ADMIN,
+        "acknowledgment_note": "Attorney verified.",
+        "acknowledged_at": None,
+    }
+
+
+def test_stored_hash_recompute_matches_despite_old_hash_string() -> None:
+    from app.domains.attorney_review import service as review_service
+    from app.domains.attorney_review.checks import Finding, finding_hash
+
+    explanation = (
+        "The will draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 0 witness signature line(s)."
+    )
+    row = _stored_row(explanation=explanation)
+    new_finding = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None,
+        # Paraphrased prose, same material values (2 required, 0 found).
+        explanation="Execution profile for the will: 2 witness signatures "
+        "are required, yet 0 signature lines appear in the draft.",
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    assert row["finding_hash"] != finding_hash(new_finding)  # old string differs
+    assert review_service._stored_finding_hash(row) == finding_hash(new_finding)
+
+
+def test_transition_dispositions_use_recomputed_hash(monkeypatch) -> None:
+    """A previous finding whose substance is unchanged must go 'stale'
+    (still present), NOT 'fixed_by_regeneration', even though its
+    stored hash string is in the old definition."""
+    from app.domains.attorney_review import service as review_service
+    from app.domains.attorney_review.checks import Finding, finding_hash
+
+    explanation = (
+        "The will draft's execution profile requires 2 witness "
+        "signatures, but the draft shows 0 witness signature line(s)."
+    )
+    row = _stored_row(explanation=explanation, disposition="acknowledged")
+    transitions: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        review_service.repo, "findings_for_run", lambda conn, run_id: [row]
+    )
+    monkeypatch.setattr(
+        review_service.repo, "set_disposition",
+        lambda conn, finding_id, disposition: transitions.append(
+            (str(finding_id), disposition)
+        ),
+    )
+    new_finding = Finding(
+        layer="deterministic", check="va_execution_requirements",
+        severity="should_fix", document="will", field="witness_block",
+        excerpt=None, explanation=explanation,
+        suggested_fix="Restore the witness signature block in the template.",
+    )
+    previous_run = {"id": str(uuid4())}
+    by_hash = review_service._apply_disposition_transitions(
+        object(), previous_run=previous_run,
+        new_hashes={finding_hash(new_finding)},
+    )
+    assert transitions == [(str(row["id"]), "stale")]
+    # ...and the row is keyed by its RECOMPUTED hash for ack carry-over.
+    assert by_hash[finding_hash(new_finding)]["id"] == row["id"]
