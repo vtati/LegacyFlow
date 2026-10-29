@@ -5591,19 +5591,45 @@ def _load_session_for_write(conn: Any, matter_id: UUID, session_id: UUID) -> dic
     return session
 
 
-def _history_messages(conn: Any, session_id: UUID) -> list[ChatMessage]:
-    """Recent decrypted turns as chat messages (ADR-002 sanctioned use)."""
+def _history_messages_with_status(
+    conn: Any, session_id: UUID
+) -> tuple[list[ChatMessage], int]:
+    """Recent decrypted turns + the count of bodies skipped as
+    undecryptable (ERR-009).
+
+    A single corrupt body is a warning; but ANY skip also escalates to
+    an ERROR summary with the session id and skipped count — a systemic
+    cause (e.g. a key-rotation misconfiguration) would otherwise
+    silently degrade every session's context with no operator signal.
+    The caller surfaces the count additively as ``history_incomplete``
+    on the turn response.
+    """
     messages: list[ChatMessage] = []
+    skipped = 0
     for row in repo.list_recent_bodies(conn, session_id, _HISTORY_TURNS):
         try:
             text = crypto.decrypt_text(str(row["ciphertext"]))
         except Exception:
+            skipped += 1
             logger.warning("Skipping undecryptable turn body %s", row["id"])
             continue
         role = str(row["role"])
         if role not in ("user", "assistant"):
             continue
         messages.append(ChatMessage(role=role, content=text))
+    if skipped:
+        logger.error(
+            "Interview history incomplete for session %s: %d turn "
+            "bodies skipped as undecryptable",
+            session_id,
+            skipped,
+        )
+    return messages, skipped
+
+
+def _history_messages(conn: Any, session_id: UUID) -> list[ChatMessage]:
+    """Recent decrypted turns as chat messages (ADR-002 sanctioned use)."""
+    messages, _skipped = _history_messages_with_status(conn, session_id)
     return messages
 
 
@@ -6413,7 +6439,7 @@ def post_turn(
         focus_question_text=focus_question_text,
         focus_follow_up_keys=sorted(follow_up_keys & set(focus_keys)),
     )
-    history = _history_messages(conn, session_id)
+    history, history_skipped = _history_messages_with_status(conn, session_id)
     # Lever E inventory (v9): the remaining applicable fields ride as
     # a reference list on cluster and verdict turns so a volunteered
     # off-focus paragraph can be extracted the turn it arrives.
@@ -7019,6 +7045,7 @@ def post_turn(
         completeness_pct=completeness,
         missing_required_keys=missing,
         parked_required_keys=parked_required,
+        history_incomplete=history_skipped > 0,
     )
 
 

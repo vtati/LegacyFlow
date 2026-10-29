@@ -130,6 +130,10 @@ class TurnOut(BaseModel):
     replayed: bool = False
     # Phase 4 (P4): required items parked after this turn, in pack order.
     parked_required_keys: list[str] = Field(default_factory=list)
+    # ERR-009: true when one or more prior turn bodies could not be
+    # decrypted and were left out of the model's context — the client
+    # may surface a non-blocking "history may be incomplete" notice.
+    history_incomplete: bool = False
 
 
 class TurnSummaryOut(BaseModel):
