@@ -59,9 +59,12 @@ material facts (§6). Treat the 2026-09-28 document as historical.
    document-extracted) → deterministic refusal (advice requests). On top of that,
    every model proposal passes deterministic *grounding guards* server-side
    before it exists at all (§4.4) — an ungrounded value is dropped, not shown.
-6. **Provenance on everything.** Every proposed value records its source
-   (`user_stated` / `document_extracted` / `ai_inferred`), confidence, source
-   snippet, model id, prompt version, and pack version in `field_proposals`.
+6. **Provenance on everything.** Every proposed value records its source,
+   confidence, source snippet, model id, prompt version, and pack version in
+   `field_proposals`. Sources actually written today are `user_stated`
+   (conversation, including deterministic fallbacks), `bundle` (§5.4), and
+   `document_extracted` (§9.2); the schema's `ai_inferred` value is defined
+   but **never written** by any current flow.
    Raw conversation bodies are encrypted at rest and purged on a retention
    schedule; summaries, proposals, and traces are the permanent record (§11).
 7. **The interviewer is one writer among several.** Interview, structured wizard,
@@ -150,7 +153,12 @@ Posting a turn to a `paused` session is a 409 ("Resume the interview session
 before posting turns"); to a terminal session, a 409 naming the state. The first
 turn posted to a `draft` session moves it to `in_progress` (deferred to the
 turn's write phase — §4.1). Pause/resume is free and unlimited; a session ends
-only by completion, abandonment, or explicit user action.
+only by completion, abandonment, or explicit user action. Completing a session
+has one side-effect worth knowing: every still-missing required key (excluding
+effectively-parked keys, §8.2) gets an idempotent open escalation
+(`interview_incomplete_item:{key}`, severity `review`) so the attorney sees the
+gaps in the review package — written with the same per-row savepoint isolation
+as every other escalation writer.
 
 **Resume behavior.** History is reconstructed from the last 10 stored turns
 (`_HISTORY_TURNS = 10`), decrypted on read. Sessions survive across devices and
@@ -179,8 +187,10 @@ proposals simply stay pending for manual card decisions.
 In one short transaction:
 
 1. Resolve the caller and require matter write scope; check the `ai_interviewer`
-   flag; enforce the per-user turn rate limit (counted from `interview_turns`:
-   a per-minute and a per-day ceiling — `RateLimitError` when exceeded).
+   flag; enforce the per-user turn rate limit — **10 turns/minute and
+   200 turns/day**, counted from stored `interview_turns` for the session's
+   creator (module constants in `interview/service.py`, not env settings;
+   `RateLimitError` 429 when exceeded).
 2. Load the session; reject turns on paused/terminal sessions (above).
 3. **Idempotent replay:** if the payload carries an `idempotency_key` that
    already exists for this session, rebuild and return the original response
@@ -254,7 +264,11 @@ file — several thousand lines — and is the subsystem's real accuracy story):
   the server also derives proposals deterministically (boolean answers —
   `_deterministic_boolean_proposal`; person names — `_deterministic_person_proposal`;
   short text/phone — `_deterministic_text_proposal`, `_extract_phone_value`), so
-  common answers don't depend on model behavior at all.
+  common answers don't depend on model behavior at all. Deterministic proposals
+  are stamped at a fixed confidence of **0.80 — deliberately below the 0.9
+  auto-confirm threshold** (§6.2), so a heuristic extraction always surfaces
+  for review rather than silently landing. On the v2 path a further sweep
+  (`_focus_completeness_proposals`) covers pure cluster turns.
 - **Duplicates.** A proposal that restates an already-stored answer is a no-op
   (`_is_duplicate_answer`); a proposal restating a *rejected* pair is blocked
   (`_rejected_pair_restated`) — the user's earlier "no" sticks.
@@ -574,7 +588,11 @@ character count, never the transcript.
 ### 9.2 Document extraction
 
 `POST …/sessions/{sid}/extractions` (`domains/interview/extraction.py`) accepts
-an uploaded source document (PDF/DOCX; 10 MB capped streaming read, SEC-014),
+an uploaded source document (PDF/DOCX; 10 MB capped streaming read, SEC-014).
+One honest exception to the PERF-016 pattern: extraction is **not** phased —
+its handler is a plain `def` (threadpool-offloaded, PERF-015) but the whole run,
+including the ≤90s model call, executes inside one transaction, unlike turns
+and consistency reviews.
 extracts its text locally (`text_extract.py`, with OCR fallback whose
 used/attempted/unavailable states are reported distinctly), and sends **only
 the extracted plain text (capped)** — never raw file bytes — to the JSON
@@ -643,9 +661,10 @@ benchmark that skips persistence proves nothing about the endpoint.
 
 `domains/ai/service.py::ask` answers family questions about the process using
 the pack's approved knowledge. Retrieval is keyword-based over approved pack
-documents; `GroundedTemplateProvider` composes the answer **only** from
-approved excerpts (which travel with the system prompt; citations are
-assembled deterministically and traced by hash in `ai_traces`). If the
+documents (top 3); `GroundedTemplateProvider` composes the answer **only** from
+approved excerpts, and citations are assembled deterministically and traced by
+hash in `ai_traces`. Notably, Ask uses **no LLM at all** — the grounded
+template provider is the deliberate design (F4), not a fallback. If the
 question requests legal advice, Ask refuses and opens an escalation for the
 attorney instead (`_ensure_open_escalation`) — the same classification the
 interview turn loop uses (§4.1). Sample (attorney-pending) pack content is
@@ -664,7 +683,7 @@ silently).
 | Auto-confirm failure | Batch rolls back; proposals stay pending for cards; the turn response is unaffected (§6.2) |
 | Sync failure (persons/relationships) | Savepoint rollback + log; the answer save succeeds (§7) |
 | Flag-read failure for `interview_v2` | Falls back to the v1 path for that turn |
-| Turn rate limit | Per-user per-minute + per-day ceilings counted from stored turns → `RateLimitError` (429-class) |
+| Turn rate limit | 10 turns/minute and 200/day per user, counted from stored turns → `RateLimitError` (429) |
 | Session turn cap | 200 turns (`INTERVIEW_MAX_TURNS_PER_SESSION`) → 409 with a layperson-readable redirect to the attorney path |
 | Idempotent turn retry | Same `idempotency_key` returns the original response (`replayed=True`); a key whose reply doesn't exist yet → 409 "still being processed" |
 | What a failed consistency review blocks | **Nothing.** It is advisory: submission gates on *blocking escalations and completeness*, not on the reviewer having run. A degraded review leaves no findings, which is visible in its record |
@@ -718,7 +737,7 @@ send one today, so turn retries rely on the turn-level mechanism.
 | `INTERVIEW_MAX_TURNS_PER_SESSION` | 200 | Per-session cost cap |
 | `DICTATION_MAX_BYTES` | 8 MiB | Dictation upload cap |
 | Flag `ai_interviewer` | True | Master gate for the whole interview surface (per firm) |
-| Flag `interview_v2` | False (built-in); **enabled globally** by an environment-scope row since 2026-10-26 | v2 path selection per firm/pack (§5.1) |
+| Flag `interview_v2` | False (built-in); **enabled globally** by an environment-scope row since 2026-10-26 | v2 path selection per firm/pack (§5.1). Caveat: the admin flag endpoint's key enum (`feature_flags/schemas.py`) omits `interview_v2`, so this flag is managed by DB row / env override, not through that endpoint as typed |
 
 Per-firm variation is entirely through the flag system (parent document §6.5):
 a firm can be pinned to v1, or have the interviewer disabled, without touching
