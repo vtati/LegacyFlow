@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LegacyFlow — What the Product Does (Functional Guide)</title>
+<style>
+  :root{
+    --ink:#132a3e; --ink-soft:#3d5a73; --muted:#6b8299;
+    --bg:#f5f9fc; --card:#ffffff; --line:#dbe8f1;
+    --cyan:#06b6d4; --teal:#0d9488; --violet:#7c6cf0; --navy:#14486b;
+    --grad:linear-gradient(120deg,#22d3ee 0%,#0ea5b7 45%,#7c6cf0 100%);
+    --warn-bg:#fff7ed; --warn-line:#fed7aa; --ok-bg:#effaf5; --ok-line:#a7e8c9;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.55;font-size:16px}
+  a{color:#0e7490}
+  /* ---------- layout ---------- */
+  .wrap{display:flex;max-width:1240px;margin:0 auto;align-items:flex-start}
+  nav.toc{position:sticky;top:0;height:100vh;overflow-y:auto;width:264px;flex:0 0 264px;
+          padding:22px 16px 30px;background:#fff;border-right:1px solid var(--line)}
+  nav.toc .brand{font-weight:800;font-size:19px;letter-spacing:-.02em;margin-bottom:2px}
+  nav.toc .brand span{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  nav.toc .sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+  nav.toc a{display:block;padding:5px 8px;border-radius:8px;color:var(--ink-soft);text-decoration:none;font-size:13.5px}
+  nav.toc a:hover{background:#eef6fb;color:var(--ink)}
+  nav.toc .grp{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 8px 4px}
+  main{flex:1;min-width:0;padding:34px 38px 80px}
+  @media (max-width:860px){
+    .wrap{display:block}
+    nav.toc{position:sticky;top:0;height:auto;width:auto;max-height:46vh;border-right:none;border-bottom:1px solid var(--line);z-index:20}
+    main{padding:22px 16px 60px}
+  }
+  /* ---------- typography & blocks ---------- */
+  h1{font-size:34px;line-height:1.15;letter-spacing:-.02em;margin:0 0 10px}
+  h2{font-size:25px;letter-spacing:-.015em;margin:46px 0 6px;padding-top:10px}
+  h3{font-size:18px;margin:26px 0 8px}
+  .lede{font-size:17.5px;color:var(--ink-soft);max-width:65ch}
+  .kicker{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0e7490}
+  .rule{height:4px;border-radius:4px;background:var(--grad);margin:14px 0 4px}
+  section{scroll-margin-top:18px}
+  p{max-width:72ch}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+        padding:16px 18px;margin:12px 0;box-shadow:0 1px 2px rgba(18,52,84,.04)}
+  .feat h4{margin:0 0 4px;font-size:16.5px}
+  .feat h4 .n{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;
+       background:var(--grad);color:#fff;font-size:12.5px;font-weight:700;margin-right:8px;vertical-align:2px}
+  .feat p{margin:4px 0}
+  .who{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+       background:#e8f4fa;color:#155e75;border-radius:999px;padding:2px 9px;margin:2px 4px 6px 0}
+  .who.firm{background:#eef2ff;color:#4338ca}.who.plat{background:#fdf2f8;color:#9d2463}
+  .who.att{background:#ecfdf5;color:#065f46}
+  .behind{font-size:14px;color:var(--ink-soft);background:#f2f8fc;border-left:3px solid #9fd8e8;
+          padding:8px 12px;border-radius:0 8px 8px 0;margin:8px 0 2px}
+  .behind b{color:var(--ink)}
+  .note{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:var(--radius);padding:14px 18px;margin:14px 0}
+  .okbox{background:var(--ok-bg);border:1px solid var(--ok-line);border-radius:var(--radius);padding:14px 18px;margin:14px 0}
+  ul{max-width:72ch} li{margin:3px 0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:#fff;border-radius:10px;overflow:hidden}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;font-size:14.5px;vertical-align:top}
+  th{background:#eef6fb}
+  /* journey steps */
+  .steps{counter-reset:step;margin:14px 0}
+  .step{display:flex;gap:14px;margin:0 0 12px}
+  .step .dot{counter-increment:step;flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--grad);
+       color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .step .dot::before{content:counter(step)}
+  .step .body{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;flex:1}
+  .step .body h4{margin:0 0 3px;font-size:16px}
+  .step .body p{margin:3px 0;font-size:15px}
+  .sys{font-size:13.5px;color:var(--ink-soft)}
+  /* flow strip */
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:16px 0}
+  .flow .f{flex:1 1 120px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13.5px;text-align:center}
+  .flow .f b{display:block;font-size:14px;margin-bottom:2px}
+  .flow .arr{align-self:center;color:var(--muted);font-weight:700}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:12px 0}
+  .cols .card{margin:0}
+  dl.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px 26px}
+  dl.gloss div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+  dl.gloss dt{font-weight:700} dl.gloss dd{margin:2px 0 0;color:var(--ink-soft);font-size:14.5px}
+  .small{font-size:13.5px;color:var(--muted)}
+  footer{border-top:1px solid var(--line);margin-top:50px;padding-top:16px;color:var(--muted);font-size:13.5px}
+  @media print{
+    nav.toc{display:none} body{background:#fff} main{padding:0}
+    .card,.step .body{box-shadow:none;break-inside:avoid} h2{break-before:page}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <div class="brand">Legacy<span>Flow</span></div>
+  <div class="sub">Functional guide — what the product does, feature by feature, and how each person uses it. October 2026.</div>
+  <div class="grp">Start here</div>
+  <a href="#overview">1 · What LegacyFlow is</a>
+  <a href="#journey-map">The whole journey at a glance</a>
+  <div class="grp">Feature catalogue</div>
+  <a href="#cat-start">2 · Getting started</a>
+  <a href="#cat-people">3 · Household &amp; people</a>
+  <a href="#cat-money">4 · Your money picture</a>
+  <a href="#cat-interview">5 · The AI Interview</a>
+  <a href="#cat-intake">6 · The guided Intake form</a>
+  <a href="#cat-review">7 · Review, drafts &amp; submitting</a>
+  <a href="#cat-documents">8 · Your documents</a>
+  <a href="#cat-files">9 · Files &amp; the Vault</a>
+  <a href="#cat-signing">10 · Signing your plan</a>
+  <a href="#cat-track">11 · Staying on track</a>
+  <a href="#cat-firm">12 · The firm workspace</a>
+  <a href="#cat-attorney">13 · Attorney review &amp; release</a>
+  <a href="#cat-enroll">14 · Joining as an attorney</a>
+  <a href="#cat-admin">15 · Running a firm &amp; the platform</a>
+  <a href="#cat-privacy">16 · Privacy &amp; safety</a>
+  <div class="grp">User journeys</div>
+  <a href="#j-family">17 · The family journey</a>
+  <a href="#j-firm">18 · The firm journey</a>
+  <a href="#j-attorney">19 · The attorney journey</a>
+  <a href="#j-platform">20 · Opening a new state</a>
+  <div class="grp">Reference</div>
+  <a href="#glossary">21 · Glossary</a>
+  <a href="#scope">22 · What's live, what's not</a>
+</nav>
+
+<main>
+
+<section id="overview">
+  <div class="kicker">Section 1 · Overview</div>
+  <h1>What LegacyFlow is</h1>
+  <div class="rule"></div>
+  <p class="lede">LegacyFlow helps a family create a complete, attorney-approved estate plan — a Will, powers of attorney, healthcare wishes, guardian choices for children, and, if they want one, a living trust — without the family ever having to write a legal document or visit a law office to get started.</p>
+
+  <p><b>The problem it solves.</b> Most families know they need an estate plan but stall: lawyers are expensive and intimidating, do-it-yourself websites produce documents nobody has checked, and the information a lawyer needs is scattered across the family's memory, filing cabinets, and bank accounts. LegacyFlow splits the work into the parts each side does best. The <b>family</b> answers plain-English questions at their own pace, with an AI assistant that interviews them conversationally. Software then turns those answers into draft legal documents, checks them for mistakes, and organises everything. A <b>licensed attorney</b> at a real law firm reviews the whole package, asks questions if anything is unclear, approves it, and only then are the final documents released for signing.</p>
+
+  <p><b>The three sides of the product.</b></p>
+  <div class="cols">
+    <div class="card"><h3 style="margin-top:0">🏠 Families</h3><p>Sign up on their own, answer questions in an AI-guided interview or a step-by-step form, upload supporting documents, watch drafts being created, and receive attorney-approved final documents with a checklist for signing them correctly.</p></div>
+    <div class="card"><h3 style="margin-top:0">⚖️ Law firms &amp; attorneys</h3><p>Receive organised, pre-checked client files ("matters") in a workspace built for review: the family's answers, draft documents, automatic consistency findings, and a short series of approval steps that end with releasing clean final documents.</p></div>
+    <div class="card"><h3 style="margin-top:0">🛠️ The platform</h3><p>LegacyFlow itself supplies the legal content for each state (the questions, the document templates, the safety rules, the signing requirements), connects each family to a law firm licensed in their state, and keeps the safety rails: nothing becomes a final legal document without a licensed attorney's approval.</p></div>
+  </div>
+
+  <p><b>Two promises that shape everything below.</b> First, the AI never gives legal advice and never approves anything — it interviews, organises, drafts, and double-checks; the attorney decides. Second, draft documents are visibly watermarked <b>"DRAFT — NOT LEGALLY VALID"</b> until the attorney releases the finals. A plan only counts as finished once it has been signed correctly, and the product guides that too.</p>
+
+  <p><b>Where it works today.</b> Virginia is the live state: a Virginia family can sign up today and be connected automatically to Virginia's designated law firm. Other states follow exactly the same model as their law firms and legal content are stood up (see <a href="#scope">Section 22</a> for the honest detail).</p>
+</section>
+
+<section id="journey-map">
+  <h2>The whole journey at a glance</h2>
+  <div class="flow">
+    <div class="f"><b>Sign up</b>Free account in under a minute</div><div class="arr">→</div>
+    <div class="f"><b>Start a plan</b>Pick your state; you're matched to its law firm</div><div class="arr">→</div>
+    <div class="f"><b>Answer questions</b>AI interview + guided form, at your pace</div><div class="arr">→</div>
+    <div class="f"><b>Automatic checks</b>Consistency check + answer review</div><div class="arr">→</div>
+    <div class="f"><b>Drafts created</b>Watermarked documents from your answers</div><div class="arr">→</div>
+    <div class="f"><b>You submit</b>Your file is frozen and sent to the firm</div><div class="arr">→</div>
+    <div class="f"><b>Attorney reviews</b>AI pre-review helps; attorney approves</div><div class="arr">→</div>
+    <div class="f"><b>Finals released</b>Clean documents, no watermark</div><div class="arr">→</div>
+    <div class="f"><b>Sign &amp; fund</b>Signing checklist, then moving assets into the plan</div><div class="arr">→</div>
+    <div class="f"><b>Plan complete</b>Stored, shareable, kept up to date</div>
+  </div>
+  <p class="small">Every step is explained in the catalogue below, and Sections 17–20 retell the same journey as step-by-step stories for each kind of user.</p>
+</section>
+
+<section id="cat-start">
+  <h2>2 · Getting started</h2>
+  <p>Everything a person needs to go from "never heard of LegacyFlow" to "my plan is underway."</p>
+
+  <div class="card feat"><h4><span class="n">1</span>Create an account</h4>
+    <span class="who">Families</span><span class="who">Attorneys</span>
+    <p>Sign-up asks for just an email address and a password (8–72 characters, entered twice). No name, no state, no payment, and no Google account is needed. If email confirmation is switched on, the first screen afterwards says "check your email" — the confirmation link signs the account into existence; otherwise the new user lands straight in their family home page.</p>
+    <div class="behind"><b>Behind the scenes:</b> accounts are handled by the sign-in service (Supabase Auth). Nothing about a plan or a household is decided yet — that happens when the first plan is started.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">2</span>Sign in — three ways</h4>
+    <span class="who">Everyone</span>
+    <p>Returning users can sign in with <b>Google</b>, with an <b>email + password</b>, or with a <b>magic link</b> — type your email and a sign-in link arrives that works for 15 minutes, no password needed. After signing in, you are returned to the page you were heading to (for example, an invitation or a specific plan).</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">3</span>Forgot your password</h4>
+    <span class="who">Everyone</span>
+    <p>Enter your email and a reset link is sent, valid for one hour. The page deliberately never confirms whether an account exists for that email ("If an account exists, a reset link is on its way") — that vagueness is a safety feature against strangers probing for accounts. The link opens a set-a-new-password screen, and on success you are signed in and taken home automatically.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">4</span>Start a new estate plan</h4>
+    <span class="who">Families</span>
+    <p>From the home page, "Start new estate plan" opens a short form: an optional household name (it defaults to "My Household" — most families type something like "The Sharma Family"), an optional plan title, <b>your state</b> (Virginia, Maryland, District of Columbia, or North Carolina), and the kind of plan: Last Will and Testament, Revocable Living Trust, Power of Attorney, or the Complete Estate Plan Bundle.</p>
+    <div class="behind"><b>Behind the scenes:</b> the system loads that state's legal content pack (its questions, templates, and rules), finds the law firm registered as that state's <b>default firm</b>, and creates your household under that firm — there is no separate "find a lawyer" step. If a state has no default firm accepting plans yet, you are told plainly ("No law firm is currently accepting self-serve plans in this jurisdiction") instead of being left in limbo. You are then taken straight into your plan's interview.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">5</span>Joining through a law firm's invitation instead</h4>
+    <span class="who">Families</span><span class="who">Firm teams</span>
+    <p>Not everyone starts self-serve. A law firm can invite a client by email; accepting the invitation creates the household (or joins you to one the firm prepared) and the plan simply appears in your account. Invitations expire after 7 days, can be resent by the firm, and can be revoked before they're used.</p>
+    <div class="behind"><b>Behind the scenes:</b> only a secure fingerprint of each invitation link is stored, never the link itself, and accepting is safe to click twice — it can never create a duplicate membership.</div>
+  </div>
+</section>
+
+<section id="cat-people">
+  <h2>3 · Household &amp; people</h2>
+  <p>An estate plan is mostly about people — who your children are, who would raise them, who would act for you. LegacyFlow keeps one careful list of your people and reuses it everywhere, so a name is typed once and spelled the same way in every document.</p>
+
+  <div class="card feat"><h4><span class="n">6</span>Your household profile</h4>
+    <span class="who">Families</span>
+    <p>The profile lists everyone in your household: name, how they're related to you, whether they have access to the account, email, and date of birth. Any person's details can be corrected here (name, date of birth, email, adult or minor).</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">7</span>Adding people — dependents and trusted contacts</h4>
+    <span class="who">Families</span>
+    <p>You can add people in two roles: <b>Dependent</b> (typically your children) and <b>Trusted contact</b> (someone the firm may need to know about, without giving them your plan's controls). A dedicated Dependents page makes adding a child one small form — name, date of birth, optional email.</p>
+    <div class="behind"><b>Behind the scenes:</b> the two account-holder roles — the primary client (you) and a collaborator (such as a spouse who shares the work) — are created only when a household is set up, by invitation, or by the firm. That's deliberate: an estate plan must always know exactly whose plan it is, so the "add a person" form can never accidentally create a second plan owner. Only the primary client, a collaborator, or firm staff can manage the people list.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">8</span>Nominating guardians and other key people</h4>
+    <span class="who">Families</span>
+    <p>On the Guardians page you choose, in priority order, who fills each key role: <b>guardian</b> (raises your minor children), <b>executor</b> (carries out your Will), <b>trustee</b> (manages a trust), <b>financial agent</b> (acts under your power of attorney), and <b>healthcare agent</b> (makes medical decisions if you can't). Each nomination picks a person from your household list, a priority number (1 = first choice, 2 = backup, and so on), and optional notes. Nominations can be reordered by changing priority and can be removed.</p>
+    <div class="behind"><b>Behind the scenes:</b> nominations are stored per plan, in priority order, pointing at your people list — so if you correct a person's name once, every nomination (and every document) uses the corrected name. Answers you give in the interview and intake form create these nominations automatically; this page is where you can see and adjust them directly.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">9</span>Family &amp; Guardians — the read-only overview</h4>
+    <span class="who">Families</span>
+    <p>A single screen that shows your household at a glance: adults and minors with their details, and every nomination across all five roles with its priority and status. It's the "is everyone in place?" view; edit links jump from here to the pages where changes are made.</p>
+  </div>
+</section>
+
+<section id="cat-money">
+  <h2>4 · Your money picture</h2>
+  <p>Good planning needs the full picture of what you own and owe. These pages are working lists for you and your attorney — they also power the follow-up tasks that make a trust actually work (Section 11).</p>
+
+  <div class="card feat"><h4><span class="n">10</span>Assets — what you own</h4>
+    <span class="who">Families</span>
+    <p>Add each asset with its type (bank account, investment, retirement account, real estate, business interest, life insurance, vehicle, or other), a name, an estimated value, how it's owned (solely, jointly, in a trust, and so on), and notes. The page totals your assets as you go. Deleting an asset asks for confirmation and removes its beneficiary details with it.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">11</span>Beneficiaries per asset — and the alignment check</h4>
+    <span class="who">Families</span>
+    <p>Each asset can record who should receive it (its beneficiary designations, with shares). A <b>"Check alignment"</b> button on any asset re-runs a rules check comparing those designations with the rest of your plan and shows plain-language flags — for example, a designation that no longer matches your choices — or reassures you it "looks aligned." The point is to surface mismatches for your attorney before they become expensive surprises; many real-world estate disputes start with a forgotten beneficiary form that contradicts the Will.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">12</span>Liabilities — what you owe</h4>
+    <span class="who">Families</span>
+    <p>The mirror list: mortgages, loans, credit cards, and other debts, with current balance and optional monthly payment, totalled at the top. The page says plainly that it's fine to leave it empty if you're debt-free.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">13</span>Net position — assets &amp; accounts roll-up</h4>
+    <span class="who">Families</span>
+    <p>A read-only summary per household: total assets, total liabilities, your net position, and breakdowns by type, with links back to the editing pages.</p>
+    <div class="behind"><b>Worth knowing:</b> these lists inform your attorney and drive your follow-up task list, but they are <b>not</b> pasted into your Will or trust as an asset schedule. The documents are built from your verified interview/intake answers — a separate "Assets and accounts" section of the intake asks the document-relevant questions in document wording.</div>
+  </div>
+</section>
+
+<section id="cat-interview">
+  <h2>5 · The AI Interview</h2>
+  <p>The interview is a conversation with an AI assistant that interviews you the way a good intake specialist would: one topic at a time, in plain English, remembering everything you've already said. It sits alongside the guided form (Section 6) — both fill in the <i>same</i> answers, so you can switch between talking and typing whenever you like. The interview is switched on per law firm; if your firm hasn't enabled it, the page says so and points you to the guided form instead.</p>
+
+  <div class="card feat"><h4><span class="n">14</span>The conversation itself</h4>
+    <span class="who">Families</span>
+    <p>The assistant asks one question at a time; you type (Enter sends, Shift+Enter starts a new line), watch typing dots while it thinks, and answer in your own words — full sentences are fine. Answers can show their homework: an expandable "Sources" list quotes the legal-content passage each explanation came from. Some questions the assistant will politely decline and redirect to your attorney — anything that needs legal judgment rather than facts. You can <b>Pause</b> and <b>Resume</b> at any time; progress is saved as you go, and reopening the interview picks up your recent conversation. When everything is collected, the session shows as Completed.</p>
+    <div class="behind"><b>Behind the scenes:</b> the assistant works through your state's question sets topic by topic (household, guardians, assets, and so on). Where a firm's interview is on the newer "v2" setting, it gathers each topic's facts together as a short numbered list instead of strict one-by-one questions.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">15</span>"Verify values" — nothing is filed without your OK</h4>
+    <span class="who">Families</span>
+    <p>This is the interview's most important safety design. The assistant <b>never writes facts into your file directly</b>. Everything it picks up from what you say — a name, a date, a choice — appears as a card in the <b>Verify values</b> panel showing the field, the proposed value, a <b>confidence percentage</b>, and where it came from ("You said: '…'" or "From your document, page 3"). For each card you can <b>Confirm</b> it, <b>Edit</b> it and save your correction, or <b>Reject</b> it. Only confirmed or corrected values become part of your plan.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">16</span>Talk instead of type — dictation</h4>
+    <span class="who">Families</span>
+    <p>A microphone button records your voice in the browser and transcribes it into the message box <i>for you to review first</i> — it is never sent automatically, so you can fix anything the transcription misheard before it counts. If the microphone is denied or unavailable, a short message explains and typing works as normal.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">17</span>Upload a document — facts extracted for you</h4>
+    <span class="who">Families</span>
+    <p>Already have paperwork — an old Will, a deed, an insurance summary? Upload a <b>PDF or Word document (up to 10 MB)</b> from the interview and the system reads it and turns the facts it finds into Verify-values cards (Section 15), each labelled with the document and page it came from. Facts that duplicate something already waiting for review are skipped and reported, not doubled. The result is always explained in plain words: values proposed, or "no readable text found," or "this looks like a scanned image we can't read — please type the details instead." Past uploads and their outcomes stay listed in the panel.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">18</span>"Don't know yet" — parking a question</h4>
+    <span class="who">Families</span>
+    <p>Stuck on a question — a guardian's address, an account detail? Every unanswered item in the coverage checklist has a <b>"Don't know yet"</b> link that parks it. Parked questions are counted separately so your progress reflects real unknowns rather than blanks, and you can unpark with "Answer now" whenever you're ready. The page is upfront about the one rule: parked questions must be answered before your documents can be created.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">19</span>Progress &amp; coverage checklist</h4>
+    <span class="who">Families</span>
+    <p>A progress panel shows how complete your interview is, how many required items are still needed (or "All required items are collected"), how many are parked, and a checklist with a status dot for every question — answered, saved for later, waiting for your verification, or not yet answered. On a phone, the chat is sized so the typing box always sits at the bottom of the screen, the conversation stays pinned to the newest message, and your place is kept even when the on-screen keyboard opens and closes.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">20</span>The consistency check</h4>
+    <span class="who">Families</span>
+    <p>A <b>Run consistency check</b> button compares all your verified facts against each other and raises <i>questions for your attorney</i> — for example, two facts that contradict each other, or something that looks incomplete. The panel says exactly what it is: "Compares the facts you have verified and raises questions for your attorney — never legal conclusions." A clean result says so ("No questions raised — your verified facts look consistent"). Anything raised is recorded for the attorney's review with a severity — some findings are routine ("review"), some flag a material tension ("attention").</p>
+    <div class="behind"><b>Behind the scenes:</b> findings become part of your file's escalation list (Section 13) and are worded only as questions. If the AI service is unavailable, the check is recorded as a partial, deterministic-only run — never dressed up as a full clean pass.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">21</span>"Guided answers" — ask the plan a question</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Both the family dashboard and the firm's matter view include an assistant panel: ask a plain question ("What is a healthcare agent?") and get an answer assembled from your state's approved educational content, <b>with citations</b> to the exact passages used. Questions that ask for legal advice or strategy are refused with a suggestion to ask your attorney — and the request is passed to the attorney as an escalation so nothing falls through the cracks. Questions no approved content covers are escalated the same way.</p>
+    <div class="behind"><b>Behind the scenes:</b> answers are built only from your plan's own content pack, from passages marked approved. Material still awaiting attorney approval ("sample" content) is excluded unless a deployment explicitly opts in — the assistant would rather escalate than improvise.</div>
+  </div>
+</section>
+
+<section id="cat-intake">
+  <h2>6 · The guided Intake form</h2>
+  <p>The form version of the same interview: 21 short sections in a fixed order, each a handful of questions. (The AI Interview and this form write to the same answers — start in one, finish in the other.)</p>
+
+  <div class="card feat"><h4><span class="n">22</span>The 21 sections</h4>
+    <span class="who">Families</span>
+    <p>In order: <b>About your household · Quick check · Primary guardian · Backup guardians · What do you own? · Primary executor · Backup executor · Specific bequests · Residuary estate · Your address · Guardian address · Healthcare agent · Living will and organ donation · Your financial agent · Do you want a trust? · Trustee roles · Trust terms · Are your beneficiaries current? · Funeral and burial · Digital assets · Wishes for your children.</b></p>
+    <div class="behind"><b>Behind the scenes:</b> sections come from your state's question sets, and questions that don't apply to your family are quietly removed — a family with no minor children won't be asked guardian details, and the trust sections shrink if you decline a trust. Your progress, and the submission rules, count only the questions that actually apply to you.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">23</span>Question styles &amp; "Why we ask"</h4>
+    <span class="who">Families</span>
+    <p>Questions render as the control that fits: yes/no and single-choice as radio buttons, multiple choices as checkboxes, "which person?" as a dropdown of your household, and free text, dates, and notes as fields. Required questions carry an asterisk. Where a question might seem intrusive or odd, a <b>"Why we ask"</b> disclosure under it expands to explain, in plain English, what the answer is used for.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">24</span>Autosave — you can't lose work</h4>
+    <span class="who">Families</span>
+    <p>Every change saves automatically about a second after you stop typing. A status line cycles through "Saving…", "All answers saved", and — if your connection drops — "Save failed — check your connection," so you always know where you stand. There is no Save button to forget.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">25</span>Progress that doesn't flatter you</h4>
+    <span class="who">Families</span>
+    <p>The header shows "X of Y required answered" and each section shows its own percentage — calculated honestly: percentages are rounded <i>down</i>, and a tick replaces the number only at a genuine 100%. Optional questions never inflate the score.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">26</span>Getting around — sidebar and the mobile tab strip</h4>
+    <span class="who">Families</span>
+    <p>On a computer, sections sit in a left-hand sidebar (number, title, percentage, mini progress bar). On a phone, the same list becomes a <b>sticky horizontal tab strip</b> pinned under the header: the chips scroll sideways <i>inside the strip only</i> (the page itself never scrolls sideways), each chip shows its section's progress, the current section's chip stays centred and highlighted, and the edges fade to hint there's more. Previous/Next buttons and a "Section X of Y" label sit at the foot of every section card.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">27</span>"Check my answers" — the rules evaluation</h4>
+    <span class="who">Families</span>
+    <p>Under every section, a Review-and-submit card offers <b>Check my answers</b>. It runs your state's safety rules over your answers. Routine notes appear as "Notes from your check"; a clean pass says "Your answers look complete"; and if a rule says your situation needs a lawyer's eyes before continuing — the panel says so directly ("Attorney review required") with the reason. Virginia's rules include things like: a child with special needs, property in another state, a prior marriage, expected family conflict, or wanting tax strategy — situations where a generic document would be irresponsible.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">28</span>Submitting from the form</h4>
+    <span class="who">Families</span>
+    <p><b>Submit for attorney review</b> is available once three things are true: the plan is still in intake, <b>every applicable required question is answered</b>, and <b>no blocking safety rule is open</b>. If anything is missing, the form refuses politely and lists exactly what is still needed, by name — no detective work required. On success: "Submitted for attorney review — your answers are with your firm now." (Families whose firm has enabled self-serve drafts usually submit from the Review page instead — Section 7 — after seeing their documents.)</p>
+  </div>
+</section>
+
+<section id="cat-review">
+  <h2>7 · Review, drafts &amp; submitting</h2>
+  <p>This is the family's quality gate: see every answer exactly as it will appear in your documents, fix anything, watch the drafts being made, then send the frozen package to your attorney.</p>
+
+  <div class="card feat"><h4><span class="n">29</span>The Review page — every answer, in document wording</h4>
+    <span class="who">Families</span>
+    <p>All your answers are grouped by topic and written the way they'll read in the documents, each with inline edit-and-save. People and their roles appear here too, with names editable in place. A "Saved for later" card lists any parked questions with a link back into the interview — documents can't be created until each one is answered. Saving any edit automatically refreshes everything downstream: completeness, your nominations, and whether your drafts are still current.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">30</span>The automated pre-review (Attorney Reviewer)</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>When your firm has this switched on, an <b>"Automated pre-review"</b> panel appears on the Review page. It runs automatically when drafts are created and again when you submit, and you can re-run it yourself. It checks your draft documents in two layers:</p>
+    <ul>
+      <li><b>Rule checks (no AI):</b> the same person's name spelled two ways across documents; someone named as both first choice and backup in the same role; dates and ages that don't add up (a birth date in the future, a "minor" who is 30); a document missing from your plan's set; blanks where you actually supplied the information; Virginia's signing formalities missing from the text (signature and witness blocks); and names mentioned in your free-text wishes that match nobody in your household — possible typos.</li>
+      <li><b>AI judgment pass:</b> one careful read-through for contradictions between documents, implausible values, missing context, and ambiguity. It may only raise a point if it can <b>quote the exact words</b> from your draft that triggered it — anything it can't quote is thrown away, as is anything phrased like a legal conclusion.</li>
+    </ul>
+    <p>Each finding is labelled <b>"Worth fixing"</b> or <b>"Question for your attorney,"</b> grouped by document, with an explanation, the quoted excerpt, and a suggested fix. The panel states in plain words that this <b>is an automated consistency check, not a legal review, and it never blocks your submission</b>. If only the rule checks ran (for example, the AI service hiccupped), the panel says that too, rather than pretending a full review happened.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">31</span>Acknowledging a finding — "this one is correct as-is"</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Sometimes a "finding" is actually right — an unusual spelling that's genuinely the person's name, a beneficiary who really is outside the household. Either you or the firm can <b>acknowledge</b> such a finding, but only with a short written note explaining why it's OK; the button won't work without one. The record then shows who acknowledged it ("Acknowledged by the family" or by the firm), when, and the note. If the documents are regenerated and the identical finding reappears, the acknowledgment carries over automatically — you never have to justify the same thing twice.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">32</span>Create draft documents</h4>
+    <span class="who">Families</span>
+    <p>Once every applicable required answer is complete, <b>Create draft documents</b> unlocks (it also needs your firm to have document creation switched on, and your state's pack to support it). The plan's documents are generated from your answers by fixed legal templates — the wording is deterministic, never improvised by AI. A Virginia plan produces up to five documents:</p>
+    <table>
+      <tr><th>Document</th><th>What it does</th><th>When it's included</th></tr>
+      <tr><td><b>Last Will and Testament</b></td><td>Says who receives your property, names your executor, and names guardians for minor children.</td><td>Always.</td></tr>
+      <tr><td><b>Power of Attorney</b></td><td>Lets your chosen financial agent act for you (banking, bills, property) if you can't.</td><td>Unless you chose not to create one.</td></tr>
+      <tr><td><b>Advance Medical Directive</b></td><td>Your healthcare wishes (a "living will") plus your chosen healthcare agent, and your organ-donation wishes.</td><td>Unless you chose not to create one.</td></tr>
+      <tr><td><b>Guardianship Designation</b></td><td>Formally names who would raise your minor children.</td><td>Only if you have minor children.</td></tr>
+      <tr><td><b>Revocable Living Trust</b></td><td>A trust you control during your life that holds assets and passes them on your terms, usually avoiding probate.</td><td>Only if you chose a trust.</td></tr>
+    </table>
+    <p>Documents that don't apply stay visible in the list with their reason ("Only needed when you have minor children," "You chose not to create a power of attorney") so the set never looks accidentally incomplete. If a needed template is missing from the firm's library, generation stops entirely rather than producing a partial set.</p>
+    <div class="behind"><b>If your firm hasn't enabled self-serve drafts:</b> the panel says so and explains your firm will prepare your documents for you; your answers remain fully reviewable and editable, and you submit them from the intake form instead (Section 28).</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">33</span>"Drafts out of date" — the freshness fingerprint</h4>
+    <span class="who">Families</span>
+    <p>Every set of drafts remembers exactly what it was built from — a fingerprint of the answers, people, and roles that feed the documents, plus the template version used. Change <i>anything</i> relevant afterwards and the Review page warns that your drafts are out of date and must be regenerated before submitting. This guarantees the attorney reviews precisely the documents that match your final answers — never a stale mixture.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">34</span>Submit to attorney — the freeze</h4>
+    <span class="who">Families</span>
+    <p><b>Submit to attorney</b> checks, in order: not already submitted, the plan is in a submittable state, intake is complete, drafts exist, and drafts are current. Then three things happen at once:</p>
+    <ul>
+      <li>Your plan is <b>assigned to an attorney</b> at your firm who is licensed in your state (the system picks the firm's approved attorney for your jurisdiction; if none is available, the submission stops with an explanation rather than sending your file nowhere).</li>
+      <li>A <b>review packet</b> — a frozen, numbered snapshot of your answers, people, nominations, choices, and any flagged items — is created for the firm (Section 13).</li>
+      <li>Your drafts are <b>frozen as submitted</b>. You keep full viewing access to your answers and documents, but you can no longer change the submitted set yourself — if something needs to change, your attorney asks, via a clarification (Section 13).</li>
+    </ul>
+    <p>The page then shows "Submitted for attorney review," your assigned attorney's name, and the packet version.</p>
+  </div>
+</section>
+
+<section id="cat-documents">
+  <h2>8 · Your documents</h2>
+
+  <div class="card feat"><h4><span class="n">35</span>The Documents page — every version, kept</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Every document ever generated for your plan is listed with its type, version number, and date. Documents are never overwritten: each regeneration adds new, numbered versions, so the full history — what changed and when — is preserved. Each document exists as both a <b>Word file (DOCX)</b> and a <b>PDF</b>: PDFs open as a preview in a new browser tab, Word files download.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">36</span>The draft watermark</h4>
+    <span class="who">Families</span>
+    <p>Until release, everything carries the diagonal watermark and footer <b>"DRAFT — NOT LEGALLY VALID,"</b> and the Documents page itself shows a red banner: "DRAFT — PENDING ATTORNEY REVIEW — these are watermarked drafts for review only; nothing here is final until your attorney approves it." Drafts are for reading and checking — they have no legal effect, and the product never lets that be ambiguous.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">37</span>Final documents after release</h4>
+    <span class="who">Families</span>
+    <p>When your attorney approves the release gate and releases production (Section 13), clean, watermark-free final versions are generated and appear in the same Documents list, and your home page's next step changes to point you at them and at signing.</p>
+    <div class="note"><b>One honest wrinkle:</b> the family Documents page lists finals in the same list as drafts and currently labels every row "Draft · vN" — there is no separate "Finals" section yet. Your plan's status (on Home and My Plan) is the reliable signal that finals have been released; the documents themselves are the clean, unwatermarked files.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">38</span>Requesting a change after release — amendments</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Life changes: a new child, a new house, a different executor. Once your plan has been released, you (or the firm) can file an <b>amendment request</b> describing the change in plain language and, optionally, which documents it affects. Identical requests sent twice are de-duplicated. The request is decided by an attorney or firm admin (approve/reject, with notes, all recorded), and an approved change is carried out as a formal amendment document — a <b>codicil</b> for a Will or a <b>trust amendment</b> for a trust — rather than by quietly editing the signed originals.</p>
+  </div>
+</section>
+
+<section id="cat-files">
+  <h2>9 · Files &amp; the Vault</h2>
+  <p>Two related features with confusingly similar names — worth separating: <b>Files</b> is where documents live; the <b>Vault</b> is how you share a summary of your plan with someone you trust.</p>
+
+  <div class="card feat"><h4><span class="n">39</span>Files — your document storage</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Upload supporting documents to a plan — PDF, Word, JPEG, PNG, or WebP, up to <b>25 MB</b> each. Every file shows its size and upload time and runs through a checking pipeline before it's available: its badge reads <b>Scan pending</b>, then <b>Clean</b>, or <b>Quarantined</b> if the file's contents don't match what it claims to be (the check reads the file's actual type from its bytes, not its name — a renamed file can't sneak through). Quarantined files can never be downloaded. Downloads use short-lived secure links (15 minutes). Only the account's primary client or a collaborator can upload; dependents and trusted contacts can view what they're given access to.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">40</span>AI analysis of an uploaded file</h4>
+    <span class="who">Families</span>
+    <p>Once a file's text has been extracted, an <b>Analyze</b> button offers an AI read of it: a <b>classification</b> (Will, Trust, Deed, Life insurance, Financial statement, Power of attorney, Advance directive, Tax return…), a plain <b>summary paragraph</b>, the <b>key facts</b> pulled out as label-and-value pairs, and <b>suggested tags</b> (merged with any tags you add yourself). It's how an old paper Will or a jumble of statements becomes something your attorney can scan in seconds. Two honest limits: photos/images can't be analysed this way, and a scanned PDF with no readable text can't either — the product tells you to try a text-based file instead of pretending.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">41</span>Vault shares — a safe link for someone you trust</h4>
+    <span class="who">Families</span>
+    <p>The Vault page creates share links for your plan. Give the link a label ("For my sister") and an optional expiry date, and you get a link that is <b>shown exactly once</b> — save it then; the list afterwards shows only the label, dates, and whether it's Active or Revoked. Revoking (with a confirmation) kills a link immediately.</p>
+    <p>Whoever opens the link — no sign-in needed — sees a <b>deliberately redacted summary</b>: the plan title, the label you gave it, the state, a list of your documents by filename and type, and the expiry date. <b>Never the documents themselves, never your answers.</b> It's designed for the "so my family knows a plan exists and where things stand" conversation. An expired, revoked, or mistyped link gets a neutral "This link doesn't work anymore" page that reveals nothing.</p>
+  </div>
+</section>
+
+<section id="cat-signing">
+  <h2>10 · Signing your plan</h2>
+  <p>A Will that isn't signed correctly may not count. LegacyFlow doesn't do electronic signing — instead it prepares you, precisely, for the physical signing your attorney will walk you through.</p>
+
+  <div class="card feat"><h4><span class="n">42</span>The signing checklist</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>Once all your plan's documents are released, the firm generates your <b>signing checklist</b> from your state's execution rules, and your Signing page shows it: how many items you've reviewed ("X of Y reviewed"), the two headline facts — <b>witnesses required</b> (for a Virginia Will: two) and <b>notary</b> (for a Virginia Will: not legally required) — and each step in order. For a Virginia Will: the document must be in writing; you sign it; two competent witnesses sign in your presence and each other's; and a recommended (not required) extra — a notarised "self-proving affidavit" that can make the later court process simpler.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">43</span>"Mark reviewed" — preparation tracking, not a legal act</h4>
+    <span class="who">Families</span>
+    <p>Each checklist item asks you to tick an acknowledgement — <i>"I have read this requirement and understand I must follow my attorney's instructions for it"</i> — and mark it reviewed; the system stamps the time itself. The page is explicit about what this is and isn't: "Checking this box is not a legal certification — it only marks the requirement reviewed in this app. Your attorney confirms proper execution." The firm sees the same checklist with per-item attested/pending status, so they know you're ready before the signing appointment. There is no e-signature, no witness identity capture, and no uploading of signed copies on this page.</p>
+  </div>
+</section>
+
+<section id="cat-track">
+  <h2>11 · Staying on track</h2>
+
+  <div class="card feat"><h4><span class="n">44</span>Home — "Your next step"</h4>
+    <span class="who">Families</span>
+    <p>Your home page always answers "what should I do next?" with one card driven by your plan's real status: finish your intake; answer your firm's questions (if they asked a clarification); review your released documents; go to signing; do your annual checkup — whatever is actually current. Around it: a greeting with your household name, your main plan's progress ring, counts of your plans, and cards for each plan with its status in plain words ("Intake in progress," "Attorney review," "Documents released," "Plan implemented") and links to continue.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">45</span>My Plan — the whole plan on one page</h4>
+    <span class="who">Families</span>
+    <p>For each plan: how complete it is ("X of Y required intake answers complete"), your <b>key roles</b> at a glance (guardian, executor, trustee — first choice plus how many backups, or "Not named yet"), up to ten of <b>your choices so far</b> in question-and-answer form, and dynamic <b>next steps</b> that point at whatever is missing. A banner at the top warns if any plan is missing a key person, or confirms when every plan has all three. A standing reminder heads the page: "Nothing here is final until your attorney approves it."</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">46</span>Checkup — everything waiting on you, in one list</h4>
+    <span class="who">Families</span>
+    <p>Checkup gathers, per plan, anything that needs you: unanswered required questions; approval gates waiting on your firm; open questions your firm has asked you; signing items you haven't reviewed; funding tasks left incomplete; and key roles (guardian/executor/trustee) not yet named. Each item links straight to the page that resolves it, and the page says "All clear" when there's genuinely nothing. If some information couldn't be loaded, it warns that the list may be incomplete rather than showing a false "all clear."</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">47</span>Funding tasks — making the plan actually work</h4>
+    <span class="who">Families</span><span class="who firm">Firms</span>
+    <p>A trust only controls assets that are moved into it — "funding" is that follow-through: retitling accounts, updating beneficiary forms, reviewing deeds. The firm generates a personalised task list for your household from the state's funding playbooks matched against your assets (for example: review this bank account's transfer-on-death setup; confirm that retirement account's beneficiaries). Your Funding page lists each task with a status you control — <b>Pending → In progress → Complete</b> — and lets you attach proof (a statement, deed, or confirmation letter; same file rules as Section 39). A counter shows "X of Y tasks complete." Until the firm generates tasks, the page explains they'll appear here.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">48</span>Help — answers without messaging</h4>
+    <span class="who">Families</span>
+    <p>The Help page carries six frequently asked questions (intake, attorney review, why documents are watermarked, signing, funding, the Vault) and a small plain-English glossary. It is also honest about its limit: <b>there is no in-app messaging</b> — for anything urgent or sensitive you contact your firm directly using the phone and email on your engagement paperwork. Questions your attorney asks you inside the product arrive as clarifications, surfaced on Checkup and Home — not here.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">49</span>Notifications — what actually reaches you today</h4>
+    <span class="who">Everyone</span>
+    <p>There is no notification inbox or bell in the app. Sign-in emails (account confirmation, magic links, password resets) are sent by the sign-in service as you'd expect. Inside the product, the signals are the Home next-step card, the Checkup list, and on-screen banners (for example, "drafts out of date"). The system also prepares notification emails for events like invitations, submissions, attorney questions, gate decisions, and reminders, and firm users are notified inside their workspace when a family submits. <b>Current-deployment honesty:</b> the app's own outgoing notification emails are presently recorded in a test outbox rather than delivered to real inboxes, so firms contact families through their normal channels in the meantime. A reminder engine also exists — reminders can be scheduled for a person and the system checks every 15 minutes for due ones, respecting each person's email/reminder preferences and unsubscribe — but schedules are not yet created automatically anywhere in the product, so treat reminders as infrastructure that's ready, not a feature you'll see firing today.</p>
+  </div>
+</section>
+
+<section id="cat-firm">
+  <h2>12 · The firm workspace</h2>
+  <p>Everything below is the law firm's side of the same product. Firm members hold one of four roles per firm: <b>firm admin</b> (runs the firm), <b>attorney</b> (reviews and approves), <b>staff</b> (prepares and manages), and <b>auditor</b> (a limited role that, in the current product, has almost no access to client matters — see Section 22). A person can belong to several firms; most screens work with their longest-standing active firm, while their payout history combines all firms.</p>
+
+  <div class="card feat"><h4><span class="n">50</span>Firm overview — the dashboard</h4>
+    <span class="who firm">Firms</span>
+    <p>Six live counts computed from the firm's matters (total; awaiting review; in intake; in signing &amp; funding; documents released; implemented), a <b>"Needs attention"</b> list — matters escalated, waiting on a clarification answer, or carrying open flags, each badged with its reason — and the five most recently updated matters. Every number and row clicks through to the matter itself.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">51</span>The matters list</h4>
+    <span class="who firm">Firms</span>
+    <p>All the firm's client plans in one searchable table: search by client, household, or title; filter by stage (intake, attorney review, approved, released, signing, funding, implemented, closed) or by jurisdiction; twenty per page. Columns show the household, jurisdiction, a plain status badge, and when the matter last changed.</p>
+    <div class="behind"><b>The status journey (behind every badge):</b> Draft → Intake in progress → Intake submitted → Attorney review (with side-trips to Clarification requested, and Escalated if a blocking rule fires) → Approved for assembly → Documents released → Signing in progress → Funding in progress → Plan implemented. A completed plan can return to Attorney review for its annual checkup or a life-event update, and almost any stage can be Archived (closed for good). The system refuses impossible jumps — a matter can't skip from intake to released — and records every change.</div>
+  </div>
+
+  <div class="card feat"><h4><span class="n">52</span>The matter page — ten tabs</h4>
+    <span class="who firm">Firms</span>
+    <p>One client's whole file: <b>Overview</b> (summary, completeness, key people) · <b>Files</b> (the family's uploads) · <b>Documents</b> (packages, drafts, finals, amendment requests) · <b>Signing</b> (checklist progress) · <b>Funding</b> (task list) · <b>Guided answers</b> (the same citation-backed assistant the family has, scoped to this matter) · <b>Review packet</b> (the frozen snapshot + pre-review findings) · <b>Comments</b> (firm staff and the household can comment; every comment is part of the file) · <b>Clarifications</b> (questions to the family) · <b>Approval gates</b>. The header always shows the plan title, household, jurisdiction, status, and the attorney-assignment control.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">53</span>Assigning an attorney</h4>
+    <span class="who firm">Firms</span>
+    <p>Three ways an attorney ends up on a matter. <b>Manually:</b> any staff member picks from the firm's active attorneys in the matter header (or sets it back to Unassigned). <b>Automatically:</b> when a self-serve family submits, the system assigns the firm's approved attorney licensed in that matter's state — and refuses the submission if there isn't one (Section 34). <b>By request:</b> attorneys can raise their hand for unassigned work (Section 56), but a request never assigns by itself — a person at the firm still makes the assignment.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">54</span>The review queue</h4>
+    <span class="who firm">Firms</span>
+    <p>A read-only worklist of every matter that is anywhere in the intake-to-review stretch: its status, how many approval gates are pending, how many clarifications are open, and the latest packet version and date (or "No packet yet"). It's the morning triage screen; clicking a row opens the matter, where the actual work happens.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">55</span>Clarifications — asking the family a question</h4>
+    <span class="who firm">Firms</span><span class="who">Families</span>
+    <p>When something in a file is unclear, an attorney or firm admin creates a <b>clarification</b>: a written question attached to the matter. Asking one moves the matter to "Clarification requested," surfaces on the family's Home and Checkup pages, and the household answers in the product; the exchange is stored on the matter for good. It's the product's structured alternative to email threads — the question and answer stay with the file they belong to.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">56</span>Clients page</h4>
+    <span class="who firm">Firms</span>
+    <p>A household-centred view derived from the firm's matters: each client household with its plans and statuses, linking into each matter. The invitation manager also lives here (Section 64) — inviting clients and team members is one system.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">57</span>Reports &amp; CSV export</h4>
+    <span class="who firm">Firms</span>
+    <p>A simple operational report computed live from the firm's matters: totals (matters, average intake completeness, open clarifications, pending gates), a pipeline funnel showing how many matters sit at each lifecycle stage, a matters-by-state table, and a one-click <b>CSV export</b> of the whole picture. If some figures couldn't be loaded, the page warns that those totals are partial. (There is no financial or per-attorney performance reporting in the product today.)</p>
+  </div>
+</section>
+
+<section id="cat-attorney">
+  <h2>13 · Attorney review &amp; release</h2>
+  <p>The heart of the firm's work: a frozen packet, an AI pre-review that helps but never decides, exactly two approval gates, and a release step that is deliberately hard to do by accident.</p>
+
+  <div class="card feat"><h4><span class="n">58</span>The review packet — the frozen snapshot</h4>
+    <span class="who firm">Firms</span>
+    <p>The packet is a versioned, unchangeable snapshot of a matter at a moment in time: the plan's basics and completeness, <b>all intake answers</b>, household people and relationships, <b>nominations</b> (every guardian/executor/agent appointment with its priority), the family's recorded <b>decisions</b>, and every <b>escalation</b> flag. (It deliberately does not include the assets/liabilities lists.) A new packet is created automatically when a self-serve family submits, and any staff member can generate a fresh one at any time from the matter's Review packet tab; older versions remain viewable, newest first. Families never see the packet itself — it's firm work product; they see the pre-review findings (Section 30) on their own Review page.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">59</span>Escalations — the "attorney, look at this" list</h4>
+    <span class="who firm">Firms</span><span class="who">Families (their own)</span>
+    <p>An escalation is a recorded flag that something in a family's situation deserves attorney attention. They're created automatically, never by hand, from three sources: the state's <b>safety rules</b> run over the family's answers (Virginia's include a special-needs child, out-of-state property, a prior marriage, expected family conflict, a business interest, and more); the <b>consistency check</b> (Section 20); and the <b>AI assistant</b> when someone asks it for legal advice or something outside the approved content. Severities run from <b>info</b> (noted only) through <b>review</b> and <b>attention</b>, up to <b>blocking</b> — a blocking flag moves the matter to "Escalated" and pauses progress until an attorney deals with the situation through the review workflow. For privacy, an escalation stores only the rule and the triage facts — never the family's free-text answers. The firm's Admin → Support page rolls all open escalations across matters into one list. <span class="small">(Known limitation: escalations can be filtered as open/resolved/dismissed, but the current product has no button that closes one — disposition happens through the matter's review workflow, and the flags remain visible as the record of what was raised.)</span></p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">60</span>The two approval gates</h4>
+    <span class="who att">Attorneys</span><span class="who firm">Firm admins</span>
+    <p>Progress past review is controlled by exactly two gates, in order. <b>Gate 1 — Intake approval:</b> created and decided while the matter is in Attorney review; approving it moves the matter to "Approved for assembly." <b>Gate 2 — Document release:</b> decided while Approved for assembly; approving it moves the matter to "Documents released" and unlocks final-document production. Any staff member can create a gate, but only an <b>attorney or firm admin can decide one</b>. A rejection leaves the matter where it is (a note is asked for in the interface), a fresh gate can be created later, and only one gate of each type can be pending at a time. Every decision notifies the firm and the family's account holders and is written into the audit trail.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">61</span>The Review Decision Panel — where the buttons live</h4>
+    <span class="who firm">Firms</span>
+    <p>At the top of each matter, a decision panel offers exactly the actions that fit its status. In Attorney review: <b>Approve</b> (creates the intake gate if needed and approves it), <b>Request clarification</b> (asks the family a question, Section 55), and <b>Escalate</b>. In Approved for assembly: the single <b>Approve document release</b> action. The Attorney Reviewer findings (Section 30) sit in the packet tab of the same page — visible while deciding, but, by design, <b>no finding can block or influence a gate</b>; the attorney's judgment is the gate.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">62</span>Releasing the final documents</h4>
+    <span class="who att">Attorneys</span><span class="who firm">Firm admins</span>
+    <p>"Release for production" is guarded four ways: the person must be an attorney or firm admin; the <b>document-release gate must already be approved</b>; intake must be complete; and document creation must be switched on. If any condition fails, the release refuses with the reason — it cannot be forced. A successful release re-renders every document <b>clean: no watermark</b>, in Word and PDF, marks the package released, and records the act in the audit trail. There is no un-release. Drafts remain drafts forever; finals are new versions, so the before/after is always preserved.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">63</span>The notary package</h4>
+    <span class="who firm">Firms</span>
+    <p>Once <i>all</i> of a matter's document packages have been released, the firm can download one combined PDF: the final documents plus the state's execution checklist — the bundle the attorney takes into the signing appointment.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">64</span>The attorney's own workspace</h4>
+    <span class="who att">Attorneys</span>
+    <p>Attorneys also get a personal area. <b>Dashboard:</b> an availability toggle ("Accept new cases" / paused — it controls their profile status; note it doesn't change how the routing in Section 53 picks attorneys today), four earnings figures (total earned, pending, approved, paid out), their assigned cases, and their payment history. <b>Opportunities:</b> unassigned matters waiting in review, shown <b>anonymised — state and status only, no client names until assigned</b> — with the standard fee shown ($150 standard / $300 complex) and a "Request case" button. The page says plainly that requesting doesn't claim the case: the firm reviews requests, and assignment remains a separate, deliberate step.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">65</span>Attorney payments (payouts)</h4>
+    <span class="who firm">Firms</span><span class="who att">Attorneys</span>
+    <p>When one of an attorney's matters reaches "Plan implemented," a completion fee is created automatically — exactly one per matter: <b>$150 standard, $300 for trust-based or bundled plans</b>. The firm's queue moves it through <b>pending → approved → paid</b> (or <b>disputed</b>, with a reason; paid fees can't be disputed), and "Mark paid" records an optional bank-transfer reference. To be precise about what this is: <b>the money itself moves by ordinary bank transfer outside the product</b> — LegacyFlow tracks who is owed what and its status, it does not yet process payments. (Plumbing for automated payments via Stripe exists in the codebase but is not connected to anything; family pricing is likewise not charged through the product today.)</p>
+  </div>
+</section>
+
+<section id="cat-enroll">
+  <h2>14 · Joining as an attorney</h2>
+
+  <div class="card feat"><h4><span class="n">66</span>The application</h4>
+    <span class="who att">Attorneys</span>
+    <p>From the public "apply" page, a signed-in lawyer applies to a firm: pick the firm (only active firms are listed), full name, email, optional phone, <b>bar number (required)</b>, the states they're licensed in (Virginia, Maryland, DC, North Carolina checkboxes), years of experience, practice areas, and links to three supporting documents — bar card, malpractice insurance, government ID — pasted as URLs. (The page also invites applicants to send documents to the firm directly.) One person can have only <b>one pending application at a time</b>, across all firms.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">67</span>Manual verification &amp; approval</h4>
+    <span class="who firm">Firms</span>
+    <p>Applications land on the firm's Attorneys page with everything the applicant provided. A firm admin or staff member <b>verifies the bar credentials and documents manually — there is no automated licence check</b> — then approves, or rejects with a required reason. Approval instantly makes the applicant an active attorney member of that firm: from that moment they can be assigned matters and are eligible for automatic routing. Rejection grants nothing and records who decided and why.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">68</span>Enrollment is per firm</h4>
+    <span class="who att">Attorneys</span>
+    <p>Approval belongs to one firm only. An attorney who wants to work with three firms applies to each in turn; each firm verifies and approves independently. Their cases and screens are per firm, while their payment history follows them across all their firms.</p>
+  </div>
+</section>
+
+<section id="cat-admin">
+  <h2>15 · Running a firm &amp; the platform</h2>
+
+  <div class="card feat"><h4><span class="n">69</span>Team settings &amp; invitations</h4>
+    <span class="who firm">Firm admins</span>
+    <p>The firm admin's page shows the firm profile (names, status, since when), the full <b>team roster</b> (name, email, role, membership status), the <b>invitation manager</b>, and the firm's feature switches. Invitations go by email with a role — client (primary), client (collaborator), attorney, staff, auditor, or firm admin; client invitations can be tied to a specific household. Invitations last 7 days, can be resent (which issues a fresh link) or revoked, and show their status (pending / accepted / expired / revoked). One honest limit: the roster is a view — changing someone's role or removing a member isn't done from this page today.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">70</span>The template library</h4>
+    <span class="who firm">Firms</span>
+    <p>Each firm keeps its own library of document templates: name, type (Will, Trust, Power of Attorney, Advance Directive, Guardianship, Codicil, Trust Amendment, Instruction Letter), version, optional link to a content pack, and the template text with <code>{{placeholders}}</code> that get filled from a family's answers at generation time. Any firm member can view a template in full; only a firm admin can create or delete one. Templates are never edited in place — a change means creating a new one — and generation always uses the firm's most recent template of each type. A template already used by a document can't be deleted.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">71</span>Feature switches (feature flags)</h4>
+    <span class="who firm">Firm admins</span><span class="who plat">Platform</span>
+    <p>Capabilities can be switched on or off per firm, and each switch shows its effective value and <i>where the setting came from</i> (the firm, the state's content, the environment, or the product default). The switches that matter: <b>Document assembly</b> (off by default — drafts and finals can't be generated until a firm is deliberately switched on, and the state's pack must also support it), <b>Attorney Reviewer</b> (off by default — the AI pre-review), <b>AI Interviewer</b> (on by default), <b>Interview v2</b> (the newer interview style; can only be changed by the platform team, not in this screen), plus two switches — "AI assistance" and "Funding reminders" — that are listed but not yet wired to anything. Settings resolve in a strict order: a deployment-level override beats the firm's setting, which beats the state's, which beats the environment, which beats the built-in default; unknown switches fail safe (off).</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">72</span>Knowledge &amp; rules — the content packs, read-only</h4>
+    <span class="who firm">Firms</span>
+    <p>A reference table of the legal content packs available to the firm: state, pack name, version, status, and the date it takes effect. Packs are the engine room of the whole product — one pack per state-version contains that state's intake questions, safety/escalation rules, signing requirements, funding playbooks, educational articles, and the document-template set. Firms can look, but cannot edit packs; pack management belongs to the platform team (next feature).</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">73</span>Content pack management (platform team)</h4>
+    <span class="who plat">Platform admins</span>
+    <p>Platform admins import new packs (as a bundle upload, with an optional integrity hash; the contents — including the safety-rule severities — are validated before anything is registered) and move them through a governed lifecycle: <b>Draft → Internal testing → Attorney review → Approved</b>, or retired from any later stage. Two safety rules are built in: an imported pack always lands as a <i>draft</i> no matter what its paperwork claims, and a pack can't be scheduled to take effect more than a year out. Every import and status change is audit-logged, and approval records who approved it and when. New plans automatically use the applicable pack with the most recent effective date; plans already started keep the pack version they began with, so the rules can never change mid-plan underneath a family.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">74</span>Firms &amp; states on the platform</h4>
+    <span class="who plat">Platform admins</span><span class="who firm">Firm admins</span>
+    <p>Only a platform admin can create a law firm on LegacyFlow (the creator becomes that firm's admin); firms are never self-serve, and a firm's status can be active, trial, or suspended — a suspended firm stops receiving self-serve families. The admin area's Jurisdictions page lists each state's packs and versions read-only. The one piece managed directly by the platform team behind the scenes (no screen for it yet) is the <b>default-firm registry</b>: the table that says "Virginia's self-serve families go to this firm." Standing up a new state means creating its firm, approving its attorneys, registering it as that state's default, and publishing its content pack (Section 20).</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">75</span>Security &amp; audit page</h4>
+    <span class="who firm">Firm admins</span>
+    <p>The firm's own audit trail, filterable by action, by kind of record, and by who acted, 25 entries per page: time, actor type, action, the record involved, and a tracking ID that ties related events together. See Section 77 for what gets recorded.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">76</span>System health</h4>
+    <span class="who firm">Firm admins</span>
+    <p>A live check of the service's health endpoint (status, version, environment, response time, with a re-check button), plus an honest card about background services — the reminder checker (every 15 minutes) and the background worker that handles document jobs and notifications — which states plainly that their live status isn't exposed here rather than pretending to monitor them.</p>
+  </div>
+</section>
+
+<section id="cat-privacy">
+  <h2>16 · Privacy &amp; safety</h2>
+
+  <div class="card feat"><h4><span class="n">77</span>Who can see what</h4>
+    <span class="who">Everyone</span>
+    <p>The boundaries are simple to state:</p>
+    <ul>
+      <li><b>Your household</b> sees your plans, answers, documents, and files. Within the household, only the primary client and collaborators can change things or upload; dependents and trusted contacts have view-only access.</li>
+      <li><b>Your law firm</b> — its admins, attorneys, and staff — sees the matters routed to it, including answers, files, and drafts, because reviewing them is the job. One role, auditor, currently has effectively no access to client matters.</li>
+      <li><b>Other firms and other families</b> see nothing of yours. Unassigned work shown to attorneys is anonymised (state and status only).</li>
+      <li><b>Other platform firms' data never leaks through the audit trail either</b> — each firm admin sees only their own firm's events.</li>
+    </ul>
+    <p>Standing over everything: the AI can interview, draft, and flag — but only a licensed attorney at your firm can approve gates and release final documents; every generated document is watermarked until that moment; and every authenticated page carries the footer "Attorney review pending. Not legal advice."</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">78</span>The audit trail</h4>
+    <span class="who firm">Firm admins</span>
+    <p>Every significant action in the product writes a permanent record — around 75 kinds of events: plans created, submitted, and moved between stages; answers saved; interview sessions and parked questions; people and nominations changed; checks evaluated and flags raised; packets generated; gates decided; documents generated, released, amended; templates and packs changed; files uploaded, scanned, analysed, and downloaded; shares created and revoked; invitations sent and accepted; flags switched; payouts created, approved, and paid; applications decided. Each entry records who (or what — person, system, or background worker) acted, on which firm and matter, what changed, and a correlation ID. It is viewable read-only by the firm's admin (Section 75) and cannot be edited from anywhere in the product.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">79</span>Download your data</h4>
+    <span class="who">Everyone</span>
+    <p>Any user can retrieve a copy of their own data — profile, households and memberships, plans, people, decisions, and assets — as a structured file from the service. Other people's private contact details are deliberately left out, and very large collections are capped with a clear "truncated" marker rather than failing silently.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">80</span>Request deletion</h4>
+    <span class="who">Everyone</span>
+    <p>A user can file a data-deletion request (with optional notes) and see their own requests' status. To be precise: the product takes and tracks the request; carrying it out is a deliberate, manual, out-of-band process by the platform team — there is no self-serve "delete everything now" button, by design, because estate files carry legal retention obligations that a human must weigh.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">81</span>Email &amp; reminder preferences</h4>
+    <span class="who">Everyone</span>
+    <p>Each user has email and reminder preferences (both on by default) plus an unsubscribe that the reminder system honours — a person who has unsubscribed or switched reminders off is skipped automatically when reminders are dispatched.</p>
+  </div>
+
+  <div class="card feat"><h4><span class="n">82</span>File safety</h4>
+    <span class="who">Everyone</span>
+    <p>Uploads are treated as untrusted until proven otherwise: type checked from the file's actual bytes, held as "pending" until the check passes, quarantined on any mismatch, downloadable only when clean and only through a 15-minute signed link, and served from dedicated document storage. (Precision for the technically curious reader: the current check verifies that a file is genuinely the type it claims to be; it is a format check, not an antivirus scan.)</p>
+  </div>
+</section>
+
+<section id="j-family">
+  <h2>17 · The family journey, step by step</h2>
+  <p>Meet a composite Virginia family — married, two young children, a house, no existing plan. Here is their whole trip.</p>
+  <div class="steps">
+    <div class="step"><div class="dot"></div><div class="body"><h4>They hear about LegacyFlow and sign up</h4><p>From the website they create an account with an email and password — under a minute, nothing else asked. <span class="sys">System: the account is created with the sign-in service; a confirmation email may be sent; they land on an empty family home page.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>They start a plan and pick Virginia</h4><p>"Start new estate plan": they name the household "The Sharma Family," choose <b>Virginia</b>, and pick the Complete Estate Plan Bundle. <span class="sys">System: loads Virginia's legal content pack, finds Virginia's registered default firm, creates their household under that firm, and opens their plan in the interview.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The AI interview</h4><p>Over a couple of evenings — pausing whenever life intervenes — they chat with the assistant: who's in the family, who'd raise the kids, what they own, healthcare wishes. They dictate some answers by voice, upload their old (pre-children) Will, and watch facts from it appear as cards to confirm or correct. One question — a guardian's address — they park with "Don't know yet." <span class="sys">System: nothing enters their file until they confirm it; parked questions are tracked separately; each answered item fills the same answer set the form uses.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>They tidy up in the guided form</h4><p>Preferring checkboxes for the remaining bits, they switch to the Intake form. The tab strip on their phone keeps all 21 sections one tap away; percentages tick up honestly; "Why we ask" explains a question about prior marriages. They unpark the guardian's address and finish. <span class="sys">System: autosaves every change; progress counts only applicable, required answers — theirs reaches a genuine 100%.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The consistency check</h4><p>They run the consistency check. It raises one question for the attorney: a savings account mentioned in the interview doesn't appear in their asset answers. They note it mentally — it's exactly the sort of thing the check exists for — and carry on. <span class="sys">System: the finding is recorded on their file as an escalation, worded as a question, for the firm to see at review.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Reviewing every answer</h4><p>On the Review page they read each answer in document wording and fix a misspelled middle name with inline edit. <span class="sys">System: the edit refreshes their completeness and their nominations automatically.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Drafts are created</h4><p>They click "Create draft documents" and get four: Will, Power of Attorney, Advance Medical Directive, and Guardianship Designation. The trust line explains it wasn't chosen, so no trust document appears. They open the Will's PDF preview — clearly watermarked "DRAFT — NOT LEGALLY VALID." <span class="sys">System: documents are rendered from fixed Virginia templates and the automated pre-review runs immediately.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The pre-review speaks — and they answer it</h4><p>The pre-review flags that the backup guardian's surname is spelled two ways across documents. They're sure of the right spelling, fix the wrong one, and regenerate. One remaining finding — a beneficiary who is a close friend, not a household member — really is intended, so they acknowledge it with a note saying so. <span class="sys">System: regeneration re-runs the pre-review; the acknowledged finding is recorded with their note and won't need re-justifying if it reappears.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>They submit</h4><p>"Submit to attorney." The page confirms: submitted, packet version 1, and names their assigned attorney at the Virginia firm. Their drafts are now frozen — viewable, but no longer editable by them. <span class="sys">System: verifies the drafts match the final answers (the fingerprint), assigns the firm's Virginia-licensed attorney, freezes the review packet, and moves the plan to Attorney review.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>A question comes back — and they answer it</h4><p>The attorney asks a clarification about the savings account the consistency check spotted. It appears on their Home page and Checkup list; they answer in the product. <span class="sys">System: the exchange is stored on their matter; the plan returns to Attorney review.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Approval and release</h4><p>Behind the scenes (next section), the attorney approves both gates and releases production. The family's home page updates: documents released — review your final documents. <span class="sys">System: clean, unwatermarked Word and PDF finals are generated as new versions; the drafts remain in history.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Signing day</h4><p>Their Signing page shows the checklist: written document, their signatures, two witnesses signing together, optional self-proving affidavit. They read each item, tick the acknowledgements, and mark them reviewed; the attorney then walks them through the actual signing. <span class="sys">System: records each reviewed item with a timestamp; the firm watches the same checklist fill in.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Funding and finish</h4><p>Funding tasks appear — confirm this account's beneficiaries, review that deed — and they work through them, attaching a confirmation letter as proof. Their plan reaches "Plan implemented," and they create a Vault share link labelled "For my sister" so she knows the plan exists and what it contains at a glance. <span class="sys">System: task statuses and evidence are stored on the matter; the share link shows the redacted summary only, revocable any time.</span></p></div></div>
+  </div>
+</section>
+
+<section id="j-firm">
+  <h2>18 · The firm journey, step by step</h2>
+  <p>The same family's file, from the Virginia firm's side of the glass.</p>
+  <div class="steps">
+    <div class="step"><div class="dot"></div><div class="body"><h4>The submission arrives</h4><p>The matter appears in the review queue and on the overview's counts as "awaiting review," already assigned to the firm's Virginia attorney by the automatic routing. <span class="sys">System: on submission it froze packet v1 and notified the firm side.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Triage</h4><p>A staff member opens the matter: Overview shows completeness at 100% and the key people; the escalations include the consistency question about a savings account. <span class="sys">System: the matter sits in Attorney review; the decision panel offers Approve, Request clarification, Escalate.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The packet and the pre-review</h4><p>The attorney opens the Review packet tab: all answers, people, nominations, decisions, escalations — and the Attorney Reviewer's findings with the family's acknowledgment note on the beneficiary item. She checks the two-way spelling issue: already fixed in the current drafts. <span class="sys">System: findings are advisory only; nothing about them gates her decision.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>One clarification</h4><p>She asks about the savings account through the product. The matter flips to Clarification requested; the family answers the same day; it flips back. <span class="sys">System: the whole exchange is stored on the matter and in the audit trail.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Gate 1 — intake approval</h4><p>Satisfied, she clicks Approve. <span class="sys">System: the intake-approval gate is created and approved in one motion; the matter moves to Approved for assembly; the decision is recorded and notified.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Gate 2 — document release</h4><p>After a final read of the draft PDFs she approves document release. <span class="sys">System: the matter moves to Documents released, unlocking production release.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Release production</h4><p>She confirms "Release for production." <span class="sys">System: re-checks all four guards (attorney role, gate approved, intake complete, assembly enabled), renders clean finals, marks the packages released, and audits the act. She downloads the notary package — finals plus the Virginia execution checklist — for the signing appointment.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Signing and funding follow-through</h4><p>From the matter's Signing tab she generates the checklist and watches the family's reviewed ticks arrive; from Funding she generates the household's funding tasks and sees evidence uploads as they complete them. <span class="sys">System: the matter moves through Signing and Funding to Plan implemented.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The fee</h4><p>On implementation, her completion fee (this was a bundle plan: $300) appears in the firm's payout queue as pending; the firm admin approves it and later marks it paid with the bank-transfer reference. <span class="sys">System: one fee per matter, created automatically; the transfer itself happens outside the product.</span></p></div></div>
+  </div>
+</section>
+
+<section id="j-attorney">
+  <h2>19 · The attorney journey — joining and working</h2>
+  <div class="steps">
+    <div class="step"><div class="dot"></div><div class="body"><h4>She creates an account and applies</h4><p>A Virginia estate attorney signs up, opens the attorney application, picks the Virginia firm, and submits her bar number, Virginia licence, experience, practice areas, and links to her bar card, insurance, and ID. <span class="sys">System: her application is pending; she can't file a second pending application anywhere until this one is decided.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The firm verifies — by hand</h4><p>The firm's admin opens her application on the Attorneys page, checks the bar credentials and documents manually (the product is explicit that nothing verifies them automatically), and approves. <span class="sys">System: approval instantly creates her active attorney membership in that firm — she is now assignable and eligible for automatic routing of Virginia submissions.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Her workspace</h4><p>Her attorney dashboard shows the availability toggle, her earnings figures, and — once the routing assigns her a submitted plan — her first case, which is Section 18's story from step 1. She can also browse Opportunities: anonymised unassigned matters, and request one she'd like — knowing a request is a raised hand, not a claim. <span class="sys">System: assignment remains a firm decision, made manually or by the submission routing.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>Growing with the platform</h4><p>When a Maryland firm joins LegacyFlow, she applies to it separately — enrolment is per firm, each with its own verification. Her payment history, though, follows her across firms in one view.</p></div></div>
+  </div>
+</section>
+
+<section id="j-platform">
+  <h2>20 · Opening a new state — the platform journey, briefly</h2>
+  <div class="steps">
+    <div class="step"><div class="dot"></div><div class="body"><h4>The legal content comes first</h4><p>The platform team prepares the state's content pack: its questions, safety rules, signing requirements, funding playbooks, educational articles, and document templates — sourced to that state's law, and marked as awaiting attorney review.</p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The pack is published through its lifecycle</h4><p>A platform admin imports the pack (it always lands as a draft), and it moves through internal testing and attorney review to approved, with a future effective date. <span class="sys">System: new plans in that state automatically bind the pack in force; existing plans anywhere are untouched.</span></p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The firm is created and staffed</h4><p>A platform admin creates the state's law firm (firms are never self-created), the firm's admin invites its team, and local attorneys apply and are verified and approved (Section 19).</p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The switches are set</h4><p>The platform team registers the firm as the state's <b>default firm</b> and the firm enables document assembly (and, when ready, the Attorney Reviewer) in its feature switches.</p></div></div>
+    <div class="step"><div class="dot"></div><div class="body"><h4>The state is live</h4><p>From that moment, a family choosing that state at plan creation is routed to the firm automatically — the exact experience Virginia families have today.</p></div></div>
+  </div>
+</section>
+
+<section id="glossary">
+  <h2>21 · Glossary — plain-English definitions</h2>
+  <dl class="gloss">
+    <div><dt>Estate plan</dt><dd>The set of legal documents and choices that say what happens to your money, property, and children if you die or can't act for yourself.</dd></div>
+    <div><dt>Will (Last Will and Testament)</dt><dd>The document that distributes your property, names your executor, and can name guardians for minor children. It takes effect at death and usually goes through probate (court supervision).</dd></div>
+    <div><dt>Executor</dt><dd>The person you name to carry out your Will — gather assets, pay debts, and distribute what's left.</dd></div>
+    <div><dt>Power of Attorney (POA)</dt><dd>A document letting a person you choose (your financial agent) handle money and property matters for you, typically if you're incapacitated.</dd></div>
+    <div><dt>Advance Medical Directive</dt><dd>Your written healthcare wishes — including a "living will" for end-of-life care — plus the healthcare agent you name to decide when you can't. Virginia's combined form.</dd></div>
+    <div><dt>Healthcare agent</dt><dd>The person authorised to make medical decisions for you when you cannot make or communicate them yourself.</dd></div>
+    <div><dt>Guardian / Guardianship Designation</dt><dd>The person who would raise your minor children if you couldn't; the designation is the document naming them, in priority order.</dd></div>
+    <div><dt>Revocable Living Trust</dt><dd>A trust you create and control while alive; assets placed ("funded") into it pass to your beneficiaries on your terms, usually without probate. "Revocable" means you can change or end it.</dd></div>
+    <div><dt>Trustee</dt><dd>The person who manages trust assets according to the trust's terms — often you, at first, then a successor you name.</dd></div>
+    <div><dt>Beneficiary</dt><dd>Anyone who receives something under your plan — from the Will, the trust, or a specific asset's beneficiary form.</dd></div>
+    <div><dt>Funding (a trust)</dt><dd>The follow-through work of moving assets into the trust's name or updating beneficiary forms so the plan actually controls them.</dd></div>
+    <div><dt>Matter</dt><dd>The product's word for one client's case or plan file at a firm — everything about one plan lives in its matter.</dd></div>
+    <div><dt>Packet</dt><dd>The frozen, numbered snapshot of a family's answers, people, choices, and flags that the firm reviews — it can never be edited after the fact.</dd></div>
+    <div><dt>Gate</dt><dd>One of the two formal attorney approvals (intake approval, then document release) a matter must pass before finals can be produced.</dd></div>
+    <div><dt>Escalation</dt><dd>An automatically created flag that something in a family's situation needs an attorney's attention — from a safety rule, the consistency check, or the AI assistant's limits.</dd></div>
+    <div><dt>Default firm</dt><dd>The law firm registered to receive a state's self-serve families — in Virginia today, the Virginia Default Firm.</dd></div>
+    <div><dt>Jurisdiction / content pack</dt><dd>"Jurisdiction" is the state whose law governs the plan. Its content pack is the bundle of that state's questions, templates, rules, and guidance inside the product.</dd></div>
+    <div><dt>Codicil / Trust amendment</dt><dd>Formal documents that change part of an already-signed Will or trust without replacing the whole thing.</dd></div>
+    <div><dt>Self-proving affidavit</dt><dd>An optional notarised statement signed with a Will that can spare witnesses from testifying later, simplifying probate.</dd></div>
+  </dl>
+</section>
+
+<section id="scope">
+  <h2>22 · What's live, what's not — the honest box</h2>
+
+  <div class="okbox"><h3 style="margin-top:0">✅ Live today</h3>
+    <ul>
+      <li><b>Virginia, end to end:</b> open self-serve signup, automatic routing to Virginia's default firm, the AI interview and guided intake, consistency check, draft generation, attorney review with both gates, clean final release, signing checklist, and funding tasks.</li>
+      <li><b>The full firm workspace:</b> matters, packets, clarifications, comments, reports, templates, invitations, applications review, payouts tracking.</li>
+      <li><b>Attorney enrolment</b> by application with manual verification, per firm.</li>
+    </ul>
+  </div>
+
+  <div class="card"><h3 style="margin-top:0">🔀 Real, but switched on per firm</h3>
+    <ul>
+      <li><b>Document assembly</b> — off until a firm is deliberately enabled (and its state's pack supports it). Without it, the firm prepares documents for the family instead of the family generating drafts.</li>
+      <li><b>The Attorney Reviewer pre-review</b> — off by default per firm; where off, its panels simply don't exist.</li>
+      <li><b>The AI Interviewer</b> — on by default but a firm can be without it; the guided form always works.</li>
+      <li><b>Interview v2</b> (the topic-cluster conversation style) — enabled per firm by the platform team.</li>
+      <li><b>Maryland, DC, and North Carolina</b> appear in the state picker, but their content packs are not yet complete and no default firms are registered for them — today, only Virginia completes the journey. A family choosing another state is told no firm is accepting plans there yet.</li>
+    </ul>
+  </div>
+
+  <div class="note"><h3 style="margin-top:0">🚧 Present in the building, not yet a working feature</h3>
+    <ul>
+      <li><b>Reminders:</b> the scheduling and dispatch machinery exists and respects preferences, but nothing in the product creates reminder schedules yet.</li>
+      <li><b>The app's own notification emails</b> (invitations, "your attorney asked a question," gate decisions) are generated and recorded in a test outbox in the current setup rather than delivered; sign-in emails (confirmation, magic link, password reset) do work, and firms use their normal channels meanwhile.</li>
+      <li><b>Payments:</b> attorney fees are tracked in the product but paid by bank transfer outside it; automated payment plumbing exists in code, unwired. Families are not charged through the product.</li>
+      <li><b>Two feature switches</b> ("AI assistance," "Funding reminders") are listed in settings but not yet connected to behaviour.</li>
+      <li><b>Smaller known gaps:</b> the family Documents page labels released finals as "Draft" rows (Section 37); escalations have no close-out button (Section 59); amendment decisions exist in the service but have no approve/reject buttons in the firm interface yet; the team roster is view-only; the auditor role currently has effectively no access to client matters; one template-creation form suggests type names the service won't accept (the firm Templates page lists the correct set).</li>
+    </ul>
+  </div>
+
+  <div class="card"><h3 style="margin-top:0">🚫 Intentionally not part of the product</h3>
+    <ul>
+      <li><b>Legal advice from AI.</b> The AI interviews, organises, drafts from fixed templates, and flags inconsistencies. It refuses advice questions and passes them to the attorney. Legal judgment belongs to the licensed attorney — by design, permanently.</li>
+      <li><b>Final documents without an attorney.</b> There is no path — for any user, at any setting — by which a watermark-free document is produced without the document-release gate's attorney approval.</li>
+      <li><b>Electronic signing.</b> Signing is prepared and tracked, not performed, in the product; execution happens with the attorney, on paper, as state law expects.</li>
+      <li><b>Self-serve law firms.</b> Firms are created only by the platform; attorneys join only by verified application.</li>
+      <li><b>In-app messaging.</b> Families and firms communicate through structured clarifications inside the file, and their own channels outside it — there is deliberately no chat inbox to lose things in.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  LegacyFlow — Functional Guide · Describes the product as it stands in October 2026 (Virginia live). Prepared for partners, team members, and stakeholders. If any description here and the product disagree, the product is right — tell us and we'll fix the document.
+</footer>
+
+</main>
+</div>
+</body>
+</html>
