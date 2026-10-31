@@ -47,6 +47,21 @@ function toneClass(status: string): string {
   return `${STATUS_DOT_CLASS} bg-lf-canvas-subtle text-lf-text-muted before:bg-lf-text-subtle`;
 }
 
+/**
+ * Family-facing labels for statuses whose internal name is jargon.
+ * ESCALATED is the state machine's word for "a blocking item routed
+ * this plan to the attorney" — a family should never have to decode
+ * it (2026-10-31: the owner, testing as a family user, read the pill
+ * verbatim as "it says that it's escalated or something").
+ */
+const FAMILY_STATUS_LABELS: Record<string, string> = {
+  ESCALATED: 'With your attorney',
+};
+
+export function familyStatusLabel(status: string): string {
+  return FAMILY_STATUS_LABELS[status.toUpperCase()] ?? formatStatus(status);
+}
+
 export function StatusPill({
   status,
   className,
@@ -62,7 +77,7 @@ export function StatusPill({
         className,
       )}
     >
-      {formatStatus(status)}
+      {familyStatusLabel(status)}
     </span>
   );
 }

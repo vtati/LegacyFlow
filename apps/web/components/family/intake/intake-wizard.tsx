@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
 import { QuestionField } from '@/components/family/intake/question-field';
-import { formatStatus } from '@/components/family/matter-context';
+import { familyStatusLabel } from '@/components/family/status-pill';
 import {
   ApiError,
   api,
@@ -16,13 +16,23 @@ import {
   type IntakeProgressResponse,
   type MatterDetail,
   type MatterSummary,
+  type MissingAnswer,
   type Person,
+  type PersonInput,
   type QuestionSection,
   type QuestionSet,
 } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { isSectionPruned, visibleQuestions } from '@/lib/applies-if';
 
 const AUTOSAVE_DELAY_MS = 800;
+
+/** Matter statuses in which the family may still edit intake answers —
+ * mirrors the API's WRITABLE_STATUSES (intake/service.py). In every
+ * other status the server rejects saves, so the wizard must present
+ * the answers as read-only instead of letting edits fail silently
+ * against a "check your connection" message. */
+const FAMILY_WRITABLE_STATUSES = new Set(['INTAKE_IN_PROGRESS', 'CLARIFICATION_REQUESTED']);
 
 interface WizardSection {
   setId: string;
@@ -92,6 +102,10 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   const [fadeLeft, setFadeLeft] = useState(false);
   const [fadeRight, setFadeRight] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSave = useRef(false);
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
+  const mounted = useRef(true);
+  const readOnlyRef = useRef(false);
   const hydrated = useRef(false);
   const answersRef = useRef<AnswerMap>({});
   const evaluationRef = useRef<HTMLDivElement>(null);
@@ -119,35 +133,98 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       .finally(() => setLoading(false));
   }, [matterId]);
 
+  // Send any unsent edits NOW. The debounce below is the normal path;
+  // this flush is the safety net for leaving the page inside the
+  // debounce window (2026-10-31 defect: the old unmount cleanup simply
+  // cleared the pending timer, so an edit made <800ms before
+  // navigating away or closing the tab was silently discarded — the
+  // server never saw it). In an SPA navigation the request still
+  // completes because the JS context lives on; on tab close it is
+  // best-effort. Never fires when the matter is read-only (the server
+  // would reject the save with a 409).
+  const flushSave = useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (!pendingSave.current || !hydrated.current || readOnlyRef.current) return;
+    pendingSave.current = false;
+    // Serialize sends: every PUT replaces the full answers map, so two
+    // in flight at once can land out of order — the slower, older map
+    // arriving last would silently revert the newer answers on the
+    // server while the UI reports "saved". Chaining keeps at most one
+    // PUT in flight; a flush during a send simply queues behind it
+    // with the newest snapshot.
+    const snapshot = answersRef.current;
+    saveChain.current = saveChain.current
+      .catch(() => undefined)
+      .then(() =>
+        api
+          .putAnswers(matterId, snapshot)
+          .then(() => {
+            if (!mounted.current) return undefined;
+            setSaveState('saved');
+            return api.getIntakeProgress(matterId);
+          })
+          .then((intakeProgress) => {
+            if (intakeProgress && mounted.current) setProgress(intakeProgress);
+          })
+          .catch(() => {
+            if (mounted.current) setSaveState('error');
+          }),
+      );
+  }, [matterId]);
+
   useEffect(() => {
+    mounted.current = true;
     reload();
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+    const onPageHide = () => flushSave();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushSave();
     };
-  }, [reload]);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flushSave();
+      mounted.current = false;
+    };
+  }, [reload, flushSave]);
 
   // Debounced autosave — sends the full answers map; never includes PII in logs.
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hydrated.current || readOnlyRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    pendingSave.current = true;
     setSaveState('saving');
-    saveTimer.current = setTimeout(() => {
-      api
-        .putAnswers(matterId, answersRef.current)
-        .then(() => {
-          setSaveState('saved');
-          return api.getIntakeProgress(matterId);
-        })
-        .then((intakeProgress) => setProgress(intakeProgress))
-        .catch(() => setSaveState('error'));
-    }, AUTOSAVE_DELAY_MS);
-  }, [answers, matterId]);
+    saveTimer.current = setTimeout(flushSave, AUTOSAVE_DELAY_MS);
+  }, [answers, matterId, flushSave]);
 
   const handleAnswerChange = useCallback((key: string, value: AnswerMap[string]) => {
     const next = { ...answersRef.current, [key]: value };
     answersRef.current = next;
     setAnswers(next);
   }, []);
+
+  // In-flow person creation for person-select questions (2026-10-31):
+  // the dropdowns list household persons, but until now the only way
+  // to add one was leaving for the Family Profile page — a family that
+  // starts directly in the form (never the chat interview) faced empty
+  // dropdowns with no way forward. Creation goes through the same
+  // API the profile page uses; the caller (QuestionField) then selects
+  // the new person for its question, and the answer's own save creates
+  // the nomination (the API only mints dependent/trusted_contact
+  // memberships from person-create — roles like guardian come from
+  // the nomination the answer creates, never from this call).
+  const handleAddPerson = useCallback(
+    async (input: PersonInput & { relationship_role?: string }): Promise<Person> => {
+      const created = await api.createPerson(matterId, input);
+      setPersons((prev) => [...prev, created]);
+      return created;
+    },
+    [matterId],
+  );
 
   const goToSection = useCallback((index: number) => {
     setActiveIndex(index);
@@ -188,6 +265,29 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     });
   }, [activeIndex]);
 
+  // Applicability (2026-10-31): the wizard renders the SAME partition
+  // the server computes — a section whose every question is pruned by
+  // its answers (e.g. the trust sections after "Do you want a trust?
+  // No") leaves the nav entirely, and a pruned question never renders.
+  // Before this, the wizard rendered all 21 sections and every
+  // question unconditionally, so a family saw required-but-gated-off
+  // fields ("Describe each specific gift… *") inside sections the nav
+  // already marked complete. Pending questions (gate unanswered) stay
+  // visible — fail-closed, exactly like the server's denominators.
+  const visibleSections = useMemo(
+    () => sections.filter((entry) => !isSectionPruned(entry.section, answers)),
+    [sections, answers],
+  );
+
+  // If the section the family is standing on becomes pruned (they
+  // flipped its gate in an earlier section), land on the last visible
+  // section instead of pointing past the end of the list.
+  useEffect(() => {
+    if (activeIndex > visibleSections.length - 1) {
+      setActiveIndex(Math.max(visibleSections.length - 1, 0));
+    }
+  }, [activeIndex, visibleSections.length]);
+
   // Signature of everything that can change a chip's WIDTH: each
   // section's floored percent plus its complete flag (which swaps
   // the figure for a check icon). Autosave replaces the progress
@@ -197,7 +297,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   // label actually changed.
   const progressSignature = useMemo(
     () =>
-      sections
+      visibleSections
         .map((entry) => {
           const p =
             progress?.sections?.[entry.setId]?.[entry.section.id] ??
@@ -206,7 +306,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
           return `${Math.floor(p.percent_complete)}${p.percent_complete >= 100 ? '✓' : ''}`;
         })
         .join('|'),
-    [sections, progress],
+    [visibleSections, progress],
   );
 
   useEffect(() => {
@@ -240,6 +340,14 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       .then((result) => {
         setEvaluation(result);
         requestAnimationFrame(() => evaluationRef.current?.focus());
+        // A blocking result moves the matter out of the editable
+        // statuses on the server; refresh so the status pill agrees.
+        // (The read-only presentation itself engages immediately via
+        // has_blocking — see below — this only syncs the label.)
+        api
+          .getMatter(matterId)
+          .then((fresh) => setMatter(withDetailHousehold(fresh)))
+          .catch(() => undefined);
       })
       .catch((err: unknown) => setSubmitError(err))
       .finally(() => setEvaluating(false));
@@ -287,8 +395,41 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     [evaluation],
   );
 
-  const activeSection = sections[activeIndex];
+  const activeSection = visibleSections[activeIndex];
   const overallProgress = progress?.overall;
+  // The projected document set, from the server's own draft signals —
+  // shown from the first paint so the family always knows what their
+  // answers are building toward.
+  const plannedIncluded = (progress?.documents ?? []).filter((doc) => doc.included);
+  // Read-only engages in two situations: the matter's status has left
+  // the editable intake statuses (submitted, with the attorney, …), or
+  // a check just flagged a blocking item — the server moves the matter
+  // out of the editable statuses in that moment, and presenting live
+  // fields would let edits race into 409s that read as "check your
+  // connection" errors.
+  const escalatedNow = evaluation?.has_blocking === true;
+  const escalated = escalatedNow || matter?.status.toUpperCase() === 'ESCALATED';
+  const readOnly =
+    (matter != null && !FAMILY_WRITABLE_STATUSES.has(matter.status.toUpperCase())) ||
+    escalatedNow;
+
+  useEffect(() => {
+    readOnlyRef.current = readOnly;
+  }, [readOnly]);
+
+  // "Still needed" entries in the check verdict jump straight to the
+  // section holding the question. Missing entries are applicable or
+  // pending by construction (the server's partition), so their section
+  // is always in the visible nav.
+  const goToMissing = useCallback(
+    (item: MissingAnswer) => {
+      const index = visibleSections.findIndex(
+        (entry) => entry.setId === item.set_id && entry.section.id === item.section_id,
+      );
+      if (index >= 0) goToSection(index);
+    },
+    [visibleSections, goToSection],
+  );
 
   if (loading) {
     return <LoadingState lines={5} label="Loading your intake questions…" />;
@@ -331,14 +472,36 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
             {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code}
           </span>
           <span className="rounded-full bg-lf-primary-50 px-2.5 py-1 text-xs font-medium text-lf-primary-800">
-            {formatStatus(matter.status)}
+            {familyStatusLabel(matter.status)}
           </span>
-          <span role="status" className="ml-auto text-xs">
-            {saveState === 'saving' && 'Saving…'}
-            {saveState === 'saved' && 'All answers saved'}
-            {saveState === 'error' && 'Save failed — check your connection'}
-          </span>
+          {!readOnly && (
+            <span role="status" className="ml-auto text-xs">
+              {saveState === 'saving' && 'Saving…'}
+              {saveState === 'saved' && 'All answers saved'}
+              {saveState === 'error' && 'Save failed — check your connection'}
+            </span>
+          )}
         </div>
+      )}
+
+      {readOnly && !submitted && (
+        <Card className="border-lf-primary-200 bg-lf-primary-50" role="note">
+          <CardContent className="flex items-start gap-3 pt-6">
+            <Info className="mt-0.5 size-5 shrink-0 text-lf-primary-700" aria-hidden="true" />
+            <div className="space-y-1">
+              <p className="font-semibold text-lf-text">
+                {escalated
+                  ? 'Your plan is with your attorney for a closer look'
+                  : 'This plan has moved to the next step'}
+              </p>
+              <p className="text-sm text-lf-text-muted">
+                {escalated
+                  ? 'A few of your answers need an attorney’s review before editing can continue. Everything you’ve entered is saved, and you can still read through it below. Your firm will let you know the next step — if they need more from you, this page will open back up for editing.'
+                  : 'Your answers can’t be changed here anymore. Everything below is read-only; your firm will guide you through what happens next.'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {overallProgress && (
@@ -352,6 +515,15 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
           </div>
           <ProgressBar value={overallProgress.percent_complete} label="Overall intake progress" />
         </div>
+      )}
+
+      {plannedIncluded.length > 0 && (
+        <p className="text-sm text-lf-text-muted">
+          Based on your answers so far, your plan will produce:{' '}
+          <span className="font-medium text-lf-text">
+            {plannedIncluded.map((doc) => doc.label).join(' · ')}
+          </span>
+        </p>
       )}
 
       {submitted && (
@@ -421,7 +593,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
             style={{ maskImage: stripMask, WebkitMaskImage: stripMask }}
             className="relative flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex-col lg:items-stretch lg:overflow-x-visible lg:px-0 lg:py-0"
           >
-            {sections.map((entry, index) => {
+            {visibleSections.map((entry, index) => {
               // Per-SECTION progress: the set-level figure repeated under
               // every section misleads (one answer in section 1 made
               // section 2 show the same %). Fall back to the set figure
@@ -551,13 +723,15 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                   </h2>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {activeSection.section.questions.map((question) => (
+                  {visibleQuestions(activeSection.section, answers).map((question) => (
                     <QuestionField
                       key={question.key}
                       question={question}
                       value={answers[question.key] ?? null}
                       onChange={(value) => handleAnswerChange(question.key, value)}
                       persons={persons}
+                      disabled={readOnly}
+                      onAddPerson={handleAddPerson}
                     />
                   ))}
                   <div className="flex items-center justify-between border-t border-lf-border pt-4">
@@ -571,13 +745,13 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                       Previous
                     </Button>
                     <span className="text-xs text-lf-text-subtle" aria-hidden="true">
-                      Section {activeIndex + 1} of {sections.length}
+                      Section {activeIndex + 1} of {visibleSections.length}
                     </span>
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => goToSection(activeIndex + 1)}
-                      disabled={activeIndex === sections.length - 1}
+                      disabled={activeIndex === visibleSections.length - 1}
                     >
                       Next
                       <ArrowRight className="size-4" aria-hidden="true" />
@@ -602,16 +776,88 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                   type="button"
                   variant="outline"
                   onClick={handleEvaluate}
-                  disabled={evaluating || submitted}
+                  disabled={evaluating || submitted || readOnly}
                 >
                   {evaluating ? 'Checking…' : 'Check my answers'}
                 </Button>
-                <Button type="button" onClick={handleSubmit} disabled={submitting || submitted}>
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={submitting || submitted || readOnly}
+                >
                   {submitting ? 'Submitting…' : 'Submit for attorney review'}
                 </Button>
               </div>
 
+              {readOnly && (
+                <p className="text-sm text-lf-text-muted">
+                  Checking and submitting are paused while your plan is at this step.
+                </p>
+              )}
+
               <div ref={evaluationRef} tabIndex={-1} className="space-y-4">
+                {evaluation && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-lf-text-subtle">
+                      Checked{' '}
+                      {new Date(evaluation.checked_at).toLocaleTimeString([], {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    {evaluation.completeness.missing.length === 0 ? (
+                      <p className="flex items-start gap-2 text-sm text-lf-text">
+                        <CheckCircle2
+                          className="mt-0.5 size-4 shrink-0 text-lf-success-700"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          <span className="font-medium">
+                            All {evaluation.completeness.required_total} required answers are in.
+                          </span>{' '}
+                          Nothing is missing.
+                        </span>
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm text-lf-text">
+                          You&apos;ve answered {evaluation.completeness.required_answered} of{' '}
+                          {evaluation.completeness.required_total} required questions. Still
+                          needed — tap one to go straight to it:
+                        </p>
+                        <ul className="space-y-1.5">
+                          {evaluation.completeness.missing.map((item) => (
+                            <li key={item.key}>
+                              <button
+                                type="button"
+                                onClick={() => goToMissing(item)}
+                                className="w-full rounded-lf-control border border-lf-border bg-lf-canvas-subtle px-3 py-2 text-left text-sm text-lf-text transition-colors hover:border-lf-primary-400 hover:bg-lf-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lf-primary-500"
+                              >
+                                <span className="font-medium">{item.label}</span>
+                                <span className="text-lf-text-muted">
+                                  {' '}
+                                  — {item.section_title}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {evaluation.documents.some((doc) => doc.included) && (
+                      <p className="text-sm text-lf-text-muted">
+                        Documents your plan will produce:{' '}
+                        <span className="font-medium text-lf-text">
+                          {evaluation.documents
+                            .filter((doc) => doc.included)
+                            .map((doc) => doc.label)
+                            .join(' · ')}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {evaluation && blockingRules.length > 0 && (
                   <div
                     role="alert"
@@ -636,39 +882,47 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                             </li>
                           ))}
                         </ul>
+                        <p className="text-sm text-lf-text">
+                          We&apos;ve flagged this for your firm — they&apos;ll take it from here,
+                          and this page will reopen if they need more from you.
+                        </p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {evaluation && (
+                {evaluation && advisoryRules.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-lf-text">
-                      {advisoryRules.length > 0
-                        ? 'Notes from your check'
-                        : 'Your answers look complete — nothing else to review right now.'}
+                      Things your attorney will want to look at
                     </p>
-                    {advisoryRules.length > 0 && (
-                      <ul className="space-y-2">
-                        {advisoryRules.map((rule) => (
-                          <li
-                            key={rule.rule_id}
-                            className="flex items-start gap-2.5 rounded-lf-control border border-lf-border bg-lf-canvas-subtle p-3 text-sm text-lf-text-muted"
-                          >
-                            <Info
-                              className="mt-0.5 size-4 shrink-0 text-lf-primary-700"
-                              aria-hidden="true"
-                            />
-                            <span>
-                              <span className="font-medium text-lf-text">{rule.outcome}: </span>
-                              {rule.user_message}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <ul className="space-y-2">
+                      {advisoryRules.map((rule) => (
+                        <li
+                          key={rule.rule_id}
+                          className="flex items-start gap-2.5 rounded-lf-control border border-lf-border bg-lf-canvas-subtle p-3 text-sm text-lf-text-muted"
+                        >
+                          <Info
+                            className="mt-0.5 size-4 shrink-0 text-lf-primary-700"
+                            aria-hidden="true"
+                          />
+                          <span>
+                            <span className="font-medium text-lf-text">{rule.outcome}: </span>
+                            {rule.user_message}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
+
+                {evaluation &&
+                  blockingRules.length === 0 &&
+                  advisoryRules.length === 0 && (
+                    <p className="text-sm text-lf-text-muted">
+                      Nothing needs your attorney&apos;s attention right now.
+                    </p>
+                  )}
               </div>
             </CardContent>
           </Card>

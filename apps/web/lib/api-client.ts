@@ -233,12 +233,17 @@ export interface Question {
   required: boolean;
   options?: QuestionOption[];
   maps_to?: string | null;
+  /** Pack applicability gate (see lib/applies-if.ts). Present in the
+   * raw question-sets payload; absent means the question always applies. */
+  applies_if?: string | null;
 }
 
 export interface QuestionSection {
   id: string;
   title: string;
   questions: Question[];
+  /** Section-level applicability gate; combines with each question's. */
+  applies_if?: string | null;
 }
 
 export interface QuestionSet {
@@ -283,6 +288,9 @@ export interface IntakeProgressResponse {
   sections?: Record<string, Record<string, SetProgress>>;
   overall: SetProgress;
   completeness_pct: number;
+  /** The document set the draft step will produce from the stored
+   * answers, projected by the server (absent on older payloads). */
+  documents?: PlannedDocument[];
 }
 
 /* AI interviewer: document extraction (Phase 2) */
@@ -454,9 +462,39 @@ export interface TriggeredRule {
   user_message: string;
 }
 
+/** One applicable required question the family has not answered yet,
+ * with everything the wizard needs to navigate back to it. */
+export interface MissingAnswer {
+  key: string;
+  label: string;
+  section_title: string;
+  set_id: string;
+  section_id: string;
+}
+
+/** Answer completeness from the server's own partition (the same
+ * applicable/pruned rules as progress and the submit gate). */
+export interface AnswerCompleteness {
+  required_total: number;
+  required_answered: number;
+  missing: MissingAnswer[];
+}
+
+/** One document type in the plan's projected draft set. */
+export interface PlannedDocument {
+  template_type: string;
+  label: string;
+  included: boolean;
+  signal: string;
+}
+
 export interface EvaluateResponse {
   triggered: TriggeredRule[];
   has_blocking: boolean;
+  /** When the check ran (ISO timestamp). */
+  checked_at: string;
+  completeness: AnswerCompleteness;
+  documents: PlannedDocument[];
 }
 
 export interface Person {
