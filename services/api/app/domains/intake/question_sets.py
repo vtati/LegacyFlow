@@ -454,6 +454,53 @@ def build_overall_progress(
     )
 
 
+def build_completeness(
+    question_sets: dict[str, dict[str, Any]],
+    answers: dict[str, Any],
+) -> dict[str, Any]:
+    """Family-facing completeness detail, from the SAME partition as
+    :func:`compute_progress` (2026-10-31).
+
+    Returns ``{"required_total", "required_answered", "missing"}`` where
+    the denominator counts applicable + pending required questions
+    (pruned questions — their gate answered decisively — are excluded,
+    exactly as progress and the submit gate count them) and ``missing``
+    lists each unanswered one in pack order with everything a UI needs
+    to send the family back to it: key, label, section title and ids.
+    """
+    section_titles: dict[tuple[str, str], str] = {}
+    for set_id, question_set in question_sets.items():
+        for section in question_set.get("sections", []):
+            section_titles[(set_id, str(section.get("id", "")))] = str(
+                section.get("title") or ""
+            )
+    required_total = 0
+    required_answered = 0
+    missing: list[dict[str, Any]] = []
+    for state, set_id, section_id, question in _partition_rows(question_sets, answers):
+        if state == "pruned" or not question.get("required"):
+            continue
+        required_total += 1
+        key = str(question["key"])
+        if is_answered(answers.get(key)):
+            required_answered += 1
+            continue
+        missing.append(
+            {
+                "key": key,
+                "label": str(question.get("label") or key),
+                "section_title": section_titles.get((set_id, section_id), ""),
+                "set_id": set_id,
+                "section_id": section_id,
+            }
+        )
+    return {
+        "required_total": required_total,
+        "required_answered": required_answered,
+        "missing": missing,
+    }
+
+
 def build_facts(
     question_sets: dict[str, dict[str, Any]],
     answers: dict[str, Any],

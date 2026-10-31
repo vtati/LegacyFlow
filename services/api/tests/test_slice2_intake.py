@@ -87,6 +87,17 @@ VA_SNAPSHOT = {
     "jurisdiction_code": "US-VA",
     "semantic_version": "0.1.0",
 }
+#: The production v2 pack (semantic_version 2.0.0): the v0 fixture pack
+#: above declares only 15 keys and none of the document-gate questions
+#: (wants_poa_document, has_specific_bequests, …), so tests that save
+#: those keys against a v0 matter fail key validation with a 422 — a
+#: fixture detail, not product behavior (the same keys save fine
+#: against real v2 matters). Tests of v2-era behavior snapshot this.
+VA2_SNAPSHOT = {
+    "pack_id": "us-va",
+    "jurisdiction_code": "US-VA",
+    "semantic_version": "2.0.0",
+}
 XZ_SNAPSHOT = {
     "pack_id": "us-xz-synthetic",
     "jurisdiction_code": "US-XZ",
@@ -324,12 +335,13 @@ def _db_exec(sql: str, params: tuple[Any, ...] = ()) -> None:
 def make_matter(
     *,
     status: str = "INTAKE_IN_PROGRESS",
-    snapshot_kind: str = "va",  # "va" | "xz" | "missing" | "legacy"
+    snapshot_kind: str = "va",  # "va" | "va2" | "xz" | "missing" | "legacy"
 ) -> UUID:
     """Insert a matter; ``snapshot_kind="legacy"`` simulates a pre-snapshot row."""
     matter_id = uuid.uuid4()
     snapshots: dict[str, dict[str, Any] | None] = {
         "va": VA_SNAPSHOT,
+        "va2": VA2_SNAPSHOT,
         "xz": XZ_SNAPSHOT,
         "missing": {
             "pack_id": "us-va",
@@ -741,6 +753,81 @@ def test_evaluate_review_rule_records_without_transition(client: TestClient) -> 
         "SELECT severity, status FROM escalations WHERE matter_id = %s", (str(matter_id),)
     )
     assert esc is not None and esc["severity"] == "review" and esc["status"] == "open"
+
+
+def test_evaluate_reports_completeness_and_planned_documents(
+    client: TestClient,
+) -> None:
+    """The family-facing check must answer "am I actually complete?"
+    (2026-10-31): the evaluate response carries the completeness of
+    applicable required answers (same partition as progress/submit)
+    and the document set the draft step will produce from the stored
+    answers — the two things the old response never said."""
+    # v2 matter: the gate keys below (and the bequests set the
+    # assertions read) exist only in the production v2 pack.
+    matter_id = make_matter(snapshot_kind="va2")
+    answers = {
+        "marital_status": "single",
+        "has_minor_children": True,
+        "wants_poa_document": False,
+        "has_specific_bequests": False,
+    }
+    assert put_answers(client, matter_id, answers).status_code == 200
+    response = _evaluate(client, matter_id)
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["checked_at"]
+
+    completeness = body["completeness"]
+    assert completeness["required_total"] > 0
+    assert (
+        completeness["required_answered"] + len(completeness["missing"])
+        == completeness["required_total"]
+    )
+    missing_by_key = {entry["key"]: entry for entry in completeness["missing"]}
+    # A known applicable required question that was not answered.
+    assert "residuary_beneficiaries" in missing_by_key
+    entry = missing_by_key["residuary_beneficiaries"]
+    assert entry["label"]
+    assert entry["section_title"]
+    assert entry["set_id"] and entry["section_id"]
+    # A required question pruned by its gate (has_specific_bequests is
+    # False) must NOT be reported missing — the same applicability
+    # rules as progress and submit.
+    assert "specific_bequests" not in missing_by_key
+
+    documents = {doc["template_type"]: doc for doc in body["documents"]}
+    assert documents["will"]["included"] is True
+    assert documents["will"]["label"]
+    assert documents["poa"]["included"] is False
+    assert documents["poa"]["signal"] == "wants_poa_document == false"
+    assert documents["guardianship"]["included"] is True
+    assert documents["trust"]["included"] is False
+    assert documents["advance_directive"]["included"] is True
+
+
+def test_progress_reports_planned_documents(client: TestClient) -> None:
+    """The progress payload carries the projected document set
+    (2026-10-31) so the wizard's "your plan will produce: …" line is
+    server truth from the first paint, not a client-side guess."""
+    matter_id = make_matter(snapshot_kind="va2")
+    answers = {
+        "marital_status": "single",
+        "has_minor_children": True,
+        "wants_poa_document": False,
+    }
+    assert put_answers(client, matter_id, answers).status_code == 200
+    response = client.get(
+        f"/v1/matters/{matter_id}/intake/progress", headers=_headers(PRIMARY_SUB)
+    )
+    assert response.status_code == 200
+    documents = {doc["template_type"]: doc for doc in response.json()["documents"]}
+    assert documents["will"]["included"] is True
+    assert documents["will"]["label"] == "Last Will and Testament"
+    assert documents["poa"]["included"] is False
+    assert documents["guardianship"]["included"] is True
+    assert documents["trust"]["included"] is False
 
 
 def test_evaluate_xz_rule_fires_on_synthetic_pack(client: TestClient) -> None:

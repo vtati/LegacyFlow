@@ -7,6 +7,17 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domains.documents.schemas import PlannedDocumentOut
+
+__all__ = [
+    "AnswersIn",
+    "AnswersOut",
+    "IntakeProgressOut",
+    "PlannedDocumentOut",
+    "QuestionSetProgress",
+    "QuestionSetsOut",
+]
+
 
 class QuestionSetsOut(BaseModel):
     """Question sets served for a matter, bound to its snapshotted pack."""
@@ -49,3 +60,8 @@ class IntakeProgressOut(BaseModel):
     sections: dict[str, dict[str, QuestionSetProgress]] = {}
     completeness_pct: float
     overall: QuestionSetProgress
+    # The document set the draft step will produce from the stored
+    # answers (2026-10-31) — the wizard shows it from the first paint
+    # ("Based on your answers so far, your plan will produce: …"), so
+    # it rides the payload the wizard already polls.
+    documents: list[PlannedDocumentOut] = []

@@ -1284,9 +1284,17 @@ def get_progress(conn: Any, *, actor_sub: str, matter_id: UUID) -> IntakeProgres
     # migration): round once here so the persisted value and the response agree.
     overall = float(int(round(overall)))
     matters_repo.update_completeness(conn, matter_id, overall)
+    # The projected document set rides along (2026-10-31): the wizard
+    # polls this endpoint after every autosave, so the family's
+    # "your plan will produce: …" line stays current with their answers
+    # at zero extra requests. Function-local import: documents.service
+    # imports this module's neighbours at module scope.
+    from app.domains.documents.draft_set import resolve_draft_documents
+
     return IntakeProgressOut(
         sets=per_set,
         sections=qs.compute_section_progress(pack.question_sets, answers),
         completeness_pct=overall,
         overall=qs.build_overall_progress(per_set, overall),
+        documents=resolve_draft_documents(answers),
     )

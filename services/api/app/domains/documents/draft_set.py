@@ -98,6 +98,29 @@ def resolve_draft_set(answers: dict[str, Any]) -> list[str]:
     ]
 
 
+#: Family-facing document names per template type — the same titles the
+#: execution-requirements catalogue (documents/service.py
+#: VA_EXECUTION_REQUIREMENTS) prints on the notary package.
+DRAFT_SET_LABELS: dict[str, str] = {
+    "will": "Last Will and Testament",
+    "poa": "Durable Power of Attorney",
+    "advance_directive": "Advance Medical Directive",
+    "guardianship": "Guardianship Designation",
+    "trust": "Revocable Living Trust",
+}
+
+
+def resolve_draft_documents(answers: dict[str, Any]) -> list[dict[str, Any]]:
+    """Draft signals with display labels — the payload shape the intake
+    progress and evaluate responses carry so the family can see, from
+    their stored answers, which documents their plan will produce
+    (2026-10-31) without running generation."""
+    return [
+        {**entry, "label": DRAFT_SET_LABELS.get(str(entry["template_type"]), str(entry["template_type"]))}
+        for entry in resolve_draft_signals(answers)
+    ]
+
+
 def resolve_set_templates(
     conn: Any, firm_id: UUID, pack_id: str | None, types: list[str]
 ) -> dict[str, dict[str, Any]]:

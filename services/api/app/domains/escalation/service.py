@@ -17,14 +17,22 @@ never persisted (contract rule 9).
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from app.core import authz
 from app.core.audit import record_audit_event
 from app.core.errors import ConfigurationError, ConflictError, ValidationAppError
+from app.domains.documents.draft_set import resolve_draft_documents
 from app.domains.escalation import repository as repo
-from app.domains.escalation.schemas import EscalationOut, EvaluateOut, TriggeredRuleOut
+from app.domains.escalation.schemas import (
+    CompletenessOut,
+    EscalationOut,
+    EvaluateOut,
+    MissingAnswerOut,
+    TriggeredRuleOut,
+)
 from app.domains.intake import question_sets as intake_questions
 from app.domains.intake import repository as intake_repo
 from app.domains.legal_content.pack_loader import evaluate_rule_expression
@@ -176,7 +184,23 @@ def evaluate_intake(conn: Any, *, actor_sub: str, matter_id: UUID) -> EvaluateOu
             },
         )
         _apply_blocking_transition(conn, scope=scope, actor_id=actor_id)
-    return EvaluateOut(triggered=triggered, has_blocking=has_blocking)
+    # The family-facing half of the check (2026-10-31): completeness of
+    # applicable required answers and the projected document set, both
+    # computed from the same stored answers + pack partition the
+    # progress endpoint and the submit gate use — never a second,
+    # divergent notion of "complete".
+    completeness = intake_questions.build_completeness(pack.question_sets, answers)
+    return EvaluateOut(
+        triggered=triggered,
+        has_blocking=has_blocking,
+        checked_at=datetime.now(UTC),
+        completeness=CompletenessOut(
+            required_total=completeness["required_total"],
+            required_answered=completeness["required_answered"],
+            missing=[MissingAnswerOut(**entry) for entry in completeness["missing"]],
+        ),
+        documents=resolve_draft_documents(answers),
+    )
 
 
 def list_escalations(

@@ -34,6 +34,19 @@ PackageStatus = Literal["draft", "demo_released", "released"]
 FundingTaskStatus = Literal["pending", "in_progress", "completed"]
 
 
+class PlannedDocumentOut(BaseModel):
+    """One document type in a plan's projected draft set (2026-10-31):
+    whether the stored answers include it, its family-facing name, and
+    the signal that decided it. Produced by
+    ``draft_set.resolve_draft_documents``; carried by the intake
+    progress and evaluate responses."""
+
+    template_type: str
+    label: str
+    included: bool
+    signal: str
+
+
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
