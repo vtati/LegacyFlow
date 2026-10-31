@@ -14,6 +14,7 @@ from uuid import UUID
 
 from app.core.audit import record_audit_event
 from app.core.errors import ConflictError, ValidationAppError
+from app.domains.documents.draft_set import resolve_draft_documents
 from app.domains.intake import question_sets as qs
 from app.domains.intake import repository as repo
 from app.domains.intake.schemas import (
@@ -1287,10 +1288,7 @@ def get_progress(conn: Any, *, actor_sub: str, matter_id: UUID) -> IntakeProgres
     # The projected document set rides along (2026-10-31): the wizard
     # polls this endpoint after every autosave, so the family's
     # "your plan will produce: …" line stays current with their answers
-    # at zero extra requests. Function-local import: documents.service
-    # imports this module's neighbours at module scope.
-    from app.domains.documents.draft_set import resolve_draft_documents
-
+    # at zero extra requests.
     return IntakeProgressOut(
         sets=per_set,
         sections=qs.compute_section_progress(pack.question_sets, answers),
