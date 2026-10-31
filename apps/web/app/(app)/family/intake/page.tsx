@@ -6,11 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
-import {
-  formatStatus,
-  useLiveCoverage,
-  useMatters,
-} from '@/components/family/matter-context';
+import { useLiveCoverage, useMatters } from '@/components/family/matter-context';
+import { familyStatusLabel } from '@/components/family/status-pill';
 
 /** Intake matter picker — choose which matter's questions to answer. */
 export default function FamilyIntakeIndexPage(): React.JSX.Element {
@@ -51,7 +48,7 @@ export default function FamilyIntakeIndexPage(): React.JSX.Element {
                     <p className="font-semibold text-lf-text">{matter.title}</p>
                     <p className="text-sm text-lf-text-muted">
                       {matter.household?.name ?? 'Household'} · {matter.jurisdiction_code} ·{' '}
-                      {formatStatus(matter.status)}
+                      {familyStatusLabel(matter.status)}
                     </p>
                   </div>
                   <ProgressBar

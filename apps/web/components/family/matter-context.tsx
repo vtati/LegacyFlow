@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api, type MatterSummary } from '@/lib/api-client';
 import { formatStatus } from '@/lib/format';
+import { familyStatusLabel } from '@/components/family/status-pill';
 
 interface UseMattersResult {
   matters: MatterSummary[];
@@ -117,7 +118,7 @@ export function MatterSelect({
       </select>
       {selected && (
         <p className="text-xs text-lf-text-subtle">
-          {selected.household?.name ?? 'Household'} · {formatStatus(selected.status)}
+          {selected.household?.name ?? 'Household'} · {familyStatusLabel(selected.status)}
         </p>
       )}
     </div>

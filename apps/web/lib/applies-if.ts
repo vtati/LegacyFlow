@@ -20,6 +20,11 @@
  *
  * Grammar (no eval): or / and / not, == / != comparisons, operands are
  * question keys, true/false, numbers, or quoted strings; parentheses.
+ *
+ * Known divergence: integers beyond 2^53 lose precision in JS numbers
+ * (JSON.parse has the same limit), so an equality on such a value can
+ * differ from Python's arbitrary-precision ints. Pack gates compare
+ * small counts and flags; no realistic expression reaches it (L2).
  */
 
 export type AnswerMapLike = Record<string, unknown>;
@@ -165,6 +170,17 @@ export function isAnsweredValue(value: unknown): boolean {
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
+  // Inside containers, Python compares with PLAIN == (the evaluator's
+  // bool/number strictness applies only to a comparison's direct
+  // operands, which are pre-checked before deepEqual is reached):
+  // [true] == [1] is True in Python (L-f).
+  const aBoolNum = typeof a === 'boolean' || typeof a === 'number';
+  const bBoolNum = typeof b === 'boolean' || typeof b === 'number';
+  if (aBoolNum && bBoolNum) return Number(a) === Number(b);
+  // Cross-type array/object is never equal — Python's [] == {} is
+  // False; without this guard the generic object branch below would
+  // call [1] equal to {"0": 1} (review finding L1).
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((item, i) => deepEqual(item, b[i]));
   }
@@ -258,6 +274,9 @@ export type Applicability = 'applicable' | 'pending' | 'pruned';
  * because of a pack typo would strand the family. */
 function appliesState(expr: string | null | undefined, answers: AnswerMapLike): boolean | null {
   if (expr === null || expr === undefined) return true;
+  // A non-string gate (a pack typo like `applies_if: true` in YAML)
+  // fails OPEN like a malformed one — never throw into rendering (L3).
+  if (typeof expr !== 'string') return true;
   if (!expr.trim()) return true;
   try {
     return evaluateAppliesIf(expr, answers);

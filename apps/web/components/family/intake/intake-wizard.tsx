@@ -104,6 +104,9 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSave = useRef(false);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
+  const saveFailed = useRef(false);
+  const sendSeq = useRef(0);
+  const busyRef = useRef(false);
   const mounted = useRef(true);
   const readOnlyRef = useRef(false);
   const hydrated = useRef(false);
@@ -113,6 +116,17 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   const reload = useCallback(() => {
     setLoading(true);
     setLoadError(null);
+    // Per-matter state must never leak across matters (H2): the page
+    // also keys this component by matterId, and these resets are the
+    // second line of defence — a previous matter's blocking verdict
+    // must not lock THIS matter read-only or show its results.
+    setEvaluation(null);
+    setSubmitted(false);
+    setActiveIndex(0);
+    setSubmitError(null);
+    setMissingItems([]);
+    pendingSave.current = false;
+    saveFailed.current = false;
     Promise.all([
       api.getMatter(matterId),
       api.getQuestionSets(matterId),
@@ -142,12 +156,21 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   // completes because the JS context lives on; on tab close it is
   // best-effort. Never fires when the matter is read-only (the server
   // would reject the save with a 409).
-  const flushSave = useCallback(() => {
+  // Returns a promise for "every owed save has landed" (true) or
+  // "a save failed and is still owed" (false). Callers that act on
+  // server state — Check my answers, Submit — MUST await this first:
+  // the server reads only stored answers, so acting on a <800ms-old
+  // edit would judge a stale plan, and if the check then moves the
+  // matter out of the editable statuses the pending edit could never
+  // be sent at all (review finding H1, 2026-10-31).
+  const flushSave = useCallback((opts?: { forUnload?: boolean }): Promise<boolean> => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
-    if (!pendingSave.current || !hydrated.current || readOnlyRef.current) return;
+    if (!pendingSave.current || !hydrated.current || readOnlyRef.current) {
+      return saveChain.current.then(() => !saveFailed.current);
+    }
     pendingSave.current = false;
     // Serialize sends: every PUT replaces the full answers map, so two
     // in flight at once can land out of order — the slower, older map
@@ -156,38 +179,60 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     // PUT in flight; a flush during a send simply queues behind it
     // with the newest snapshot.
     const snapshot = answersRef.current;
+    // keepalive is ONLY for unload flushes (pagehide/unmount), and
+    // only under the Fetch spec's 64 KB keepalive ceiling: applied to
+    // ordinary saves it would hard-fail every save once a long
+    // intake's answers map outgrew the cap (review finding H-A).
+    // Larger maps fall back to a plain fetch — best-effort at unload,
+    // exactly as before keepalive existed.
+    const keepalive =
+      opts?.forUnload === true &&
+      new TextEncoder().encode(JSON.stringify(snapshot)).length <= 60_000;
+    const mySeq = ++sendSeq.current;
     saveChain.current = saveChain.current
       .catch(() => undefined)
-      .then(() =>
-        api
-          .putAnswers(matterId, snapshot)
-          .then(() => {
-            if (!mounted.current) return undefined;
-            setSaveState('saved');
-            return api.getIntakeProgress(matterId);
-          })
-          .then((intakeProgress) => {
-            if (intakeProgress && mounted.current) setProgress(intakeProgress);
-          })
-          .catch(() => {
-            if (mounted.current) setSaveState('error');
-          }),
-      );
+      .then(async () => {
+        try {
+          await api.putAnswers(matterId, snapshot, { keepalive });
+        } catch {
+          // Still owed — unless a NEWER save is already queued behind
+          // this one, in which case its fuller snapshot supersedes
+          // this failure entirely (answers only ever grow).
+          if (sendSeq.current === mySeq) {
+            pendingSave.current = true;
+            saveFailed.current = true;
+          }
+          if (mounted.current) setSaveState('error');
+          return;
+        }
+        if (sendSeq.current === mySeq) saveFailed.current = false;
+        if (!mounted.current) return;
+        setSaveState('saved');
+        // The progress refresh is cosmetic; its failure must not read
+        // as a save failure.
+        try {
+          const intakeProgress = await api.getIntakeProgress(matterId);
+          if (mounted.current) setProgress(intakeProgress);
+        } catch {
+          // Keep the last known progress.
+        }
+      });
+    return saveChain.current.then(() => !saveFailed.current);
   }, [matterId]);
 
   useEffect(() => {
     mounted.current = true;
     reload();
-    const onPageHide = () => flushSave();
+    const onPageHide = () => flushSave({ forUnload: true });
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') flushSave();
+      if (document.visibilityState === 'hidden') flushSave({ forUnload: true });
     };
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
-      flushSave();
+      flushSave({ forUnload: true });
       mounted.current = false;
     };
   }, [reload, flushSave]);
@@ -202,9 +247,23 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
   }, [answers, matterId, flushSave]);
 
   const handleAnswerChange = useCallback((key: string, value: AnswerMap[string]) => {
+    // While a Check/Submit is in flight, answer mutations are
+    // refused (H-B): the visible inputs are locked, but async
+    // completions — above all the add-person flow resolving its
+    // createPerson call — reach this handler directly, and an edit
+    // landing mid-check could be stranded by a blocking verdict
+    // while the banner claims everything is saved. The created
+    // person still lands in the household list; only the answer
+    // change waits for the next interaction.
+    if (busyRef.current) return;
     const next = { ...answersRef.current, [key]: value };
     answersRef.current = next;
     setAnswers(next);
+    // A verdict is a point-in-time judgement of the answers as they
+    // stood; the next edit invalidates it (its missing-item jumps can
+    // also point at sections this edit just pruned — L6). Clearing it
+    // keeps the panel honest; Check can be run again in one click.
+    setEvaluation((prev) => (prev === null ? prev : null));
   }, []);
 
   // In-flow person creation for person-select questions (2026-10-31):
@@ -226,8 +285,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     [matterId],
   );
 
-  const goToSection = useCallback((index: number) => {
-    setActiveIndex(index);
+  const focusSectionCard = useCallback(() => {
     requestAnimationFrame(() => {
       // Move focus for assistive tech without letting the browser's
       // focus-scroll fight the explicit card scroll below.
@@ -237,6 +295,14 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       cardTopRef.current?.scrollIntoView?.({ block: 'start', behavior: motionBehavior() });
     });
   }, []);
+
+  const goToSection = useCallback(
+    (index: number) => {
+      setActiveIndex(index);
+      focusSectionCard();
+    },
+    [focusSectionCard],
+  );
 
   // Edge fades on the mobile tab strip: a trailing/leading mask while
   // more chips sit off that edge — the scroll affordance for a strip
@@ -279,14 +345,60 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
     [sections, answers],
   );
 
-  // If the section the family is standing on becomes pruned (they
-  // flipped its gate in an earlier section), land on the last visible
-  // section instead of pointing past the end of the list.
+  // Follow the section the family is standing on across
+  // applicability changes (L9): if an earlier section is pruned, the
+  // indices shift and the same index would silently point elsewhere;
+  // if the active section itself is pruned, land on its nearest
+  // survivor (next following, else previous) — never teleport to the
+  // far end of the list. Navigation never changes the visible list,
+  // so diffing against the previous list cannot fight the user.
+  const prevVisibleRef = useRef<WizardSection[]>([]);
   useEffect(() => {
-    if (activeIndex > visibleSections.length - 1) {
-      setActiveIndex(Math.max(visibleSections.length - 1, 0));
+    const prev = prevVisibleRef.current;
+    prevVisibleRef.current = visibleSections;
+    if (visibleSections.length === 0) return;
+    const sameEntry = (a: WizardSection, b: WizardSection) =>
+      a.setId === b.setId && a.section.id === b.section.id;
+    // Follow FIRST (F2): if the section the family was reading
+    // survives — at whatever new index — stay on it; if it pruned,
+    // land on its nearest survivor. Clamping first would shadow this
+    // whenever several sections prune at once and the raw index
+    // falls out of range, teleporting the reader to the last section.
+    const prevActive = prev[activeIndex];
+    if (prevActive) {
+      const stillThere = visibleSections.findIndex((entry) => sameEntry(entry, prevActive));
+      if (stillThere >= 0) {
+        if (stillThere !== activeIndex) {
+          setActiveIndex(stillThere);
+          focusSectionCard();
+        }
+        return;
+      }
+      for (let i = activeIndex + 1; i < prev.length; i += 1) {
+        const idx = visibleSections.findIndex((entry) => sameEntry(entry, prev[i]));
+        if (idx >= 0) {
+          setActiveIndex(idx);
+          focusSectionCard();
+          return;
+        }
+      }
+      for (let i = activeIndex - 1; i >= 0; i -= 1) {
+        const idx = visibleSections.findIndex((entry) => sameEntry(entry, prev[i]));
+        if (idx >= 0) {
+          setActiveIndex(idx);
+          focusSectionCard();
+          return;
+        }
+      }
     }
-  }, [activeIndex, visibleSections.length]);
+    // Clamp fallback (M-B): no follow landing (the list emptied and
+    // refilled, or no survivor exists) — the index must still never
+    // point past the end, or no section card renders at all.
+    if (activeIndex > visibleSections.length - 1) {
+      setActiveIndex(visibleSections.length - 1);
+      focusSectionCard();
+    }
+  }, [visibleSections, activeIndex, focusSectionCard]);
 
   // Signature of everything that can change a chip's WIDTH: each
   // section's floored percent plus its complete flag (which swaps
@@ -333,58 +445,94 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
         })`
       : undefined;
 
-  const handleEvaluate = useCallback(() => {
+  const handleEvaluate = useCallback(async () => {
+    // Mutual exclusion (F1): Check and Submit share busyRef, and
+    // neither may start while the other runs — the first finisher's
+    // finally would otherwise drop the guard mid-operation and let
+    // an async answer mutation slip into the second operation.
+    if (busyRef.current) return;
     setEvaluating(true);
-    api
-      .evaluateIntake(matterId)
-      .then((result) => {
-        setEvaluation(result);
-        requestAnimationFrame(() => evaluationRef.current?.focus());
-        // A blocking result moves the matter out of the editable
-        // statuses on the server; refresh so the status pill agrees.
-        // (The read-only presentation itself engages immediately via
-        // has_blocking — see below — this only syncs the label.)
-        api
-          .getMatter(matterId)
-          .then((fresh) => setMatter(withDetailHousehold(fresh)))
-          .catch(() => undefined);
-      })
-      .catch((err: unknown) => setSubmitError(err))
-      .finally(() => setEvaluating(false));
-  }, [matterId]);
+    setSubmitError(null);
+    busyRef.current = true;
+    try {
+      // Flush first (H1): the verdict must judge the answers as they
+      // stand NOW, including an edit still inside the debounce window —
+      // and a blocking verdict moves the matter out of the editable
+      // statuses, after which that edit could never be sent.
+      const flushed = await flushSave();
+      if (!flushed) {
+        setSubmitError(
+          new Error(
+            "Your latest change couldn't be saved, so the check didn't run. Check your connection and try again.",
+          ),
+        );
+        return;
+      }
+      const result = await api.evaluateIntake(matterId);
+      setEvaluation(result);
+      requestAnimationFrame(() => evaluationRef.current?.focus());
+      // A blocking result moves the matter out of the editable
+      // statuses on the server; refresh so the status pill agrees.
+      // (The read-only presentation itself engages immediately via
+      // has_blocking — see below — this only syncs the label.)
+      api
+        .getMatter(matterId)
+        .then((fresh) => setMatter(withDetailHousehold(fresh)))
+        .catch(() => undefined);
+    } catch (err: unknown) {
+      // The finally below guarantees the UI never latches locked,
+      // whatever failed — including a rejected flush (M-A).
+      setSubmitError(err);
+    } finally {
+      busyRef.current = false;
+      setEvaluating(false);
+    }
+  }, [matterId, flushSave]);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
+    if (busyRef.current) return;
     setSubmitting(true);
     setSubmitError(null);
     setMissingItems([]);
-    api
-      .submitMatter(matterId)
-      .then((updated) => {
-        // The submit endpoint returns the FLAT matter (no detail
-        // envelope), serialized without the household/jurisdiction
-        // joins — its embedded household is the "Household" placeholder
-        // and its jurisdiction_code is null. Keep the household and
-        // jurisdiction already on screen; take everything else (above
-        // all the new status) from the response.
-        setMatter((prev) => ({
-          ...updated,
-          household: prev?.household ?? updated.household,
-          jurisdiction_code: updated.jurisdiction_code ?? prev?.jurisdiction_code ?? '',
-        }));
-        setSubmitted(true);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      })
-      .catch((err: unknown) => {
-        setSubmitError(err);
-        if (err instanceof ApiError && err.status === 409) {
-          const body = err.details as { missing?: unknown } | null;
-          const missing = body?.missing;
-          setMissingItems(Array.isArray(missing) ? missing : []);
-        }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      })
-      .finally(() => setSubmitting(false));
-  }, [matterId]);
+    busyRef.current = true;
+    try {
+      // Flush first (H1): submit judges stored answers only.
+      const flushed = await flushSave();
+      if (!flushed) {
+        setSubmitError(
+          new Error(
+            "Your latest change couldn't be saved, so nothing was submitted. Check your connection and try again.",
+          ),
+        );
+        return;
+      }
+      const updated = await api.submitMatter(matterId);
+      // The submit endpoint returns the FLAT matter (no detail
+      // envelope), serialized without the household/jurisdiction
+      // joins — its embedded household is the "Household" placeholder
+      // and its jurisdiction_code is null. Keep the household and
+      // jurisdiction already on screen; take everything else (above
+      // all the new status) from the response.
+      setMatter((prev) => ({
+        ...updated,
+        household: prev?.household ?? updated.household,
+        jurisdiction_code: updated.jurisdiction_code ?? prev?.jurisdiction_code ?? '',
+      }));
+      setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err: unknown) {
+      setSubmitError(err);
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.details as { missing?: unknown } | null;
+        const missing = body?.missing;
+        setMissingItems(Array.isArray(missing) ? missing : []);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } finally {
+      busyRef.current = false;
+      setSubmitting(false);
+    }
+  }, [matterId, flushSave]);
 
   const blockingRules = useMemo(
     () => (evaluation?.triggered ?? []).filter((rule) => rule.severity === 'blocking'),
@@ -546,7 +694,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
       {submitError != null && !(submitError instanceof ApiError && submitError.status === 409) ? (
         <Card className="border-lf-error-600" role="alert">
           <CardContent className="pt-6">
-            <p className="text-sm font-medium text-lf-text">Could not submit right now</p>
+            <p className="text-sm font-medium text-lf-text">That didn&apos;t go through</p>
             <p className="mt-1 text-sm text-lf-text-muted">
               {submitError instanceof Error ? submitError.message : 'Please try again in a moment.'}
             </p>
@@ -730,7 +878,7 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                       value={answers[question.key] ?? null}
                       onChange={(value) => handleAnswerChange(question.key, value)}
                       persons={persons}
-                      disabled={readOnly}
+                      disabled={readOnly || evaluating || submitting}
                       onAddPerson={handleAddPerson}
                     />
                   ))}
@@ -776,14 +924,14 @@ export function IntakeWizard({ matterId }: IntakeWizardProps): React.JSX.Element
                   type="button"
                   variant="outline"
                   onClick={handleEvaluate}
-                  disabled={evaluating || submitted || readOnly}
+                  disabled={evaluating || submitting || submitted || readOnly}
                 >
                   {evaluating ? 'Checking…' : 'Check my answers'}
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={submitting || submitted || readOnly}
+                  disabled={submitting || evaluating || submitted || readOnly}
                 >
                   {submitting ? 'Submitting…' : 'Submit for attorney review'}
                 </Button>

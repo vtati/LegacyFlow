@@ -88,8 +88,15 @@ export function QuestionField({
         setNewKind('adult');
         setNewRole('trusted_contact');
       })
-      .catch(() =>
-        setAddError('We could not add that person just now — please try again.'),
+      .catch((err: unknown) =>
+        // Surface the server's reason when there is one (e.g. a name
+        // over the API's length cap) — a bare "try again" leaves the
+        // family retrying an action that can never succeed.
+        setAddError(
+          err instanceof Error && err.message
+            ? `We could not add that person: ${err.message}`
+            : 'We could not add that person just now — please try again.',
+        ),
       )
       .finally(() => setAddSaving(false));
   };
@@ -181,7 +188,7 @@ export function QuestionField({
             </option>
           ))}
         </select>
-        {persons.length === 0 && (
+        {persons.length === 0 && !disabled && (
           <p className="text-sm text-lf-text-muted">
             No one is in your household list yet — add the person below and they will be
             chosen for this question.
@@ -205,6 +212,7 @@ export function QuestionField({
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 autoComplete="off"
+                maxLength={200}
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">

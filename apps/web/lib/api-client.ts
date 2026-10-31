@@ -49,12 +49,24 @@ interface ErrorBody {
   code?: string;
   message?: string;
   error?: string;
-  detail?: string;
+  detail?: string | Array<{ msg?: string }>;
 }
 
 function readErrorMessage(status: number, body: unknown): { message: string; code?: string } {
   if (body && typeof body === 'object') {
     const parsed = body as ErrorBody;
+    // FastAPI validation errors carry detail as an ARRAY of
+    // {loc, msg} — join the messages so the family sees the actual
+    // reason instead of a bare status (review finding L-d).
+    if (Array.isArray(parsed.detail)) {
+      const joined = parsed.detail
+        .map((entry) => entry?.msg)
+        .filter((msg): msg is string => typeof msg === 'string' && msg.length > 0)
+        .join('; ');
+      if (joined.length > 0) {
+        return { message: joined, code: parsed.code };
+      }
+    }
     const message = parsed.message ?? parsed.error ?? parsed.detail ?? parsed.code;
     if (typeof message === 'string' && message.length > 0) {
       return { message, code: parsed.code };
@@ -69,9 +81,10 @@ export async function apiFetch<T>(
     method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     body?: unknown;
     signal?: AbortSignal;
+    keepalive?: boolean;
   } = {},
 ): Promise<T> {
-  const { baseUrl = '', getToken, method = 'GET', body, signal } = options;
+  const { baseUrl = '', getToken, method = 'GET', body, signal, keepalive } = options;
   const headers: Record<string, string> = {};
   const token = await getToken?.();
   if (token) {
@@ -86,6 +99,7 @@ export async function apiFetch<T>(
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
+    keepalive,
   });
 
   if (!response.ok) {
@@ -1160,7 +1174,11 @@ export interface FamilyApi {
   createMatter: (input: MatterCreateInput) => Promise<MatterOut>;
   getQuestionSets: (matterId: string) => Promise<QuestionSetsResponse>;
   getAnswers: (matterId: string) => Promise<AnswersResponse>;
-  putAnswers: (matterId: string, answers: AnswerMap) => Promise<PutAnswersResponse>;
+  putAnswers: (
+    matterId: string,
+    answers: AnswerMap,
+    options?: { keepalive?: boolean },
+  ) => Promise<PutAnswersResponse>;
   getIntakeProgress: (matterId: string) => Promise<IntakeProgressResponse>;
   evaluateIntake: (matterId: string) => Promise<EvaluateResponse>;
   /* AI interviewer (Phase 1) */
@@ -1304,6 +1322,7 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
       body?: unknown;
       signal?: AbortSignal;
+      keepalive?: boolean;
       /** Set false for non-mutating POSTs (AI analysis) so they don't report save status. */
       track?: boolean;
     },
@@ -1327,10 +1346,11 @@ export function createFamilyApi(options: ApiClientOptions = {}): FamilyApi {
     getQuestionSets: (matterId) =>
       call<QuestionSetsResponse>(`/matters/${matterId}/intake/question-sets`),
     getAnswers: (matterId) => call<AnswersResponse>(`/matters/${matterId}/intake/answers`),
-    putAnswers: (matterId, answers) =>
+    putAnswers: (matterId, answers, options) =>
       call<PutAnswersResponse>(`/matters/${matterId}/intake/answers`, {
         method: 'PUT',
         body: { answers },
+        keepalive: options?.keepalive,
       }),
     getIntakeProgress: (matterId) =>
       call<IntakeProgressResponse>(`/matters/${matterId}/intake/progress`),

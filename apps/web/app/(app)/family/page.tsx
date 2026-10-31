@@ -7,12 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState, ErrorState, LoadingState } from '@/components/family/page-state';
 import { ProgressBar } from '@/components/family/progress-bar';
 import { AssistantPanel } from '@/components/ai/assistant-panel';
-import {
-  MatterSelect,
-  formatStatus,
-  useLiveCoverage,
-  useMatters,
-} from '@/components/family/matter-context';
+import { MatterSelect, useLiveCoverage, useMatters } from '@/components/family/matter-context';
+import { familyStatusLabel } from '@/components/family/status-pill';
 import { api, type MatterSummary } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
@@ -44,7 +40,7 @@ function MatterCard({ matter, pct }: { matter: MatterSummary; pct: number }) {
               statusTone(matter.status),
             )}
           >
-            {formatStatus(matter.status)}
+            {familyStatusLabel(matter.status)}
           </span>
         </div>
       </CardHeader>

@@ -18,6 +18,7 @@ import {
 } from '@/lib/api-client';
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { formatStatus, statusBadgeClass } from '@/lib/format';
+import { familyStatusLabel } from '@/components/family/status-pill';
 import { cn } from '@/lib/utils';
 
 const NOMINATION_TYPES = ['guardian', 'executor', 'trustee'] as const;
@@ -229,7 +230,7 @@ function MatterCheckupCard({ checkup }: { checkup: MatterCheckup }) {
               statusBadgeClass(matter.status),
             )}
           >
-            {formatStatus(matter.status)}
+            {familyStatusLabel(matter.status)}
           </span>
         </div>
       </CardContent>

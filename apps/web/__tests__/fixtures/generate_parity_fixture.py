@@ -49,6 +49,11 @@ EXPRESSIONS = [
     "flag",
     "not flag",
     "a == true and b",
+    "a == b",
+    "a != b",
+    "count == 2.5",
+    "count == -3",
+    "name == 'a\\'b'",
 ]
 
 ANSWER_SETS: list[dict] = [
@@ -74,6 +79,11 @@ ANSWER_SETS: list[dict] = [
     {"flag": False},
     {"flag": 0},
     {"a": [], "b": {}},
+    {"count": 2.5},
+    {"count": -3},
+    {"name": "a'b"},
+    {"a": [1], "b": {"0": 1}},
+    {"a": [True], "b": [1]},
 ]
 
 

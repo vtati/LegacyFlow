@@ -14,6 +14,7 @@ import {
   type Person,
 } from '@/lib/api-client';
 import { formatDate, formatStatus } from '@/lib/format';
+import { familyStatusLabel } from '@/components/family/status-pill';
 import { cn } from '@/lib/utils';
 
 const NOMINATION_TYPES: NominationType[] = [
@@ -186,7 +187,7 @@ export default function FamilyGuardiansPage(): React.JSX.Element {
         <>
           {selectedMatter && (
             <p className="text-sm text-lf-text-muted">
-              {selectedMatter.household?.name ?? 'Household'} · {formatStatus(selectedMatter.status)}
+              {selectedMatter.household?.name ?? 'Household'} · {familyStatusLabel(selectedMatter.status)}
             </p>
           )}
 

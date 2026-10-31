@@ -5,7 +5,7 @@
  *
  * The fixture's `expected` values were PRODUCED BY the Python
  * evaluator over the real pack expressions plus Kleene-logic edge
- * cases (440 cases: every expression x every answer set). If the two
+ * cases (675 cases: every expression x every answer set). If the two
  * engines ever drift, this suite fails.
  */
 import { describe, expect, it } from 'vitest';
@@ -25,7 +25,7 @@ interface ParityCase {
 }
 
 describe('evaluateAppliesIf — server parity battery', () => {
-  it('matches the Python evaluator on all 440 generated cases', () => {
+  it('matches the Python evaluator on all 675 generated cases', () => {
     const failures: string[] = [];
     for (const testCase of parityCases as ParityCase[]) {
       let actual: boolean | null;
