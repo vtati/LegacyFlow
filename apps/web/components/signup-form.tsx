@@ -159,6 +159,7 @@ export function SignUpForm(): React.JSX.Element {
               >
                 Sign in
               </Link>
+              {' '}— including with Google if that&apos;s how you joined.
             </p>
           </form>
         )}
