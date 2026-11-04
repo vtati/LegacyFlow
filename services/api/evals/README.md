@@ -85,3 +85,25 @@ whisper-1 migration benchmark (removal deadline 2027-02-26).
 (Steps 2–3 use `run_evals.py`, which lands with the evaluator phase of
 the pipeline — until then this README is the schema contract the
 runner is built against.)
+
+## LangSmith mirror (2026-11-04)
+
+The JSONL files above are the source of truth; each suite is mirrored to a
+LangSmith dataset for experiment runs and Demo Day display:
+
+| Suite | LangSmith dataset | Examples |
+|---|---|---|
+| extraction-paragraphs | legacyflow-extraction-paragraphs-v1 (`41580ad4`) | 12 |
+| conversations-e2e | legacyflow-conversations-e2e-v1 (`b3fe1d0d`) | 2 |
+| consistency | legacyflow-consistency-v1 (`c5a882ea`) | 12 |
+| attorney-review | legacyflow-attorney-review-v1 (`bb9996f9`) | 7 |
+| vault-analyst | legacyflow-vault-analyst-v1 (`04781251`) | 8 |
+| stt | legacyflow-stt-v1 (`989b5dfc`) | 5 |
+
+Upload notes (learned the hard way): create examples one by one via
+`POST /api/v1/examples` — the bulk endpoint silently no-ops with list-valued
+metadata; the connector helper's CLI truncates printed responses at 4000
+chars, so verify counts via `GET /api/v1/datasets/{id}` (`example_count`),
+never by parsing create echoes. The examples LIST endpoint currently
+400s on this workspace ("as_of" quirk) — dedupe by recreating the dataset
+if counts ever drift.
