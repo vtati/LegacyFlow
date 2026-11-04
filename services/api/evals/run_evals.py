@@ -114,15 +114,13 @@ def leg_stt(case: dict, model: str) -> str:
     AUDIO_DIR.mkdir(exist_ok=True)
     clip = AUDIO_DIR / f"{case['id']}.mp3"
     if not clip.exists():
-        import httpx
-
         key = os.environ["OPENAI_API_KEY"]
-        resp = httpx.post(
-            "https://api.openai.com/v1/audio/speech",
-            headers={"Authorization": f"Bearer {key}"},
-            json={"model": "tts-1", "voice": "alloy",
-                  "input": case["input"]["script"]},
-            timeout=120.0)
+        with _httpx_client() as client:
+            resp = client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={"Authorization": f"Bearer {key}"},
+                json={"model": "tts-1", "voice": "alloy",
+                      "input": case["input"]["script"]})
         resp.raise_for_status()
         clip.write_bytes(resp.content)
     from app.domains.ai.provider import get_stt_provider
@@ -135,13 +133,24 @@ def leg_stt(case: dict, model: str) -> str:
 # e2e leg (live API, October A/B harness pattern)
 
 
-def _http(method: str, url: str, token: str | None, body: dict | None):
+def _httpx_client() -> Any:
+    """httpx client for runner traffic. trust_env=False + an explicit
+    proxy: sandbox NO_PROXY lists carry bracketed IPv6 entries that
+    crash httpx's env parsing (InvalidURL ':1]'), and every runner
+    target is an external host that should ride the egress proxy."""
     import httpx
 
+    proxy = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
+    return httpx.Client(trust_env=False, proxy=proxy, timeout=180.0)
+
+
+def _http(method: str, url: str, token: str | None, body: dict | None):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    resp = httpx.request(method, url, headers=headers, json=body, timeout=180.0)
+    with _httpx_client() as client:
+        resp = client.request(method, url, headers=headers, json=body)
     try:
         return resp.status_code, resp.json()
     except Exception:
@@ -149,16 +158,15 @@ def _http(method: str, url: str, token: str | None, body: dict | None):
 
 
 def _api_token(api_base: str) -> str:
-    import httpx
-
     supa = os.environ.get("SUPABASE_URL", "https://nlrxlpjkrmvubvsfepjs.supabase.co")
     anon = os.environ["SUPABASE_ANON_KEY"]
     email = os.environ.get("EVAL_ACCOUNT_EMAIL", "test.recording@legacyflow.app")
     password = os.environ["EVAL_ACCOUNT_PASSWORD"]
-    resp = httpx.post(
-        f"{supa}/auth/v1/token?grant_type=password",
-        headers={"apikey": anon, "Content-Type": "application/json"},
-        json={"email": email, "password": password}, timeout=60.0)
+    with _httpx_client() as client:
+        resp = client.post(
+            f"{supa}/auth/v1/token?grant_type=password",
+            headers={"apikey": anon, "Content-Type": "application/json"},
+            json={"email": email, "password": password})
     return resp.json()["access_token"]
 
 
