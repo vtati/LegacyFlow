@@ -130,49 +130,140 @@ def leg_stt(case: dict, model: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# e2e leg (live API, October A/B harness pattern)
+# e2e leg (live API) — a faithful port of the October A/B harness engine
+# (interview_ab.py run_persona), adapted to emit the scorer's contract.
+# The harness mechanics matter: proposals carry proposed_value + source,
+# only value-matching proposals are confirmed (mismatches rejected),
+# bundle offers are accepted with a ride-along paragraph, and paragraph
+# selection is progress-driven with stall detection. Wrong-source is
+# accounted on the proposal stream in the harness's own terms and
+# passed to the scorer as wrong_source_events.
+
+_PERSON_KEYS = {
+    "primary_guardian_person", "backup_guardian_person",
+    "primary_executor_person", "backup_executor_person",
+    "poa_agent_person", "successor_poa_agent_person",
+    "healthcare_agent_person", "successor_healthcare_agent_person",
+    "successor_trustee_person",
+}
+_ADDRESS_KEYS = {
+    "primary_executor_address", "poa_agent_address", "primary_guardian_address",
+}
+_ASSET_ALIASES = {
+    "bank": "bank", "bank accounts": "bank",
+    "brokerage": "brokerage", "brokerage / investment accounts": "brokerage",
+    "investment": "brokerage", "real_property": "real_property",
+    "real estate": "real_property", "retirement": "retirement",
+    "insurance": "insurance", "life insurance": "insurance",
+    "vehicle": "vehicle", "business": "business", "529": "529",
+    "digital": "digital",
+}
+_STOP = {"the", "and", "our", "your", "with", "that", "this", "have",
+         "has", "are", "for", "she", "her", "his", "who", "all"}
+_BUNDLE_QUESTION_RE = re.compile(
+    r"(quick question:|also serve as|also use your address|would you like .* to also)",
+    re.IGNORECASE)
+_KEY_ASK_PATTERNS = {
+    "primary_executor_person": r"serve as the executor|executor of your will|your executor should|who.*executor",
+    "backup_executor_person": r"backup executor|executor if your first",
+    "poa_agent_person": r"handle your financial affairs|financial power of attorney agent|who.*financial agent",
+    "successor_poa_agent_person": r"successor.*financial|financial.*successor",
+    "healthcare_agent_person": r"make healthcare decisions|healthcare agent(?! if)|medical decisions for you",
+    "successor_healthcare_agent_person": r"successor healthcare|healthcare agent if",
+    "successor_trustee_person": r"successor trustee|take over managing the trust",
+    "primary_guardian_person": r"care for your (minor )?children|guardian for (our|your) children|who should.*guardian",
+    "backup_guardian_person": r"backup guardian",
+    "primary_executor_address": r"city and state where your executor|executor.*\baddress\b",
+    "poa_agent_address": r"city and state does your financial agent|financial agent.*\baddress\b",
+    "primary_guardian_address": r"guardian.*\baddress\b|address of your.*guardian",
+    "healthcare_agent_phone": r"phone number.*healthcare|healthcare agent.*phone",
+    "testator_full_name": r"your full legal name|what is your (full )?name",
+    "testator_street_address": r"your street address",
+    "testator_city": r"what city do you live in|which city do you live in|city do you (live|reside) in",
+    "marital_status": r"what best describes your household|are you (currently )?(married|single|divorced|widowed)|your marital status",
+    "primary_residence_state": r"state is your primary residence|state your primary residence is in",
+    "has_child_with_special_needs": r"special needs",
+    "has_prior_marriage_or_children_outside_current_relationship": r"married before|prior marriage|previous marriage|children from (a|outside)|children outside",
+    "owns_real_estate_outside_primary_jurisdiction": r"real estate (in|outside) (another|a different)|own (any )?(real estate|property) (in|outside)|property outside",
+    "owns_or_controls_business_interest": r"business interest|own (a|any) business",
+    "expects_family_conflict": r"family conflict|contest(ed)? (your|the) (will|estate)",
+    "wants_poa_document": r"power of attorney document|want a durable financial power of attorney|do you want.*power of attorney",
+    "wants_healthcare_directive": r"healthcare directive \(living will\) document|advance healthcare directive|want an advance",
+    "has_minor_children": r"do you have minor children|have minor children or dependents",
+    "minor_children_details": r"list each (minor )?child|each child by name|names and ages of",
+    "guardian_reason": r"why is this person a good fit|a good fit",
+    "asset_categories_present": r"which of these do you have",
+    "has_debts": r"do you have significant debts|have (any )?significant debts|any outstanding debts",
+    "has_retirement_accounts": r"do you have retirement accounts",
+    "has_life_insurance": r"do you have a life insurance policy",
+    "retirement_beneficiaries_current": r"beneficiary on your retirement accounts",
+    "life_insurance_beneficiaries_current": r"beneficiary on your life insurance",
+    "has_specific_bequests": r"specific items or amounts you want to leave",
+    "residuary_beneficiaries": r"receive everything else|the rest of your estate|who should receive everything",
+    "wants_revocable_trust": r"do you want a revocable|want a revocable living trust|revocable living trust to hold",
+    "trust_initial_property": r"assets should go into the trust|go into the trust",
+    "trust_distribution_age": r"at what age should|age should your children receive",
+    "trust_marital_share": r"share of the trust should go to your spouse|share.*go to your spouse outright",
+    "poa_additional_powers": r"specific financial powers you want to grant or withhold",
+    "living_will_directives": r"wishes about life-prolonging treatment|life-prolonging treatment",
+    "healthcare_agent_limitations": r"limits on what your healthcare agent may decide",
+    "organ_donation_wishes": r"donate organs|organ donation|donate.*tissue",
+}
+_ASK_EXCLUSIONS = {
+    "healthcare_agent_person": ["phone", "limits", "limitations", "successor"],
+    "poa_agent_person": ["powers", "document", "successor"],
+    "primary_guardian_person": ["address", "city and state", "backup", "if your first"],
+    "primary_executor_person": ["address", "city and state", "backup", "if your first"],
+}
 
 
-def _httpx_client() -> Any:
-    """httpx client for runner traffic. Two sandbox-egress adaptations:
-    trust_env=False + an explicit proxy (sandbox NO_PROXY lists carry
-    bracketed IPv6 entries that crash httpx's env parsing), and TLS
-    verification against the SYSTEM CA bundle via a default SSL
-    context — the egress proxy TLS-intercepts with a CA the system
-    trusts but httpx's bundled certifi store does not."""
-    import ssl
-
-    import httpx
-
-    proxy = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
-    return httpx.Client(trust_env=False, proxy=proxy, timeout=180.0,
-                        verify=ssl.create_default_context())
+def _vnorm(v: Any) -> str:
+    return re.sub(r"[^a-z0-9 ]", " ", str(v).lower()).strip()
 
 
-def _http(method: str, url: str, token: str | None, body: dict | None):
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    with _httpx_client() as client:
-        resp = client.request(method, url, headers=headers, json=body)
-    try:
-        return resp.status_code, resp.json()
-    except Exception:
-        return resp.status_code, {}
+def _value_matches(key: str, proposed: Any, expected: Any) -> bool:
+    """The harness's semantic matcher (person/address/asset aware)."""
+    if isinstance(expected, bool):
+        if isinstance(proposed, bool):
+            return proposed is expected
+        return _vnorm(proposed) in ("true", "yes") if expected else _vnorm(proposed) in ("false", "no")
+    if isinstance(expected, list):
+        got = proposed if isinstance(proposed, list) else [proposed]
+        codes = {_ASSET_ALIASES.get(_vnorm(i), _vnorm(i)) for i in got}
+        return set(expected) <= codes or bool(set(expected) & codes)
+    if key in _PERSON_KEYS:
+        pnorm = _vnorm(proposed)
+        return all(part in pnorm for part in _vnorm(expected).split() if len(part) > 2)
+    if key in _ADDRESS_KEYS:
+        pnorm = _vnorm(proposed)
+        tokens = [t for t in _vnorm(expected).split() if len(t) > 3 and t not in _STOP]
+        return sum(1 for t in tokens if t in pnorm) >= max(1, len(tokens) - 1)
+    pnorm, enorm = _vnorm(proposed), _vnorm(expected)
+    if not pnorm:
+        return False
+    if enorm in pnorm or pnorm in enorm:
+        return True
+    if key == "minor_children_details":
+        names = re.findall(r"[A-Z][a-z]+ [A-Z][a-z]+", str(expected))
+        return sum(1 for n in names if _vnorm(n) in pnorm) >= 2
+    etoks = {t for t in enorm.split() if (len(t) > 4 or t.isdigit()) and t not in _STOP}
+    return len(etoks & set(pnorm.split())) >= 2
 
 
-def _api_token(api_base: str) -> str:
-    supa = os.environ.get("SUPABASE_URL", "https://nlrxlpjkrmvubvsfepjs.supabase.co")
-    anon = os.environ["SUPABASE_ANON_KEY"]
-    email = os.environ.get("EVAL_ACCOUNT_EMAIL", "test.recording@legacyflow.app")
-    password = os.environ["EVAL_ACCOUNT_PASSWORD"]
-    with _httpx_client() as client:
-        resp = client.post(
-            f"{supa}/auth/v1/token?grant_type=password",
-            headers={"apikey": anon, "Content-Type": "application/json"},
-            json={"email": email, "password": password})
-    return resp.json()["access_token"]
+def _asked_keys_for(reply: str) -> set[str]:
+    if _BUNDLE_QUESTION_RE.search(reply):
+        return set()
+    keys: set[str] = set()
+    for sentence in re.split(r"(?<=[.!])\s+", reply):
+        if "?" not in sentence:
+            continue
+        low = sentence.lower()
+        for key, pattern in _KEY_ASK_PATTERNS.items():
+            if any(x in low for x in _ASK_EXCLUSIONS.get(key, [])):
+                continue
+            if re.search(pattern, sentence, re.IGNORECASE):
+                keys.add(key)
+    return keys
 
 
 def _first_household_id(payload: Any) -> str | None:
@@ -187,6 +278,10 @@ def _first_household_id(payload: Any) -> str | None:
 
 
 def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
+    import uuid as _uuid
+
+    facts = case["gold"]["final_profile"]
+    paragraphs = case["input"]["paragraphs"]
     token = _api_token(api_base)
     _c, households = _http("GET", f"{api_base}/v1/households", token, None)
     household_id = os.environ.get(
@@ -196,85 +291,188 @@ def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
         "title": f"[EVAL] {case['id']} {case['input']['persona']}",
         "plan_type": "bundle", "household_id": household_id})
     mid = matter["id"]
+
+    def answers_now() -> dict:
+        _c, data = _http("GET", f"{api_base}/v1/matters/{mid}/intake/answers",
+                         token, None)
+        rows = data.get("answers") if isinstance(data, dict) else data
+        out: dict[str, Any] = {}
+        if isinstance(rows, dict):
+            out = dict(rows)
+        elif isinstance(rows, list):
+            for r in rows:
+                v = r.get("answer")
+                if isinstance(v, dict) and "value" in v:
+                    v = v["value"]
+                out[r["question_key"]] = v
+        return out
+
+    def progress_now() -> tuple[int, int]:
+        _c, data = _http("GET", f"{api_base}/v1/matters/{mid}/intake/progress",
+                         token, None)
+        ov = (data or {}).get("overall") or {}
+        return int(ov.get("required_answered") or 0), int(ov.get("required_total") or 0)
+
     try:
         _c, session = _http(
             "POST", f"{api_base}/v1/matters/{mid}/interview/sessions",
             token, {"question_set_id": "household"})
         sid = session["id"]
-        paragraphs = case["input"]["paragraphs"]
-        profile: dict[str, dict] = {}
-        asked_texts: list[str] = []
-        turns = 0
-        pending = list(paragraphs)
-        # Opening turn: the interviewer speaks first via an empty-ish nudge.
-        reply = ""
-        for _ in range(40):
-            nxt = None
-            for p in pending:
-                if re.search(p["trigger"], reply, re.I):
-                    nxt = p
-                    break
-            if nxt is None and pending and turns == 0:
-                nxt = pending[0]
-            if nxt is None:
-                break
-            pending.remove(nxt)
-            code, turn = _http(
+        provided: set[str] = set()
+        sent_paras: set[int] = set()
+        asked_before: set[str] = set()
+        repeated_events = 0
+        wrong_source_events = 0
+        attribution: dict[str, list[str]] = {}
+        prev_answers: dict[str, Any] = {}
+        user_turns = 0
+        last_progress = -1
+        stall = 0
+        completed = False
+
+        message = paragraphs[0]["text"]
+        sent_paras = {0}
+        provided |= set(paragraphs[0]["keys"])
+        current_keys = list(paragraphs[0]["keys"])
+
+        for _turn in range(1, 41):
+            user_turns += 1
+            code, out = _http(
                 "POST",
                 f"{api_base}/v1/matters/{mid}/interview/sessions/{sid}/turns",
-                token, {"message": nxt["text"]})
+                token, {"message": message,
+                        "idempotency_key": str(_uuid.uuid4())})
             if code != 200:
-                raise RuntimeError(f"turn failed: {code} {str(turn)[:200]}")
-            turns += 1
-            reply = turn.get("reply") or ""
-            if reply:
-                asked_texts.append(reply)
-            _c, props = _http(
+                raise RuntimeError(f"turn failed: {code} {str(out)[:200]}")
+            reply = str(out.get("reply") or "")
+            answers_at_start = answers_now()
+
+            # wrong-source accounting on the proposal stream (harness terms)
+            for prop in out.get("proposals") or []:
+                key = prop.get("question_key")
+                if key not in facts:
+                    continue
+                val = prop.get("proposed_value")
+                if prop.get("source") == "bundle":
+                    if not _value_matches(key, val, facts[key]):
+                        wrong_source_events += 1
+                    continue
+                if key not in provided:
+                    wrong_source_events += 1
+                elif not _value_matches(key, val, facts[key]):
+                    wrong_source_events += 1
+
+            # confirm value-matching open proposals; reject the rest
+            _c, open_props = _http(
                 "GET",
                 f"{api_base}/v1/matters/{mid}/interview/sessions/{sid}/proposals",
                 token, None)
-            prop_list = (props if isinstance(props, list)
-                         else props.get("proposals") or [])
-            for prop in prop_list:
+            for prop in open_props if isinstance(open_props, list) else []:
                 key = prop.get("question_key")
-                _http("POST",
-                      f"{api_base}/v1/matters/{mid}/interview/proposals/{prop['id']}/confirm",
-                      token, {})
-                if key:
-                    profile[key] = {
-                        "value": prop.get("value"),
-                        "source_paragraph_keys": list(nxt["keys"]),
-                    }
-            if not pending:
+                if key in facts and _value_matches(
+                        key, prop.get("proposed_value"), facts[key]):
+                    _http("POST",
+                          f"{api_base}/v1/matters/{mid}/interview/proposals/{prop['id']}/confirm",
+                          token, {})
+                elif key in facts:
+                    _http("POST",
+                          f"{api_base}/v1/matters/{mid}/interview/proposals/{prop['id']}/reject",
+                          token, {})
+
+            # attribution: keys that newly appeared ride on this turn's paragraph
+            now_answers = answers_now()
+            for key in now_answers:
+                if key not in prev_answers and key not in attribution:
+                    attribution[key] = list(current_keys)
+            prev_answers = now_answers
+
+            # repeat detection
+            for key in _asked_keys_for(reply):
+                if key in answers_at_start and key in asked_before:
+                    repeated_events += 1
+            asked_before |= _asked_keys_for(reply)
+
+            answered_req, total_req = progress_now()
+            if total_req and answered_req >= total_req:
+                completed = True
                 break
-        repeated = _count_repeated(asked_texts)
+            if answered_req == last_progress:
+                stall += 1
+            else:
+                stall = 0
+                last_progress = answered_req
+
+            # choose the next user message
+            if _BUNDLE_QUESTION_RE.search(reply):
+                for key, val in facts.items():
+                    if key in _PERSON_KEYS and isinstance(val, str):
+                        parts = [pt for pt in _vnorm(val).split() if len(pt) > 2]
+                        if all(pt in _vnorm(reply) for pt in parts):
+                            for sib in _PERSON_KEYS:
+                                if facts.get(sib) == val:
+                                    provided.add(sib)
+                if "address" in reply.lower():
+                    provided |= _ADDRESS_KEYS
+                message = "Yes, please — that works for all of those."
+                current_keys = []
+                for i, p in enumerate(paragraphs):
+                    if i not in sent_paras:
+                        sent_paras.add(i)
+                        provided |= set(p["keys"])
+                        current_keys = list(p["keys"])
+                        message += "\n\nAlso: " + p["text"]
+                        break
+                continue
+            nxt = None
+            for i, p in enumerate(paragraphs):
+                if i not in sent_paras and re.search(p["trigger"], reply, re.IGNORECASE):
+                    nxt = i
+                    break
+            if nxt is None:
+                for i, p in enumerate(paragraphs):
+                    if i not in sent_paras:
+                        nxt = i
+                        break
+            if nxt is None:
+                missing = [k for k in facts if k not in now_answers]
+                for i, p in enumerate(paragraphs):
+                    if any(k in missing for k in p["keys"]):
+                        nxt = i
+                        break
+            if nxt is None or stall >= 5:
+                break
+            sent_paras.add(nxt)
+            provided |= set(paragraphs[nxt]["keys"])
+            current_keys = list(paragraphs[nxt]["keys"])
+            message = paragraphs[nxt]["text"]
+
+        final_answers = answers_now()
+        profile = {}
+        for key, gold in facts.items():
+            if key in final_answers:
+                raw = final_answers[key]
+                profile[key] = {
+                    "value": raw,
+                    "source_paragraph_keys": attribution.get(key, []),
+                    "value_matches_gold": _value_matches(key, raw, gold),
+                }
         _c, esc = _http("GET", f"{api_base}/v1/matters/{mid}/escalations",
                         token, None)
         esc_rules = sorted({e.get("rule_code") or e.get("code") or ""
                             for e in (esc if isinstance(esc, list) else [])} - {""})
-        doc_count = _generate_documents(api_base, token, mid)
         return {
             "final_profile": profile,
             "escalations": esc_rules,
-            "document_count": doc_count,
-            "user_turns": turns,
-            "repeated_questions": repeated,
+            "document_count": _generate_documents(api_base, token, mid),
+            "user_turns": user_turns,
+            "repeated_questions": repeated_events,
+            "wrong_source_events": wrong_source_events,
+            "completed": completed,
             "_matter_id": mid,
         }
     finally:
         if not keep_matter:
             _delete_matter(mid)
-
-
-def _count_repeated(asked_texts: list[str]) -> int:
-    seen: dict[str, int] = {}
-    repeated = 0
-    for t in asked_texts:
-        norm = re.sub(r"\s+", " ", t.lower()).strip()[:120]
-        if norm in seen:
-            repeated += 1
-        seen[norm] = 1
-    return repeated
 
 
 def _generate_documents(api_base: str, token: str, mid: str) -> int:
@@ -283,11 +481,10 @@ def _generate_documents(api_base: str, token: str, mid: str) -> int:
             else templates.get("templates") or [])
     count = 0
     for t in tpls:
-        tid = t.get("id") or t.get("template_type")
-        if not tid:
+        if not t.get("id"):
             continue
         c1, pkg = _http("POST", f"{api_base}/v1/matters/{mid}/document-packages",
-                        token, {"template_id": tid} if t.get("id") else {"template_type": tid})
+                        token, {"template_id": t["id"]})
         if c1 in (200, 201) and pkg.get("id"):
             c2, _v = _http("POST", f"{api_base}/v1/packages/{pkg['id']}/generate-demo",
                            token, {})

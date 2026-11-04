@@ -220,3 +220,26 @@ def test_first_household_id_shapes():
     assert _first_household_id([]) is None
     assert _first_household_id({}) is None
     assert _first_household_id([{"name": "no id"}]) is None
+
+
+def test_e2e_stream_wrong_source_events_are_authoritative():
+    case = _case("conversations-e2e", "e2e-002")
+    out = _e2e_output(case)
+    out["wrong_source_events"] = 2
+    r = score_e2e(case, out)
+    assert not r["passed"] and r["metrics"]["wrong_source"] == 2
+    out["wrong_source_events"] = 0
+    assert score_e2e(case, out)["passed"]
+
+
+def test_e2e_runner_value_matcher_evidence_counts():
+    case = _case("conversations-e2e", "e2e-002")
+    out = _e2e_output(case)
+    # A raw value the generic matcher would miss (composed address) but
+    # the runner's domain matcher verified against gold.
+    key = "primary_executor_address"
+    if key in out["final_profile"]:
+        out["final_profile"][key] = {
+            "value": "456 Oak Avenue, Richmond, Virginia",
+            "source_paragraph_keys": [key], "value_matches_gold": True}
+        assert score_e2e(case, out)["passed"]

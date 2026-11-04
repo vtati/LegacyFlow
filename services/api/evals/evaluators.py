@@ -265,19 +265,29 @@ def score_e2e(case: dict, output: dict) -> dict:
     correct = 0
     wrong_source = 0
     applicable = 0
+    # When the runner accounted wrong-source on the proposal stream
+    # (harness terms), that count is authoritative; the per-field
+    # attribution check is the fallback for runners that only ship a
+    # final profile.
+    stream_events = output.get("wrong_source_events")
     for key, gold_value in facts.items():
         entry = profile.get(key)
         if entry is None:
             continue  # not applicable / not reached: excluded from the denominator
         applicable += 1
-        if _value_match(gold_value, entry.get("value")):
+        if entry.get("value_matches_gold") or _value_match(gold_value, entry.get("value")):
             correct += 1
         else:
             failures.append(f"{key}: value {entry.get('value')!r} != gold {gold_value!r}")
-        sources = entry.get("source_paragraph_keys") or []
-        if sources and key not in sources:
-            wrong_source += 1
-            failures.append(f"{key}: value sourced from a paragraph that never stated it (wrong source)")
+        if stream_events is None:
+            sources = entry.get("source_paragraph_keys") or []
+            if sources and key not in sources:
+                wrong_source += 1
+                failures.append(f"{key}: value sourced from a paragraph that never stated it (wrong source)")
+    if stream_events is not None:
+        wrong_source = int(stream_events)
+        if wrong_source:
+            failures.append(f"{wrong_source} wrong-source proposal event(s) on the proposal stream")
     denom = gold.get("applicable_fields") or applicable or 1
     accuracy = correct / denom if denom else 0.0
     if accuracy < 0.95:
