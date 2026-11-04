@@ -1,0 +1,1032 @@
+{
+  "run_name": "baseline-2026-11-04",
+  "generated_at": "2026-11-04T19-37-56Z",
+  "results": [
+    {
+      "case_id": "e2e-001",
+      "suite": "conversations-e2e",
+      "passed": true,
+      "metrics": {
+        "field_accuracy": 1.0,
+        "wrong_source": 0,
+        "user_turns": 8,
+        "turn_budget": 12,
+        "documents": 5
+      },
+      "failures": [],
+      "output": {
+        "final_profile": {
+          "testator_full_name": {
+            "value": "Arjun Sharma",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "marital_status": {
+            "value": "married",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_residence_state": {
+            "value": "Texas",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "testator_street_address": {
+            "value": "123 Main Street",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "testator_city": {
+            "value": "Austin",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_child_with_special_needs": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_prior_marriage_or_children_outside_current_relationship": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "owns_real_estate_outside_primary_jurisdiction": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "owns_or_controls_business_interest": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "expects_family_conflict": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_poa_document": {
+            "value": true,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_healthcare_directive": {
+            "value": true,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_minor_children": {
+            "value": true,
+            "source_paragraph_keys": [
+              "has_minor_children",
+              "minor_children_details"
+            ],
+            "value_matches_gold": true
+          },
+          "minor_children_details": {
+            "value": "Aarav Sharma, age 12; Diya Sharma, age 9; Kabir Sharma, age 6",
+            "source_paragraph_keys": [
+              "has_minor_children",
+              "minor_children_details"
+            ],
+            "value_matches_gold": true
+          },
+          "asset_categories_present": {
+            "value": [
+              "bank",
+              "brokerage",
+              "retirement",
+              "insurance",
+              "real_property"
+            ],
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "has_debts": {
+            "value": true,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "has_retirement_accounts": {
+            "value": true,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "retirement_beneficiaries_current": {
+            "value": "Priya Sharma is the primary beneficiary and our children are the contingent beneficiaries; beneficiaries are current.",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "has_life_insurance": {
+            "value": true,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "life_insurance_beneficiaries_current": {
+            "value": "Priya Sharma is the primary beneficiary and our children are the contingent beneficiaries; beneficiaries are current.",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "has_specific_bequests": {
+            "value": false,
+            "source_paragraph_keys": [
+              "has_specific_bequests",
+              "residuary_beneficiaries",
+              "spouse_full_name"
+            ],
+            "value_matches_gold": true
+          },
+          "residuary_beneficiaries": {
+            "value": "Everything else \u2014 the residuary of my estate \u2014 goes to my wife Priya Sharma, and if she can't take it, equally to our three children.",
+            "source_paragraph_keys": [
+              "has_specific_bequests",
+              "residuary_beneficiaries",
+              "spouse_full_name"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_guardian_person": {
+            "value": "Amit Sharma",
+            "source_paragraph_keys": [
+              "primary_guardian_person",
+              "guardian_reason",
+              "backup_guardian_person"
+            ],
+            "value_matches_gold": true
+          },
+          "guardian_reason": {
+            "value": "he is trusted, he is close to the children, and he shares our values",
+            "source_paragraph_keys": [
+              "primary_guardian_person",
+              "guardian_reason",
+              "backup_guardian_person"
+            ],
+            "value_matches_gold": true
+          },
+          "backup_guardian_person": {
+            "value": "Neha Kapoor",
+            "source_paragraph_keys": [
+              "primary_guardian_person",
+              "guardian_reason",
+              "backup_guardian_person"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_executor_person": {
+            "value": "Priya Sharma",
+            "source_paragraph_keys": [
+              "primary_executor_person",
+              "backup_executor_person"
+            ],
+            "value_matches_gold": true
+          },
+          "backup_executor_person": {
+            "value": "Amit Sharma",
+            "source_paragraph_keys": [
+              "primary_executor_person",
+              "backup_executor_person"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_executor_address": {
+            "value": "123 Main Street, Austin, Texas",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_agent_person": {
+            "value": "Priya Sharma",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_agent_address": {
+            "value": "123 Main Street, Austin, Texas",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_guardian_address": {
+            "value": "123 Main Street, Austin, Texas",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance",
+              "retirement_beneficiaries_current",
+              "life_insurance_beneficiaries_current"
+            ],
+            "value_matches_gold": true
+          },
+          "successor_poa_agent_person": {
+            "value": "Amit Sharma",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_additional_powers": {
+            "value": "no additional powers beyond the standard ones for my financial agent",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_person": {
+            "value": "Priya Sharma",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_phone": {
+            "value": "512-555-0100",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_limitations": {
+            "value": "there are no limitations on what she may decide",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "successor_healthcare_agent_person": {
+            "value": "Amit Sharma",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_revocable_trust": {
+            "value": true,
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "successor_trustee_person": {
+            "value": "Amit Sharma",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "trust_initial_property": {
+            "value": "All assets",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "trust_distribution_age": {
+            "value": "25",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "trust_marital_share": {
+            "value": "Everything should go to my spouse outright",
+            "source_paragraph_keys": [
+              "wants_revocable_trust",
+              "successor_trustee_person",
+              "trust_initial_property",
+              "trust_distribution_age",
+              "trust_marital_share"
+            ],
+            "value_matches_gold": true
+          },
+          "living_will_directives": {
+            "value": "if I am terminally ill or permanently unconscious, withhold life-sustaining treatment and keep me on comfort care only",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "organ_donation_wishes": {
+            "value": "I wish to donate organs for transplantation",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "spouse_full_name": {
+            "value": "Priya Sharma",
+            "source_paragraph_keys": [
+              "has_specific_bequests",
+              "residuary_beneficiaries",
+              "spouse_full_name"
+            ],
+            "value_matches_gold": true
+          }
+        },
+        "escalations": [],
+        "document_count": 5,
+        "user_turns": 8,
+        "repeated_questions": 0,
+        "wrong_source_events": 0,
+        "completed": true,
+        "_matter_id": "6245d958-8d5e-46f2-aa33-fd462bff87f5"
+      }
+    },
+    {
+      "case_id": "e2e-002",
+      "suite": "conversations-e2e",
+      "passed": true,
+      "metrics": {
+        "field_accuracy": 1.0,
+        "wrong_source": 0,
+        "user_turns": 7,
+        "turn_budget": 8,
+        "documents": 5
+      },
+      "failures": [],
+      "output": {
+        "final_profile": {
+          "testator_full_name": {
+            "value": "Jordan Lee",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "marital_status": {
+            "value": "single",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_residence_state": {
+            "value": "Virginia",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "testator_street_address": {
+            "value": "456 Oak Avenue",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "testator_city": {
+            "value": "Richmond",
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_child_with_special_needs": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_prior_marriage_or_children_outside_current_relationship": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "owns_real_estate_outside_primary_jurisdiction": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "owns_or_controls_business_interest": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "expects_family_conflict": {
+            "value": false,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_poa_document": {
+            "value": true,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_healthcare_directive": {
+            "value": true,
+            "source_paragraph_keys": [
+              "testator_full_name",
+              "marital_status",
+              "primary_residence_state",
+              "testator_street_address",
+              "testator_city",
+              "has_child_with_special_needs",
+              "has_prior_marriage_or_children_outside_current_relationship",
+              "owns_real_estate_outside_primary_jurisdiction",
+              "owns_or_controls_business_interest",
+              "expects_family_conflict",
+              "wants_poa_document",
+              "wants_healthcare_directive"
+            ],
+            "value_matches_gold": true
+          },
+          "has_minor_children": {
+            "value": false,
+            "source_paragraph_keys": [
+              "has_minor_children"
+            ],
+            "value_matches_gold": true
+          },
+          "asset_categories_present": {
+            "value": [
+              "bank",
+              "vehicle"
+            ],
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "has_debts": {
+            "value": false,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "has_retirement_accounts": {
+            "value": false,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "has_life_insurance": {
+            "value": false,
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "has_specific_bequests": {
+            "value": false,
+            "source_paragraph_keys": [
+              "has_specific_bequests",
+              "residuary_beneficiaries"
+            ],
+            "value_matches_gold": true
+          },
+          "residuary_beneficiaries": {
+            "value": "my sister Maya Lee",
+            "source_paragraph_keys": [
+              "has_specific_bequests",
+              "residuary_beneficiaries"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_executor_person": {
+            "value": "Maya Lee",
+            "source_paragraph_keys": [
+              "primary_executor_person",
+              "backup_executor_person"
+            ],
+            "value_matches_gold": true
+          },
+          "backup_executor_person": {
+            "value": "David Lee",
+            "source_paragraph_keys": [
+              "primary_executor_person",
+              "backup_executor_person"
+            ],
+            "value_matches_gold": true
+          },
+          "primary_executor_address": {
+            "value": "456 Oak Avenue, Richmond, Virginia",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_agent_person": {
+            "value": "Maya Lee",
+            "source_paragraph_keys": [
+              "wants_revocable_trust"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_agent_address": {
+            "value": "456 Oak Avenue, Richmond, Virginia",
+            "source_paragraph_keys": [
+              "asset_categories_present",
+              "has_debts",
+              "has_retirement_accounts",
+              "has_life_insurance"
+            ],
+            "value_matches_gold": true
+          },
+          "successor_poa_agent_person": {
+            "value": "David Lee",
+            "source_paragraph_keys": [
+              "wants_revocable_trust"
+            ],
+            "value_matches_gold": true
+          },
+          "poa_additional_powers": {
+            "value": "No additional powers beyond the standard ones for my financial agent.",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_person": {
+            "value": "Maya Lee",
+            "source_paragraph_keys": [
+              "wants_revocable_trust"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_phone": {
+            "value": "804-555-0132",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "healthcare_agent_limitations": {
+            "value": "There are no limitations on what she may decide.",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "successor_healthcare_agent_person": {
+            "value": "David Lee",
+            "source_paragraph_keys": [
+              "wants_revocable_trust"
+            ],
+            "value_matches_gold": true
+          },
+          "wants_revocable_trust": {
+            "value": false,
+            "source_paragraph_keys": [
+              "wants_revocable_trust"
+            ],
+            "value_matches_gold": true
+          },
+          "living_will_directives": {
+            "value": "If I am terminally ill or permanently unconscious, withhold life-sustaining treatment and keep me on comfort care only.",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          },
+          "organ_donation_wishes": {
+            "value": "No, I do not wish to donate organs.",
+            "source_paragraph_keys": [
+              "poa_additional_powers",
+              "healthcare_agent_phone",
+              "healthcare_agent_limitations",
+              "living_will_directives",
+              "organ_donation_wishes"
+            ],
+            "value_matches_gold": true
+          }
+        },
+        "escalations": [],
+        "document_count": 5,
+        "user_turns": 7,
+        "repeated_questions": 0,
+        "wrong_source_events": 0,
+        "completed": true,
+        "_matter_id": "ee2de155-4925-4e03-9d4e-20aad5204980"
+      }
+    }
+  ]
+}

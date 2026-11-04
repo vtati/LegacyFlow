@@ -1,0 +1,15 @@
+{
+  "run_name": "baseline-2026-11-04",
+  "total_cases": 2,
+  "total_passed": 2,
+  "overall_pass_rate": 1.0,
+  "suites": {
+    "conversations-e2e": {
+      "agent": "Interviewer",
+      "cases": 2,
+      "passed": 2,
+      "failures": [],
+      "pass_rate": 1.0
+    }
+  }
+}
