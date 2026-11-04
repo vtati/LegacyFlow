@@ -94,7 +94,7 @@ LangSmith dataset for experiment runs and Demo Day display:
 | Suite | LangSmith dataset | Examples |
 |---|---|---|
 | extraction-paragraphs | legacyflow-extraction-paragraphs-v1 (`41580ad4`) | 12 |
-| conversations-e2e | legacyflow-conversations-e2e-v1 (`b3fe1d0d`) | 2 |
+| conversations-e2e | legacyflow-conversations-e2e-v1 (`bf12656e`, re-mirrored 2026-11-04 after the F-1 dataset update; original mirror `b3fe1d0d` deleted) | 2 |
 | consistency | legacyflow-consistency-v1 (`c5a882ea`) | 12 |
 | attorney-review | legacyflow-attorney-review-v1 (`bb9996f9`) | 7 |
 | vault-analyst | legacyflow-vault-analyst-v1 (`04781251`) | 8 |
