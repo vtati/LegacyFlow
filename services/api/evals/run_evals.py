@@ -134,15 +134,20 @@ def leg_stt(case: dict, model: str) -> str:
 
 
 def _httpx_client() -> Any:
-    """httpx client for runner traffic. trust_env=False + an explicit
-    proxy: sandbox NO_PROXY lists carry bracketed IPv6 entries that
-    crash httpx's env parsing (InvalidURL ':1]'), and every runner
-    target is an external host that should ride the egress proxy."""
+    """httpx client for runner traffic. Two sandbox-egress adaptations:
+    trust_env=False + an explicit proxy (sandbox NO_PROXY lists carry
+    bracketed IPv6 entries that crash httpx's env parsing), and TLS
+    verification against the SYSTEM CA bundle via a default SSL
+    context — the egress proxy TLS-intercepts with a CA the system
+    trusts but httpx's bundled certifi store does not."""
+    import ssl
+
     import httpx
 
     proxy = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
              or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
-    return httpx.Client(trust_env=False, proxy=proxy, timeout=180.0)
+    return httpx.Client(trust_env=False, proxy=proxy, timeout=180.0,
+                        verify=ssl.create_default_context())
 
 
 def _http(method: str, url: str, token: str | None, body: dict | None):
