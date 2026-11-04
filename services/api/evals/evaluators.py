@@ -288,8 +288,12 @@ def score_e2e(case: dict, output: dict) -> dict:
         wrong_source = int(stream_events)
         if wrong_source:
             failures.append(f"{wrong_source} wrong-source proposal event(s) on the proposal stream")
-    denom = gold.get("applicable_fields") or applicable or 1
-    accuracy = correct / denom if denom else 0.0
+    # The dataset's applicable_fields is the expected denominator, but a
+    # run that answers MORE gold fields than the applicable set (bundle
+    # questions apply sibling values) must not score above 1.0: the
+    # denominator grows to the number of fields actually answered.
+    denom = max(gold.get("applicable_fields") or 0, applicable) or 1
+    accuracy = min(correct / denom, 1.0) if denom else 0.0
     if accuracy < 0.95:
         failures.append(f"profile accuracy {accuracy:.2f} below the 0.95 bar")
     esc_gold = sorted(gold.get("expected_escalations") or [])

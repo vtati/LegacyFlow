@@ -243,3 +243,16 @@ def test_e2e_runner_value_matcher_evidence_counts():
             "value": "456 Oak Avenue, Richmond, Virginia",
             "source_paragraph_keys": [key], "value_matches_gold": True}
         assert score_e2e(case, out)["passed"]
+
+
+def test_e2e_accuracy_never_exceeds_one_when_extra_fields_answered():
+    case = _case("conversations-e2e", "e2e-001")
+    out = _e2e_output(case)  # every gold fact answered correctly
+    r = score_e2e(case, out)
+    assert r["metrics"]["field_accuracy"] == 1.0
+    # And a wrong extra answer must still be able to fail the bar.
+    key = sorted(case["gold"]["final_profile"])[0]
+    out["final_profile"][key] = {"value": "ZZZ WRONG",
+                                 "source_paragraph_keys": [key],
+                                 "value_matches_gold": False}
+    assert score_e2e(case, out)["metrics"]["field_accuracy"] < 1.0
