@@ -107,3 +107,30 @@ chars, so verify counts via `GET /api/v1/datasets/{id}` (`example_count`),
 never by parsing create echoes. The examples LIST endpoint currently
 400s on this workspace ("as_of" quirk) — dedupe by recreating the dataset
 if counts ever drift.
+
+## Running the evals (Phase 3)
+
+```
+cd services/api
+OPENAI_API_KEY=... .venv/bin/python -m evals.run_evals \
+  --suite extraction-paragraphs --suite consistency --suite vault-analyst \
+  --out evals/runs/<run-name>
+```
+
+- In-process legs (extraction, consistency, vault) call the production
+  modules' own model functions with the production prompts.
+- `--suite stt` synthesizes each script via TTS (cached in `evals/audio/`)
+  and transcribes with the production Whisper provider.
+- `--suite conversations-e2e` runs against the live API with the
+  recording test account: set `EVAL_ACCOUNT_PASSWORD`,
+  `SUPABASE_ANON_KEY`, and `EVAL_HOUSEHOLD_ID` (the demo recording
+  household). Throwaway matters are deleted afterwards unless
+  `--keep-matters` is passed.
+- `--suite attorney-review` is intentionally not wired here: it needs a
+  frozen packet + snapshot mutation (Oct 27 `verify_seeded.py`
+  mechanics) and lands with the baseline phase. Its evaluator is
+  unit-tested (`tests/test_evaluators.py`).
+- Every run writes `results.json` (per-case verdicts + raw outputs),
+  `scorecard.json`, and a self-contained `scorecard.html`.
+- `--dry-run` loads all cases and exercises the wiring without any
+  model calls.
