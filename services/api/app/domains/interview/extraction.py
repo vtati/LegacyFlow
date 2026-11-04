@@ -206,6 +206,7 @@ def _extract_via_openai(
         user_content=user_content,
         temperature=0.0,
         timeout=90.0,
+        agent="document-extraction",
     )
     latency_ms = int((time.monotonic() - started) * 1000)
     logger.info("extraction provider call latency_ms=%d", latency_ms)

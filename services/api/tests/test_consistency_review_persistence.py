@@ -196,7 +196,7 @@ class _StubProvider:
     def __init__(self, findings: list[dict]) -> None:
         self._findings = findings
 
-    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout, agent="json-completion"):
         return (
             json.dumps({"findings": self._findings}),
             {"prompt_tokens": 11, "completion_tokens": 7},
@@ -250,12 +250,12 @@ def test_attention_and_review_findings_persist(db, openai_env, monkeypatch):
 
 
 class _RaisingProvider:
-    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout, agent="json-completion"):
         raise RuntimeError("provider is down")
 
 
 class _GarbageProvider:
-    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout, agent="json-completion"):
         return ("this is not json at all", {"prompt_tokens": 3, "completion_tokens": 1})
 
 
@@ -383,7 +383,7 @@ def test_phased_review_holds_no_transaction_during_provider_call(
     seen: dict[str, int] = {}
 
     class _RecordingProvider:
-        def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+        def complete_json(self, *, system_prompt, user_content, temperature, timeout, agent="json-completion"):
             seen["open_at_call"] = tracker.open
             return (
                 json.dumps({"findings": [REVIEW_FINDING]}),

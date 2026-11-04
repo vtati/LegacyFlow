@@ -415,6 +415,16 @@ class OpenAIChatProvider:
         # accepted), and a generous completion cap so tool-call
         # arguments never truncate mid-JSON.
         _apply_model_contract(payload, self._model, temperature=0.2, with_tools=True)
+        # LangSmith trace for this turn (eval pipeline, 2026-11-04):
+        # no-op unless the environment opted in; fail-open by contract.
+        from app.core.tracing import LLMTrace
+
+        trace = LLMTrace(
+            name="interviewer-turn",
+            agent="interviewer",
+            model=self._model,
+            inputs={"messages": payload["messages"]},
+        )
         try:
             response = get_http_client().post(
                 "https://api.openai.com/v1/chat/completions",
@@ -426,6 +436,7 @@ class OpenAIChatProvider:
             # Log provider internals server-side; the client gets a generic
             # 502 (ProviderError), never network or API detail.
             logger.warning("OpenAI chat request failed: %s", exc)
+            trace.finish(error=exc)
             raise ProviderError() from exc
         data = response.json()
         choice = (data.get("choices") or [{}])[0]
@@ -588,6 +599,20 @@ class OpenAIChatProvider:
             )
             for doc in context.documents
         ]
+        trace.set_outputs(
+            reply=reply,
+            proposals=[
+                {
+                    "question_key": p.question_key,
+                    "value": p.value,
+                    "confidence": p.confidence,
+                    "source_snippet": p.source_snippet,
+                }
+                for p in proposals
+            ],
+        )
+        trace.set_usage(**usage)
+        trace.finish()
         return InterviewTurnResponse(
             reply=reply, citations=citations, proposals=proposals, usage=usage
         )
@@ -606,6 +631,20 @@ class WhisperSTTProvider:
         data: dict[str, str] = {"model": self._model}
         if language:
             data["language"] = language
+        # LangSmith trace (eval pipeline, 2026-11-04): metadata only in
+        # inputs — the audio bytes themselves never enter a trace.
+        from app.core.tracing import LLMTrace
+
+        trace = LLMTrace(
+            name="stt-transcription",
+            agent="dictation-stt",
+            model=self._model,
+            inputs={
+                "filename": filename,
+                "language": language,
+                "audio_bytes": len(audio),
+            },
+        )
         try:
             response = get_http_client().post(
                 "https://api.openai.com/v1/audio/transcriptions",
@@ -617,8 +656,12 @@ class WhisperSTTProvider:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Whisper transcription failed: %s", exc)
+            trace.finish(error=exc)
             raise ProviderError() from exc
-        return str(response.json().get("text", ""))
+        text = str(response.json().get("text", ""))
+        trace.set_outputs(text=text)
+        trace.finish()
+        return text
 
 
 # ---------------------------------------------------------------------------
@@ -645,12 +688,14 @@ class JsonCompletionProvider(Protocol):
         user_content: str,
         temperature: float,
         timeout: float = 90.0,
+        agent: str = "json-completion",
     ) -> tuple[str, dict[str, int]]:
         """Return (raw message content, token usage).
 
         Raises :class:`ProviderError` on any transport/HTTP failure —
         the client-facing error stays generic, as with the interview
-        provider.
+        provider. ``agent`` labels the LangSmith trace with the calling
+        agent (consistency-review, vault-analysis, ...).
         """
         ...
 
@@ -671,6 +716,7 @@ class OpenAIJsonProvider:
         user_content: str,
         temperature: float,
         timeout: float = 90.0,
+        agent: str = "json-completion",
     ) -> tuple[str, dict[str, int]]:
         payload: dict[str, Any] = {
             "model": self._model,
@@ -683,6 +729,16 @@ class OpenAIJsonProvider:
         # Same capability contract as the interview provider (F5),
         # minus the tools-specific reasoning pin.
         _apply_model_contract(payload, self._model, temperature=temperature, with_tools=False)
+        # LangSmith trace for this call (eval pipeline, 2026-11-04):
+        # no-op unless the environment opted in; fail-open by contract.
+        from app.core.tracing import LLMTrace
+
+        trace = LLMTrace(
+            name="json-completion",
+            agent=agent,
+            model=self._model,
+            inputs={"messages": payload["messages"]},
+        )
         try:
             response = get_http_client().post(
                 "https://api.openai.com/v1/chat/completions",
@@ -693,6 +749,7 @@ class OpenAIJsonProvider:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("OpenAI JSON completion request failed: %s", exc)
+            trace.finish(error=exc)
             raise ProviderError() from exc
         data = response.json()
         usage: dict[str, int] = {}
@@ -709,6 +766,9 @@ class OpenAIJsonProvider:
             content = message.get("content") or "{}"
         except (AttributeError, TypeError, IndexError):
             content = "{}"
+        trace.set_outputs(content=str(content))
+        trace.set_usage(**usage)
+        trace.finish()
         return str(content), usage
 
 

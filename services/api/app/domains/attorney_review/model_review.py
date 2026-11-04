@@ -197,6 +197,7 @@ def review_via_model(
         user_content=_user_content(snapshots, source),
         temperature=0.0,
         timeout=90.0,
+        agent="attorney-review",
     )
     logger.info(
         "attorney_review provider call latency_ms=%d",

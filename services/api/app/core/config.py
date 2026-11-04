@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     # Sentry DSN for error monitoring (PRD §4.2). Empty disables Sentry;
     # the SDK import is optional (see app.main._init_sentry).
     SENTRY_DSN: str = ""
+    # LangSmith tracing for model calls (eval pipeline, 2026-11-04; see
+    # app.core.tracing). Tracing is opt-in per environment and stays a
+    # no-op unless BOTH the flag is set and a key is present: traced
+    # payloads are the prompts and model outputs themselves, so an
+    # environment that has not explicitly decided to send them never
+    # does. Venugopal's call (2026-11-04): enabled in production too,
+    # reversible by unsetting the flag.
+    LANGSMITH_TRACING: bool = False
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_PROJECT: str = "legacyflow-tracing"
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     # Structured log level (e.g. "INFO", "DEBUG").
     LOG_LEVEL: str = "INFO"
     # Rate limiting: requests/minute per tier (see app.core.rate_limit).

@@ -71,6 +71,7 @@ def _analyze_openai(model: str, text: str, filename: str) -> dict[str, Any]:
         user_content=f"Filename: {filename}\n\nExtracted text:\n{text[:12000]}",
         temperature=0.1,
         timeout=90.0,
+        agent="vault-analysis",
     )
     result = _normalize(json.loads(content), filename)
     # Provenance (F3): model output must never be indistinguishable

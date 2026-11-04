@@ -436,6 +436,7 @@ def _kill_provider(monkeypatch):
             user_content: str,
             temperature: float,
             timeout: float = 90.0,
+            agent: str = "json-completion",
         ) -> tuple[str, dict[str, int]]:
             raise ProviderError(
                 "429 insufficient_quota: You have no credits remaining (simulated)"

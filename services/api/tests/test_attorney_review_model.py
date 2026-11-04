@@ -42,7 +42,7 @@ class _StubProvider:
     def __init__(self, payload: object) -> None:
         self._payload = payload
 
-    def complete_json(self, *, system_prompt, user_content, temperature, timeout):
+    def complete_json(self, *, system_prompt, user_content, temperature, timeout, agent="json-completion"):
         content = self._payload if isinstance(self._payload, str) else json.dumps(self._payload)
         return content, {"prompt_tokens": 11, "completion_tokens": 7}
 

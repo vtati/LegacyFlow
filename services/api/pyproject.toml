@@ -29,6 +29,10 @@ dependencies = [
     # app.main only initializes Sentry when SENTRY_DSN is set and the
     # import succeeds.
     "sentry-sdk>=2.0",
+    # Eval pipeline (2026-11-04): LangSmith tracing for model calls.
+    # Optional at runtime — app.core.tracing only imports it when
+    # LANGSMITH_TRACING is set and a key is present.
+    "langsmith>=0.14",
     # Worker client for the admin reminder-dispatch trigger
     # (POST /v1/admin/reminders/dispatch enqueues the worker's
     # send_due_reminders actor on the shared REDIS_URL broker).

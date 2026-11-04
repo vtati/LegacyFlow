@@ -180,6 +180,7 @@ def _review_via_openai(
         user_content="VERIFIED FACTS:\n" + fact_lines,
         temperature=0.0,
         timeout=90.0,
+        agent="consistency-review",
     )
     logger.info("consistency provider call latency_ms=%d", int((time.monotonic() - started) * 1000))
     try:
