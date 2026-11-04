@@ -139,6 +139,49 @@ def leg_stt(case: dict, model: str) -> str:
 # accounted on the proposal stream in the harness's own terms and
 # passed to the scorer as wrong_source_events.
 
+
+def _httpx_client() -> Any:
+    """httpx client for runner traffic. Two sandbox-egress adaptations:
+    trust_env=False + an explicit proxy (sandbox NO_PROXY lists carry
+    bracketed IPv6 entries that crash httpx's env parsing), and TLS
+    verification against the SYSTEM CA bundle via a default SSL
+    context — the egress proxy TLS-intercepts with a CA the system
+    trusts but httpx's bundled certifi store does not."""
+    import ssl
+
+    import httpx
+
+    proxy = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
+    return httpx.Client(trust_env=False, proxy=proxy, timeout=180.0,
+                        verify=ssl.create_default_context())
+
+
+def _http(method: str, url: str, token: str | None, body: dict | None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    with _httpx_client() as client:
+        resp = client.request(method, url, headers=headers, json=body)
+    try:
+        return resp.status_code, resp.json()
+    except Exception:
+        return resp.status_code, {}
+
+
+def _api_token(api_base: str) -> str:
+    supa = os.environ.get("SUPABASE_URL", "https://nlrxlpjkrmvubvsfepjs.supabase.co")
+    anon = os.environ["SUPABASE_ANON_KEY"]
+    email = os.environ.get("EVAL_ACCOUNT_EMAIL", "test.recording@legacyflow.app")
+    password = os.environ["EVAL_ACCOUNT_PASSWORD"]
+    with _httpx_client() as client:
+        resp = client.post(
+            f"{supa}/auth/v1/token?grant_type=password",
+            headers={"apikey": anon, "Content-Type": "application/json"},
+            json={"email": email, "password": password})
+    return resp.json()["access_token"]
+
+
 _PERSON_KEYS = {
     "primary_guardian_person", "backup_guardian_person",
     "primary_executor_person", "backup_executor_person",
@@ -266,6 +309,31 @@ def _asked_keys_for(reply: str) -> set[str]:
     return keys
 
 
+def _gap_ridealong(reply: str, gap_answers: list[dict], answered: dict,
+                   used: set[str]) -> tuple[str, list[str]]:
+    """Direct answers to the interviewer's appended gap questions.
+
+    The v2 interviewer appends outstanding REQUIRED questions to
+    replies about other topics ("Also, from earlier: What is your
+    spouse or partner's name?"). A real user answers those inline;
+    persona paragraphs never do (baseline finding F-1, 2026-11-04).
+    Cases may declare gap_answers — {key, detect (regex on the
+    reply), answer} — and the runner rides the answer along with its
+    next message, like the bundle ride-along. Returns (suffix, keys).
+    """
+    texts: list[str] = []
+    keys: list[str] = []
+    for ga in gap_answers or []:
+        key = ga.get("key")
+        if not key or key in used or key in answered:
+            continue
+        if re.search(ga.get("detect", ""), reply, re.IGNORECASE):
+            texts.append(ga["answer"])
+            keys.append(key)
+            used.add(key)
+    return ("\n\nAlso: " + " ".join(texts)) if texts else "", keys
+
+
 def _first_household_id(payload: Any) -> str | None:
     """Households endpoint returns a bare list (verified live); tolerate
     the wrapped shapes too."""
@@ -320,6 +388,7 @@ def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
         sid = session["id"]
         provided: set[str] = set()
         sent_paras: set[int] = set()
+        gap_used: set[str] = set()
         asked_before: set[str] = set()
         repeated_events = 0
         wrong_source_events = 0
@@ -402,6 +471,10 @@ def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
                 stall = 0
                 last_progress = answered_req
 
+            gap_text, gap_keys = _gap_ridealong(
+                reply, case["input"].get("gap_answers") or [],
+                now_answers, gap_used)
+
             # choose the next user message
             if _BUNDLE_QUESTION_RE.search(reply):
                 for key, val in facts.items():
@@ -422,6 +495,10 @@ def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
                         current_keys = list(p["keys"])
                         message += "\n\nAlso: " + p["text"]
                         break
+                if gap_text:
+                    message += gap_text
+                    current_keys = list(current_keys) + gap_keys
+                    provided |= set(gap_keys)
                 continue
             nxt = None
             for i, p in enumerate(paragraphs):
@@ -440,11 +517,22 @@ def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
                         nxt = i
                         break
             if nxt is None or stall >= 5:
+                if nxt is None and gap_text and stall < 5:
+                    # No paragraph left, but a gap question is
+                    # outstanding: answer it directly, like a user.
+                    current_keys = list(gap_keys)
+                    provided |= set(gap_keys)
+                    message = gap_text.strip()
+                    continue
                 break
             sent_paras.add(nxt)
             provided |= set(paragraphs[nxt]["keys"])
             current_keys = list(paragraphs[nxt]["keys"])
             message = paragraphs[nxt]["text"]
+            if gap_text:
+                message += gap_text
+                current_keys = list(current_keys) + gap_keys
+                provided |= set(gap_keys)
 
         final_answers = answers_now()
         profile = {}
