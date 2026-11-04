@@ -209,3 +209,14 @@ def test_scorecard_summary_and_html():
     page = render_html(s, "2026-11-04")
     assert "Consistency Reviewer" in page and "con-004" in page
     assert "50%" in page and "Vault Analyst" in page
+
+
+def test_first_household_id_shapes():
+    from evals.run_evals import _first_household_id
+
+    assert _first_household_id([{"id": "a"}, {"id": "b"}]) == "a"
+    assert _first_household_id({"households": [{"id": "c"}]}) == "c"
+    assert _first_household_id({"items": [{"id": "d"}]}) == "d"
+    assert _first_household_id([]) is None
+    assert _first_household_id({}) is None
+    assert _first_household_id([{"name": "no id"}]) is None

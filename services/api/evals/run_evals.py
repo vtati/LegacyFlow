@@ -162,13 +162,22 @@ def _api_token(api_base: str) -> str:
     return resp.json()["access_token"]
 
 
+def _first_household_id(payload: Any) -> str | None:
+    """Households endpoint returns a bare list (verified live); tolerate
+    the wrapped shapes too."""
+    rows = payload
+    if isinstance(payload, dict):
+        rows = payload.get("households") or payload.get("items") or []
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        return rows[0].get("id")
+    return None
+
+
 def leg_e2e(case: dict, api_base: str, keep_matter: bool) -> dict:
     token = _api_token(api_base)
     _c, households = _http("GET", f"{api_base}/v1/households", token, None)
-    hh = (households.get("households") or households.get("items") or [{}])
     household_id = os.environ.get(
-        "EVAL_HOUSEHOLD_ID",
-        hh[0].get("id") if hh and isinstance(hh[0], dict) else None)
+        "EVAL_HOUSEHOLD_ID") or _first_household_id(households)
     _c, matter = _http("POST", f"{api_base}/v1/matters", token, {
         "jurisdiction_code": "US-VA",
         "title": f"[EVAL] {case['id']} {case['input']['persona']}",

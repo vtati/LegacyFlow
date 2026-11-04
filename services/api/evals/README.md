@@ -123,8 +123,7 @@ OPENAI_API_KEY=... .venv/bin/python -m evals.run_evals \
   and transcribes with the production Whisper provider.
 - `--suite conversations-e2e` runs against the live API with the
   recording test account: set `EVAL_ACCOUNT_PASSWORD`,
-  `SUPABASE_ANON_KEY`, and `EVAL_HOUSEHOLD_ID` (the demo recording
-  household). Throwaway matters are deleted afterwards unless
+  `SUPABASE_ANON_KEY`, and `EVAL_HOUSEHOLD_ID=05ae3b30-ea55-4027-b118-4833e80d1c83` (the canonical Sharma recording household). Throwaway matters are deleted afterwards unless
   `--keep-matters` is passed.
 - `--suite attorney-review` is intentionally not wired here: it needs a
   frozen packet + snapshot mutation (Oct 27 `verify_seeded.py`
