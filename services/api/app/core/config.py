@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,24 @@ class Settings(BaseSettings):
     # in. Default False (F6, 2026-10-26): the previous default-true
     # posture let unreviewed sample content ground answers silently.
     AI_ALLOW_SAMPLE_CONTENT: bool = False
+    # Ask retrieval mode: "lexical" (doc-level term frequency, the
+    # original path) or "hybrid" (chunk-level lexical + embeddings from
+    # the knowledge_chunks pgvector table, RRF fusion). Hybrid falls back
+    # to lexical on any failure or when the pack is not indexed, so
+    # flipping the mode can never break Ask. Default lexical until the
+    # retrieval golden suite passes (RAG program, 2026-11-06).
+    AI_RETRIEVAL_MODE: str = "lexical"
+    AI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    @field_validator("AI_RETRIEVAL_MODE")
+    @classmethod
+    def _validate_retrieval_mode(cls, value: str) -> str:
+        mode = (value or "lexical").strip().lower()
+        if mode not in {"lexical", "hybrid"}:
+            raise ValueError(
+                f"AI_RETRIEVAL_MODE must be 'lexical' or 'hybrid', got {value!r}"
+            )
+        return mode
     # Fernet key (base64, 32 bytes) for interview turn-body encryption (ADR-002).
     # Unset fails closed: the interviewer refuses to start a session rather
     # than store plaintext. Never expose to browser code.

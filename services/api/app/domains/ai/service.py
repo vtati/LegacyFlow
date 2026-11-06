@@ -23,13 +23,16 @@ attorney review via the escalation domain.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from typing import Any
 from uuid import UUID
 
 from app.core.audit import record_audit_event
 from app.core.config import get_settings
+from app.domains.ai import knowledge_store
 from app.domains.ai import repository as repo
+from app.domains.ai.retrieval import OpenAIEmbedder, doc_is_sample
 from app.domains.ai.provider import (
     AIContext,
     RetrievedDocument,
@@ -39,6 +42,8 @@ from app.domains.ai.schemas import AIAnswer, AIAskRequest, Citation
 from app.domains.escalation import repository as escalation_repo
 from app.domains.legal_content.pack_loader import LoadedPack
 from app.domains.matters import service as matters_service
+
+logger = logging.getLogger(__name__)
 
 # First-N characters kept for stored summaries / audit metadata.
 SUMMARY_LIMIT = 200
@@ -158,8 +163,7 @@ def _allow_sample_content() -> bool:
 
 
 def _is_sample_doc(doc: dict[str, Any]) -> bool:
-    frontmatter = doc.get("frontmatter") or {}
-    return str(doc.get("status", "")).lower() == "sample" or bool(frontmatter.get("sample"))
+    return doc_is_sample(doc)
 
 
 def _keywords(text: str) -> list[str]:
@@ -194,6 +198,56 @@ def _retrieve(
             scored.append((score, doc))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [doc for _score, doc in scored[:limit]]
+
+
+def _retrieve_docs(
+    conn: Any,
+    question: str,
+    pack: LoadedPack,
+    pack_version: str,
+    *,
+    allow_sample: bool,
+) -> list[dict[str, Any]]:
+    """Mode-aware retrieval: hybrid when enabled, lexical otherwise.
+
+    Hybrid failure (no key, embedder error, store error) or an empty
+    result falls back to the lexical path — Ask availability never
+    depends on the vector index.
+    """
+    settings = get_settings()
+    if (settings.AI_RETRIEVAL_MODE or "").strip().lower() == "hybrid":
+        if settings.OPENAI_API_KEY:
+            docs: list[dict[str, Any]] = []
+            try:
+                embedder = OpenAIEmbedder(
+                    settings.OPENAI_API_KEY, model=settings.AI_EMBEDDING_MODEL
+                )
+                # Savepoint: a hybrid SQL error must not poison the
+                # caller's transaction (the lexical fallback and the
+                # interaction/audit writes still need it).
+                with conn.transaction():
+                    docs = knowledge_store.rank_documents(
+                        conn,
+                        pack=pack,
+                        pack_version=pack_version,
+                        question=question,
+                        embedder=embedder,
+                        embed_model=settings.AI_EMBEDDING_MODEL,
+                        allow_sample=allow_sample,
+                    )
+            except Exception:
+                logger.exception("hybrid retrieval failed; falling back to lexical")
+                docs = []
+            if docs:
+                # Merge with lexical results: a partial or stale index
+                # must never suppress a document lexical would have found.
+                lexical = _retrieve(question, pack, allow_sample=allow_sample)
+                seen = {str(d.get("content_id")) for d in docs}
+                merged = docs + [
+                    d for d in lexical if str(d.get("content_id")) not in seen
+                ]
+                return merged[:3]
+    return _retrieve(question, pack, allow_sample=allow_sample)
 
 
 def _trace_hash(question: str, pack_version: str, doc_ids: list[str]) -> str:
@@ -315,7 +369,7 @@ def ask(conn: Any, *, actor_sub: str, matter_id: UUID, payload: AIAskRequest) ->
             refused=True,
         )
 
-    docs = _retrieve(question, pack, allow_sample=_allow_sample_content())
+    docs = _retrieve_docs(conn, question, pack, version, allow_sample=_allow_sample_content())
     if not docs:
         message = _ESCALATION_MESSAGE_TEMPLATE.format(pack_id=pack.manifest.pack_id)
         trace_hash = _trace_hash(question, version, [])

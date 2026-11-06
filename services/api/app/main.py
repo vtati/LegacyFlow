@@ -92,6 +92,20 @@ def create_app() -> FastAPI:
         redoc_url=None if production else "/redoc",
     )
 
+    @application.on_event("startup")
+    def _knowledge_autosync() -> None:
+        # Maintain the knowledge_chunks embedding index in the
+        # background (RAG program, 2026-11-06). Fail-open by design:
+        # sync_all_packs never raises, and Ask falls back to lexical
+        # retrieval whenever the index is empty or unavailable.
+        import threading
+
+        from app.domains.ai.sync_knowledge import sync_all_packs
+
+        threading.Thread(
+            target=sync_all_packs, daemon=True, name="knowledge-autosync"
+        ).start()
+
     @application.middleware("http")
     async def request_id_middleware(
         request: Request, call_next: Callable[[Request], Awaitable[Any]]

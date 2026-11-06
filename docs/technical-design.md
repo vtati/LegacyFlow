@@ -464,11 +464,15 @@ still open). UI copy calls it "Automated pre-review," never legal advice. The
 flag `attorney_reviewer` is fail-closed and enabled per firm.
 
 A sixth AI surface, **Ask** (`domains/ai/service.py`), answers family questions
-grounded in pack knowledge via `GroundedTemplateProvider`: retrieval is
-keyword-based over approved pack documents, responses are composed only from
-approved excerpts, and *sample* (attorney-pending) pack content may ground an
-answer only when the deployment explicitly opts in (`AI_ALLOW_SAMPLE_CONTENT`,
-default **False** — §9.3).
+grounded in pack knowledge via `GroundedTemplateProvider`: responses are
+composed only from approved excerpts, and *sample* (attorney-pending) pack
+content may ground an answer only when the deployment explicitly opts in
+(`AI_ALLOW_SAMPLE_CONTENT`, default **False** — §9.3). Retrieval is mode-gated
+by `AI_RETRIEVAL_MODE`: `lexical` (default; doc-level term frequency over
+approved pack documents) or `hybrid` (chunk-level lexical ∪ pgvector embedding
+candidates fused with RRF over the `knowledge_chunks` table, indexed from pack
+files at startup by hash-diffed sync; any hybrid failure or empty index falls
+back to lexical, so Ask availability never depends on the vector index).
 
 ## 8. Document pipeline
 

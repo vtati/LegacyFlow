@@ -661,9 +661,13 @@ benchmark that skips persistence proves nothing about the endpoint.
 
 `domains/ai/service.py::ask` answers family questions about the process using
 the pack's approved knowledge. Retrieval is keyword-based over approved pack
-documents (top 3); `GroundedTemplateProvider` composes the answer **only** from
-approved excerpts, and citations are assembled deterministically and traced by
-hash in `ai_traces`. Notably, Ask uses **no LLM at all** — the grounded
+documents (top 3) in the default `lexical` mode; `AI_RETRIEVAL_MODE=hybrid`
+switches to chunk-level hybrid retrieval (lexical ∪ embedding candidates,
+RRF fusion, `domains/ai/retrieval.py` + `knowledge_store.py` over the
+pgvector `knowledge_chunks` table) with automatic lexical fallback on any
+failure or empty index. Either way, `GroundedTemplateProvider` composes the
+answer **only** from approved excerpts, and citations are assembled
+deterministically and traced by hash in `ai_traces`. Notably, Ask uses **no LLM at all** — the grounded
 template provider is the deliberate design (F4), not a fallback. If the
 question requests legal advice, Ask refuses and opens an escalation for the
 attorney instead (`_ensure_open_escalation`) — the same classification the
