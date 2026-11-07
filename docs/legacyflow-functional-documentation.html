@@ -294,7 +294,7 @@
   <div class="card feat"><h4><span class="n">21</span>"Guided answers" — ask the plan a question</h4>
     <span class="who">Families</span><span class="who firm">Firms</span>
     <p>Both the family dashboard and the firm's matter view include an assistant panel: ask a plain question ("What is a healthcare agent?") and get an answer assembled from your state's approved educational content, <b>with citations</b> to the exact passages used. Questions that ask for legal advice or strategy are refused with a suggestion to ask your attorney — and the request is passed to the attorney as an escalation so nothing falls through the cracks. Questions no approved content covers are escalated the same way.</p>
-    <div class="behind"><b>Behind the scenes:</b> answers are built only from your plan's own content pack, from passages marked approved. Material still awaiting attorney approval ("sample" content) is excluded unless a deployment explicitly opts in — the assistant would rather escalate than improvise.</div>
+    <div class="behind"><b>Behind the scenes:</b> answers are built only from your plan's own content pack, from passages marked approved. Material still awaiting attorney approval ("sample" content) is excluded unless a deployment explicitly opts in — the assistant would rather escalate than improvise. Since November 2026 the passage search is hybrid: it matches by meaning as well as by exact words (chunk-level keyword + embedding retrieval over a pgvector index, chosen over the old keyword-only search on a measured golden question set — top-1 accuracy 0.77 vs 0.53), so a question phrased in everyday language finds the right guide even when it shares no words with it.</div>
   </div>
 </section>
 

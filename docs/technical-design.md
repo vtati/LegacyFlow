@@ -468,11 +468,19 @@ grounded in pack knowledge via `GroundedTemplateProvider`: responses are
 composed only from approved excerpts, and *sample* (attorney-pending) pack
 content may ground an answer only when the deployment explicitly opts in
 (`AI_ALLOW_SAMPLE_CONTENT`, default **False** — §9.3). Retrieval is mode-gated
-by `AI_RETRIEVAL_MODE`: `lexical` (default; doc-level term frequency over
-approved pack documents) or `hybrid` (chunk-level lexical ∪ pgvector embedding
+by `AI_RETRIEVAL_MODE`: `lexical` (doc-level term frequency over approved
+pack documents) or `hybrid` (chunk-level lexical ∪ pgvector embedding
 candidates fused with RRF over the `knowledge_chunks` table, indexed from pack
-files at startup by hash-diffed sync; any hybrid failure or empty index falls
-back to lexical, so Ask availability never depends on the vector index).
+files at startup by fingerprint-diffed two-phase sync; any hybrid failure or
+empty index falls back to lexical, and hybrid results merge with lexical
+results so a partial index can never suppress a lexical match — Ask
+availability never depends on the vector index). **Production runs `hybrid`
+since 2026-11-06**, enabled on the strength of the retrieval golden suite
+(18 cases, `services/api/evals/golden/retrieval.jsonl`): hybrid scored
+top-1 accuracy 0.765 / recall@3 0.941 against lexical's 0.529 / 0.706 with
+real `text-embedding-3-small` embeddings. The Virginia v2 knowledge library
+holds 15 educational documents (1 attorney-approved, 14 sample pending
+attorney approval); only approved content grounds production answers.
 
 ## 8. Document pipeline
 

@@ -660,12 +660,27 @@ benchmark that skips persistence proves nothing about the endpoint.
 ### 9.4 Ask (grounded Q&A)
 
 `domains/ai/service.py::ask` answers family questions about the process using
-the pack's approved knowledge. Retrieval is keyword-based over approved pack
-documents (top 3) in the default `lexical` mode; `AI_RETRIEVAL_MODE=hybrid`
-switches to chunk-level hybrid retrieval (lexical ∪ embedding candidates,
-RRF fusion, `domains/ai/retrieval.py` + `knowledge_store.py` over the
+the pack's approved knowledge. Retrieval is mode-gated by
+`AI_RETRIEVAL_MODE`. The original `lexical` mode is keyword-based over
+approved pack documents (top 3, doc-level term frequency). The `hybrid`
+mode — **production since 2026-11-06** — retrieves at chunk level
+(lexical ∪ embedding candidates, RRF fusion with a cosine-similarity
+bonus, `domains/ai/retrieval.py` + `knowledge_store.py` over the
 pgvector `knowledge_chunks` table) with automatic lexical fallback on any
-failure or empty index. Either way, `GroundedTemplateProvider` composes the
+failure or empty index, lexical merging on partial indexes, and answers
+excerpted from the matched chunk rather than the document's opening.
+The mode was flipped on measured evidence, not preference: the retrieval
+golden suite (18 paraphrase/synonym/scenario cases,
+`services/api/evals/golden/retrieval.jsonl`, runner
+`services/api/evals/retrieval_eval.py`) scored hybrid at top-1 0.765 /
+recall@3 0.941 vs lexical's 0.529 / 0.706. The suite also exposed a
+structural lexical defect: "will" sits on the gateway stopword list (as
+the modal verb), so *"What does a will do?"* reduced to zero query terms
+and retrieved nothing; hybrid ranks the will guide first. Known limits,
+recorded with the run: one guardians paraphrase (ret-002) still misses
+in both modes, and neither mode provides retrieval-level fail-closed —
+out-of-scope questions are handled at the answer layer below, by design.
+Either way, `GroundedTemplateProvider` composes the
 answer **only** from approved excerpts, and citations are assembled
 deterministically and traced by hash in `ai_traces`. Notably, Ask uses **no LLM at all** — the grounded
 template provider is the deliberate design (F4), not a fallback. If the
