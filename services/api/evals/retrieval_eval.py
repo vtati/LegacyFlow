@@ -14,19 +14,25 @@ means success = empty result).
 
 Usage:
     python -m evals.retrieval_eval --embedder fake   # mechanics smoke only
+    python -m evals.retrieval_eval --embedder vault  # real comparison via
+        the custom.openai-api connector (surrogate credential exchange —
+        no raw key ever enters this process's environment)
     python -m evals.retrieval_eval --embedder openai # real comparison;
         needs OPENAI_API_KEY in the environment (run server-side).
 
 The fake embedder has NO semantic quality (hashing); never quote its
-hybrid numbers as evidence. The openai run is the decision-grade one.
+hybrid numbers as evidence. The vault/openai runs are decision-grade.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +48,48 @@ from app.domains.ai.retrieval import (  # noqa: E402
 from app.domains.legal_content.pack_loader import get_pack  # noqa: E402
 
 CASES_PATH = Path(__file__).parent / "golden" / "retrieval.jsonl"
+
+VAULT_CLIENT = Path(
+    "~/workspace/custom-connectors/custom.openai-api/bin/client.py"
+).expanduser()
+
+
+class VaultEmbedder:
+    """Embeds through the custom.openai-api connector CLI.
+
+    The connector exchanges a surrogate for the real credential at
+    request time; this process only ever sees vectors, never a key.
+    """
+
+    model = "text-embedding-3-small"
+
+    def __init__(self) -> None:
+        self._cache: dict[str, list[float]] = {}
+
+    def embed(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if digest in self._cache:
+            return self._cache[digest]
+        payload = {"model": self.model, "input": text}
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False
+        ) as handle:
+            json.dump(payload, handle)
+            payload_path = handle.name
+        try:
+            proc = subprocess.run(
+                ["python3", str(VAULT_CLIENT), "embeddings", "--file", payload_path],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        finally:
+            os.unlink(payload_path)
+        if proc.returncode != 0:
+            raise RuntimeError(f"vault embeddings call failed: {proc.stderr[:400]}")
+        vector = json.loads(proc.stdout)["data"][0]["embedding"]
+        self._cache[digest] = vector
+        return vector
 
 
 def load_cases() -> list[dict[str, Any]]:
@@ -83,7 +131,9 @@ def score_cases(cases: list[dict[str, Any]], ranker) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--embedder", choices=["fake", "openai"], default="fake")
+    parser.add_argument(
+        "--embedder", choices=["fake", "openai", "vault"], default="fake"
+    )
     parser.add_argument("--out", default=None, help="write JSON results to this path")
     args = parser.parse_args(argv)
 
@@ -104,11 +154,16 @@ def main(argv: list[str] | None = None) -> int:
             print("OPENAI_API_KEY not set; cannot run the openai embedder.")
             return 1
         embedder: Any = OpenAIEmbedder(key)
+    elif args.embedder == "vault":
+        embedder = VaultEmbedder()
     else:
         embedder = FakeEmbedder(dim=256)
 
+    # Embed the corpus once; each question then costs one embed call.
+    chunk_vectors = {chunk.key: embedder.embed(chunk.text) for chunk in chunks}
+
     def hybrid_ranker(question: str) -> list[str]:
-        ranked = hybrid_rank(question, chunks, embedder)
+        ranked = hybrid_rank(question, chunks, embedder, chunk_vectors=chunk_vectors)
         seen: list[str] = []
         for chunk in ranked:
             if chunk.content_id not in seen:

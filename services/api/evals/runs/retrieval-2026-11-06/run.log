@@ -1,0 +1,695 @@
+{
+  "embedder": "vault",
+  "lexical": {
+    "cases": 17,
+    "top1": 0.5294117647058824,
+    "recall@3": 0.7058823529411765,
+    "fail_closed": "0/1",
+    "per_case": [
+      {
+        "id": "ret-001",
+        "top1": false,
+        "recall3": false,
+        "ranked": []
+      },
+      {
+        "id": "ret-002",
+        "top1": false,
+        "recall3": false,
+        "ranked": [
+          "updating-your-plan-v1",
+          "digital-assets-basics-v1",
+          "probate-basics-va-v1"
+        ]
+      },
+      {
+        "id": "ret-003",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "advance-directive-basics-v1",
+          "financial-poa-basics-v1",
+          "special-needs-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-004",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "revocable-trust-basics-v1",
+          "trust-funding-basics-v1",
+          "pour-over-will-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-005",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "probate-basics-va-v1",
+          "financial-poa-basics-v1",
+          "intestacy-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-006",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "intestacy-basics-v1",
+          "beneficiaries-basics-v1",
+          "financial-poa-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-007",
+        "top1": false,
+        "recall3": false,
+        "ranked": [
+          "digital-assets-basics-v1",
+          "beneficiaries-basics-v1",
+          "executor-trustee-roles-v1"
+        ]
+      },
+      {
+        "id": "ret-008",
+        "top1": false,
+        "recall3": false,
+        "ranked": [
+          "revocable-trust-basics-v1",
+          "pour-over-will-basics-v1",
+          "trust-funding-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-009",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "beneficiaries-basics-v1",
+          "advance-directive-basics-v1",
+          "financial-poa-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-010",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "special-needs-basics-v1",
+          "updating-your-plan-v1",
+          "pour-over-will-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-011",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "intestacy-basics-v1",
+          "special-needs-basics-v1",
+          "beneficiaries-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-012",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "revocable-trust-basics-v1",
+          "intestacy-basics-v1",
+          "digital-assets-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-013",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "pour-over-will-basics-v1",
+          "financial-poa-basics-v1",
+          "advance-directive-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-014",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "will-validity-basics-v1",
+          "probate-basics-va-v1",
+          "financial-poa-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-015",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "revocable-trust-basics-v1",
+          "trust-funding-basics-v1",
+          "pour-over-will-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-016",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "revocable-trust-basics-v1",
+          "trust-funding-basics-v1",
+          "pour-over-will-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-018",
+        "top1": false,
+        "recall3": false,
+        "ranked": [
+          "advance-directive-basics-v1",
+          "intestacy-basics-v1",
+          "updating-your-plan-v1"
+        ]
+      }
+    ]
+  },
+  "hybrid": {
+    "cases": 17,
+    "top1": 0.7647058823529411,
+    "recall@3": 0.9411764705882353,
+    "fail_closed": "0/1",
+    "per_case": [
+      {
+        "id": "ret-001",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "will-basics-v1",
+          "pour-over-will-basics-v1",
+          "intestacy-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-002",
+        "top1": false,
+        "recall3": false,
+        "ranked": [
+          "digital-assets-basics-v1",
+          "executor-trustee-roles-v1",
+          "updating-your-plan-v1"
+        ]
+      },
+      {
+        "id": "ret-003",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "advance-directive-basics-v1",
+          "financial-poa-basics-v1",
+          "special-needs-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-004",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "trust-funding-basics-v1",
+          "revocable-trust-basics-v1",
+          "executor-trustee-roles-v1"
+        ]
+      },
+      {
+        "id": "ret-005",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "probate-basics-va-v1",
+          "intestacy-basics-v1",
+          "financial-poa-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-006",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "intestacy-basics-v1",
+          "digital-assets-basics-v1",
+          "will-validity-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-007",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "digital-assets-basics-v1",
+          "financial-poa-basics-v1",
+          "executor-trustee-roles-v1"
+        ]
+      },
+      {
+        "id": "ret-008",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "executor-trustee-roles-v1",
+          "revocable-trust-basics-v1",
+          "trust-funding-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-009",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "beneficiaries-basics-v1",
+          "digital-assets-basics-v1",
+          "intestacy-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-010",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "updating-your-plan-v1",
+          "pour-over-will-basics-v1",
+          "special-needs-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-011",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "special-needs-basics-v1",
+          "intestacy-basics-v1",
+          "digital-assets-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-012",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "digital-assets-basics-v1",
+          "intestacy-basics-v1",
+          "will-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-013",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "pour-over-will-basics-v1",
+          "financial-poa-basics-v1",
+          "advance-directive-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-014",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "will-validity-basics-v1",
+          "probate-basics-va-v1",
+          "intestacy-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-015",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "pour-over-will-basics-v1",
+          "revocable-trust-basics-v1",
+          "trust-funding-basics-v1"
+        ]
+      },
+      {
+        "id": "ret-016",
+        "top1": false,
+        "recall3": true,
+        "ranked": [
+          "trust-funding-basics-v1",
+          "revocable-trust-basics-v1",
+          "executor-trustee-roles-v1"
+        ]
+      },
+      {
+        "id": "ret-018",
+        "top1": true,
+        "recall3": true,
+        "ranked": [
+          "guardian-basics-v1",
+          "intestacy-basics-v1",
+          "executor-trustee-roles-v1"
+        ]
+      }
+    ]
+  }
+}
+lexical per-case: [
+  {
+    "id": "ret-001",
+    "top1": false,
+    "recall3": false,
+    "ranked": []
+  },
+  {
+    "id": "ret-002",
+    "top1": false,
+    "recall3": false,
+    "ranked": [
+      "updating-your-plan-v1",
+      "digital-assets-basics-v1",
+      "probate-basics-va-v1"
+    ]
+  },
+  {
+    "id": "ret-003",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "advance-directive-basics-v1",
+      "financial-poa-basics-v1",
+      "special-needs-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-004",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "revocable-trust-basics-v1",
+      "trust-funding-basics-v1",
+      "pour-over-will-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-005",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "probate-basics-va-v1",
+      "financial-poa-basics-v1",
+      "intestacy-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-006",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "intestacy-basics-v1",
+      "beneficiaries-basics-v1",
+      "financial-poa-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-007",
+    "top1": false,
+    "recall3": false,
+    "ranked": [
+      "digital-assets-basics-v1",
+      "beneficiaries-basics-v1",
+      "executor-trustee-roles-v1"
+    ]
+  },
+  {
+    "id": "ret-008",
+    "top1": false,
+    "recall3": false,
+    "ranked": [
+      "revocable-trust-basics-v1",
+      "pour-over-will-basics-v1",
+      "trust-funding-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-009",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "beneficiaries-basics-v1",
+      "advance-directive-basics-v1",
+      "financial-poa-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-010",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "special-needs-basics-v1",
+      "updating-your-plan-v1",
+      "pour-over-will-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-011",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "intestacy-basics-v1",
+      "special-needs-basics-v1",
+      "beneficiaries-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-012",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "revocable-trust-basics-v1",
+      "intestacy-basics-v1",
+      "digital-assets-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-013",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "pour-over-will-basics-v1",
+      "financial-poa-basics-v1",
+      "advance-directive-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-014",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "will-validity-basics-v1",
+      "probate-basics-va-v1",
+      "financial-poa-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-015",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "revocable-trust-basics-v1",
+      "trust-funding-basics-v1",
+      "pour-over-will-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-016",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "revocable-trust-basics-v1",
+      "trust-funding-basics-v1",
+      "pour-over-will-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-018",
+    "top1": false,
+    "recall3": false,
+    "ranked": [
+      "advance-directive-basics-v1",
+      "intestacy-basics-v1",
+      "updating-your-plan-v1"
+    ]
+  }
+]
+hybrid per-case: [
+  {
+    "id": "ret-001",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "will-basics-v1",
+      "pour-over-will-basics-v1",
+      "intestacy-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-002",
+    "top1": false,
+    "recall3": false,
+    "ranked": [
+      "digital-assets-basics-v1",
+      "executor-trustee-roles-v1",
+      "updating-your-plan-v1"
+    ]
+  },
+  {
+    "id": "ret-003",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "advance-directive-basics-v1",
+      "financial-poa-basics-v1",
+      "special-needs-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-004",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "trust-funding-basics-v1",
+      "revocable-trust-basics-v1",
+      "executor-trustee-roles-v1"
+    ]
+  },
+  {
+    "id": "ret-005",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "probate-basics-va-v1",
+      "intestacy-basics-v1",
+      "financial-poa-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-006",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "intestacy-basics-v1",
+      "digital-assets-basics-v1",
+      "will-validity-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-007",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "digital-assets-basics-v1",
+      "financial-poa-basics-v1",
+      "executor-trustee-roles-v1"
+    ]
+  },
+  {
+    "id": "ret-008",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "executor-trustee-roles-v1",
+      "revocable-trust-basics-v1",
+      "trust-funding-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-009",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "beneficiaries-basics-v1",
+      "digital-assets-basics-v1",
+      "intestacy-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-010",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "updating-your-plan-v1",
+      "pour-over-will-basics-v1",
+      "special-needs-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-011",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "special-needs-basics-v1",
+      "intestacy-basics-v1",
+      "digital-assets-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-012",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "digital-assets-basics-v1",
+      "intestacy-basics-v1",
+      "will-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-013",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "pour-over-will-basics-v1",
+      "financial-poa-basics-v1",
+      "advance-directive-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-014",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "will-validity-basics-v1",
+      "probate-basics-va-v1",
+      "intestacy-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-015",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "pour-over-will-basics-v1",
+      "revocable-trust-basics-v1",
+      "trust-funding-basics-v1"
+    ]
+  },
+  {
+    "id": "ret-016",
+    "top1": false,
+    "recall3": true,
+    "ranked": [
+      "trust-funding-basics-v1",
+      "revocable-trust-basics-v1",
+      "executor-trustee-roles-v1"
+    ]
+  },
+  {
+    "id": "ret-018",
+    "top1": true,
+    "recall3": true,
+    "ranked": [
+      "guardian-basics-v1",
+      "intestacy-basics-v1",
+      "executor-trustee-roles-v1"
+    ]
+  }
+]
